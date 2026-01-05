@@ -34,11 +34,11 @@ export function InstancedLabelsEZ({
         rotation: item.rotation,
         rotationAlignment: 0,
         color: "#000000",
-        haloColor: "#ff9e9e",
-        haloWidth: halo ? 1000000 : 0,
-        haloBlur: halo ? 20 : 0,
+        haloColor: Math.random() < 0.5 ? "#ffcccc" : "#cce5ff",
+        haloWidth: halo ? 1 : 0,
+        haloBlur: halo ? 10000 : 0,
         font: (() => viewportPredicate(item) ? "Arial" : "Times New Roman")(),
-        fontSize: fontSize,
+        fontSize: 200,
         maxWidth: 5,
         textAlign: "justify",
         lineHeight: 1,
@@ -51,3 +51,4 @@ export function InstancedLabelsEZ({
 
   return <InstancedLabelsComponent manager={manager} />;
 }
+  

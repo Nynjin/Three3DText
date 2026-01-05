@@ -18,23 +18,29 @@ void main() {
   vec2 atlasUV = mix(vUvRect.xy, vUvRect.zw, vUv);
 
   float sdf = texture2D(uAtlas, atlasUV).r;
+  float fw = fwidth(sdf);
 
-  // Signed distance in SDF units
-  float sd = (sdf - uCutoff) * uRadius;
+  // Signed distance from glyph edge in SDF units
+  float signedDist = sdf - uCutoff;
 
-  // Convert to pixel distance (negative = outside glyph, positive = inside)
-  float edgePx = sd / fwidth(sd);
+  // Distance from glyph edge in SDF units (positive = outside glyph)
+  float d = max(-signedDist, 0.0);
 
-  // Calculate distance from glyph edge (positive = farther from edge)
-  float distFromEdge = max(-edgePx, 0.0);
-  
-  // Total halo band width
-  float inner = vHaloWidth;
-  float outer = vHaloWidth + vHaloBlur;
+  // Scale halo width and blur to SDF units
+  float haloWidthSDF = vHaloWidth * fw;
+  float haloBlurSDF = vHaloBlur * fw;
 
-  // Smooth alpha based on distance from edge
-  float alpha = 1.0 - smoothstep(inner, outer, distFromEdge);
-  alpha = clamp(alpha, 0.0, 1.0);
+  // Ensure minimum blur
+  float effectiveBlur = max(haloBlurSDF, fw);
+
+  // Calculate halo alpha with a Gaussian falloff
+  float t = max(d - haloWidthSDF, 0.0) / max(effectiveBlur, 1e-5);
+  float alpha = exp(-50.0 * t * t);
+
+  // Discard low alpha to limit artefacts
+  if (alpha <= 0.25) {
+    discard;
+  }
 
   gl_FragColor = vec4(vHaloColor.rgb, alpha * vHaloOpacity);
 }

@@ -26,7 +26,7 @@ export default function textAlign(label: Label, line: Line, contentMaxWidth: num
         if (line.idx === line.count - 1 || contentMaxWidth === 0) {
           alignOffsetX = 0; // Last line stays left-aligned
         } else {
-          // Count spaces (word gaps) in the line
+          // Count spaces in the line
           const spaceCount = line.text.split(" ").length - 1;
           if (spaceCount > 0) {
             // Distribute extra space evenly across word gaps

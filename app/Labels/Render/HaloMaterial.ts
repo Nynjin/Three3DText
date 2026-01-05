@@ -1,11 +1,11 @@
-import { ShaderMaterial, FrontSide } from "three";
-import { LABEL_VERT } from "./Shaders/Label.vert.glsl";
+import { ShaderMaterial } from "three";
+import { GLYPH_VERT } from "./Shaders/Glyph.vert.glsl";
 import { HALO_FRAG } from "./Shaders/Halo.frag.glsl";
 import { SDFAtlas } from "../Font/SDFAtlas";
 
 export function createHaloMaterial(atlas: SDFAtlas): ShaderMaterial {
     const material = new ShaderMaterial({
-        vertexShader: LABEL_VERT,
+        vertexShader: GLYPH_VERT,
         fragmentShader: HALO_FRAG,
         uniforms: {
             uAtlas: { value: atlas.texture },
@@ -13,9 +13,15 @@ export function createHaloMaterial(atlas: SDFAtlas): ShaderMaterial {
             uRadius: { value: atlas.radius },
         },
         transparent: true,
-        depthWrite: false,
+
+        // TODO : either set to false and handle label collision or keep to true and handle glyph collision
+        depthWrite: true,
         depthTest: true,
-        side: FrontSide,
+
+        // prevent overlap with glyph fill
+        polygonOffset: true,
+        polygonOffsetFactor: 1,
+        polygonOffsetUnits: 1,
     });
 
     return material;

@@ -6,6 +6,9 @@ export interface LabelInstance {
   // world anchor
   position: Vector3;
 
+  // font
+  fontSize: number;
+
   // visual style
   color: Vector3;
   haloColor: Vector3;

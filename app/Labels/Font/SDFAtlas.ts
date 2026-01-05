@@ -23,8 +23,9 @@ export default function buildSDFAtlas(
   fontFamily: string,
   fontWeight: string
 ): SDFAtlas {
-  const buffer = 8,
-    radius = 24,
+  // ensure enough glyph space for halo and blur without artefacts
+  const buffer = fontSize / 2,
+    radius = fontSize,
     cutoff = 0.5;
   const sdf = new TinySDF({
     fontSize,

@@ -1,4 +1,4 @@
-export const LABEL_VERT = /* glsl */ `
+export const GLYPH_VERT = /* glsl */ `
 precision highp float;
 
 // Attributes
@@ -57,7 +57,7 @@ void main() {
   vHaloWidth = aHaloWidth;
   vHaloBlur = aHaloBlur;
 
-  vec3 quad = position * vec3(aSize * 100., 1.0);
+  vec3 quad = position * vec3(aSize, 1.0);
   vec3 local = vec3(aCharOffset, 0.0) + quad;
 
   switch (int(aRotationAlignment)) {

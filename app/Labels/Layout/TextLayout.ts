@@ -39,8 +39,6 @@ export default function layoutText(
   const lineHeightPx = label.fontSize * label.lineHeight;
   const totalHeight = lines.length * lineHeightPx;
 
-  // For justify, we need the actual maximum width (including overflowing words)
-  // This is maxLineWidth, but ensure we're using it, not the maxWidth setting
   const contentMaxWidth = maxLineWidth;
 
   const { anchorOffsetX, anchorOffsetY } = textAnchors(
@@ -79,11 +77,11 @@ export default function layoutText(
 
       cursor += g.advance;
 
-      // Add letter spacing (always)
+      // Add letter spacing
       if (i < line.length - 1) {
         cursor += label.letterSpacing * pxPerUnit;
 
-        // Add extra space only at word gaps (spaces)
+        // Add extra space only at word gaps
         if (char === " ") {
           cursor += extraSpacePerWordGap;
         }
@@ -96,6 +94,7 @@ export default function layoutText(
   return {
     label: {
       position: label.position,
+      fontSize: label.fontSize,
       color: new Vector3(label.color.r, label.color.g, label.color.b),
       haloColor: new Vector3(label.haloColor.r, label.haloColor.g, label.haloColor.b),
       opacity: label.opacity,
