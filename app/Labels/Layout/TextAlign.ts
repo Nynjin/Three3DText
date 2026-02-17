@@ -1,4 +1,4 @@
-import { Label } from "../Core/Label";
+import { Label, TextAlign } from "../Core/Label";
 
 interface Line {
     idx: number;
@@ -12,16 +12,16 @@ export default function textAlign(label: Label, line: Line, contentMaxWidth: num
     let extraSpacePerWordGap = 0;
 
     switch (label.textAlign) {
-      case "left":
+      case TextAlign.Left:
         alignOffsetX = 0;
         break;
-      case "center":
+      case TextAlign.Center:
         alignOffsetX = (contentMaxWidth - line.width) / 2;
         break;
-      case "right":
+      case TextAlign.Right:
         alignOffsetX = contentMaxWidth - line.width;
         break;
-      case "justify": {
+      case TextAlign.Justify: {
         // Justify all lines except the last one
         if (line.idx === line.count - 1 || contentMaxWidth === 0) {
           alignOffsetX = 0; // Last line stays left-aligned

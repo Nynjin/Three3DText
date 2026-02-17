@@ -84,11 +84,13 @@ export default function buildSDFAtlas(
   texture.minFilter = texture.magFilter = LinearFilter;
   texture.generateMipmaps = false;
 
+  canvas.remove();
+
   return {
-  texture,
-  glyphs,
-  fontSize,
-  cutoff,
-  radius,
-};
+    texture,
+    glyphs,
+    fontSize,
+    cutoff,
+    radius,
+  };
 }

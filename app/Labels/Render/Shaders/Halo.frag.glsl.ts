@@ -11,7 +11,6 @@ varying vec4 vHaloColor;
 varying float vHaloOpacity;
 varying float vHaloWidth;
 varying float vHaloBlur;
-varying float vHaloPadding;
 
 void main() {
   // Sample SDF
@@ -30,15 +29,12 @@ void main() {
   float haloWidthSDF = vHaloWidth * fw;
   float haloBlurSDF = vHaloBlur * fw;
 
-  // Ensure minimum blur
-  float effectiveBlur = max(haloBlurSDF, fw);
-
   // Calculate halo alpha with a Gaussian falloff
-  float t = max(d - haloWidthSDF, 0.0) / max(effectiveBlur, 1e-5);
-  float alpha = exp(-50.0 * t * t);
+  float t = max(d - haloWidthSDF, 0.0) / max(haloBlurSDF, 1e-5);
+  float alpha = exp(-5.0 * t * t);
 
   // Discard low alpha to limit artefacts
-  if (alpha <= 0.25) {
+  if (alpha <= 0.01) {
     discard;
   }
 

@@ -3,12 +3,13 @@ import {
   Mesh,
   Group,
 } from "three";
-import { Label } from "../Labels/Core/Label";
+import { Label, TextAlign, TextAnchorX, TextAnchorY } from "../Labels/Core/Label";
 import buildSDFAtlas, { SDFAtlas } from "../Labels/Font/SDFAtlas";
 import layoutText from "../Labels/Layout/TextLayout";
-import { buildLabelGeometry } from "../Labels/Render/LabelGeometry";
-import { createFillMaterial } from "../Labels/Render/FillMaterial";
-import { createHaloMaterial } from "../Labels/Render/HaloMaterial";
+import { buildLabelGeometry } from "../Labels/Render/Geometries/LabelGeometry";
+import { createFillMaterial } from "../Labels/Render/Materials/FillMaterial";
+import { createHaloMaterial } from "../Labels/Render/Materials/HaloMaterial";
+import type { Item } from "../Types/Item";
 
 interface GroupKey {
   font: string;
@@ -70,10 +71,9 @@ class InstancedLabelGroup {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// INSTANCED LABELS CLASS - manages multiple groups
-// ─────────────────────────────────────────────────────────────────────────────
-
+/**
+ * 
+ */
 export class InstancedLabelsManager {
   labels: Label[] = [];
   private groups = new Map<string, InstancedLabelGroup>();
@@ -153,45 +153,54 @@ export class InstancedLabelsManager {
     haloMesh.renderOrder = 0;
     fillMesh.renderOrder = 1;
 
+    haloMesh.frustumCulled = false;
+    fillMesh.frustumCulled = false;
+
     return [haloMesh, fillMesh];
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// REACT HOOK FOR EASY INTEGRATION
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function useInstancedLabels(pxPerUnit: number = 48) {
-  const manager = useMemo(
-    () => new InstancedLabelsManager(pxPerUnit),
-    [pxPerUnit]
-  );
-  const groupRef = useRef<Group>(null);
-
-  // Rebuild meshes when labels change
-  const meshes = useMemo(() => {
-    return manager.buildMeshes();
-  }, [manager]);
-
-  return {
-    manager,
-    meshes,
-    group: groupRef,
-  };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// REACT COMPONENT FOR RENDERING
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface InstancedLabelsComponentProps {
-  manager: InstancedLabelsManager;
+// REACT COMPONENT
+export interface InstancedLabelsProps {
+  items: Item[];
+  halo: boolean;
+  viewportPredicate: (item: Item) => boolean;
+  fontSize?: number;
+  pxPerUnit?: number;
 }
 
 export function InstancedLabelsComponent({
-  manager,
-}: InstancedLabelsComponentProps) {
+  items,
+  halo,
+  viewportPredicate,
+  fontSize = 20,
+  pxPerUnit = 64,
+}: InstancedLabelsProps) {
   const groupRef = useRef<Group>(null);
+
+  const manager = useMemo(() => {
+    const m = new InstancedLabelsManager(pxPerUnit);
+    items.forEach(item => {
+      m.addLabel(new Label({
+        text: item.text,
+        position: item.position,
+        rotation: item.rotation,
+        rotationAlignment: 1,
+        color: "#000000",
+        haloColor: viewportPredicate(item) ? "#ffcccc" : "#cce5ff",
+        haloWidth: halo ? 5 : 0,
+        haloBlur: halo ? 10000 : 0,
+        font: (() => viewportPredicate(item) ? "Arial" : "Times New Roman")(),
+        fontSize,
+        maxWidth: 1,
+        textAlign: TextAlign.Justify,
+        lineHeight: 1,
+        anchorX: TextAnchorX.Center,
+        anchorY: TextAnchorY.Middle,
+      }));
+    });
+    return m;
+  }, [items, viewportPredicate, halo, fontSize, pxPerUnit]);
 
   const meshes = useMemo(() => {
     return manager.buildMeshes();
@@ -199,6 +208,17 @@ export function InstancedLabelsComponent({
 
   useEffect(() => {
     if (!groupRef.current) return;
+
+    for (const child of groupRef.current.children) {
+      const mesh = child as Mesh;
+      mesh.geometry.dispose();
+      const mat = mesh.material;
+      if (Array.isArray(mat)) {
+        mat.forEach((m) => m.dispose());
+      } else {
+        mat.dispose();
+      }
+    }
 
     // Clear old children
     groupRef.current.children.length = 0;

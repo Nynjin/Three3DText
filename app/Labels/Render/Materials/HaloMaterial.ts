@@ -1,7 +1,8 @@
 import { ShaderMaterial } from "three";
-import { GLYPH_VERT } from "./Shaders/Glyph.vert.glsl";
-import { HALO_FRAG } from "./Shaders/Halo.frag.glsl";
-import { SDFAtlas } from "../Font/SDFAtlas";
+import { GLYPH_VERT } from "../Shaders/Glyph.vert.glsl";
+import { HALO_FRAG } from "../Shaders/Halo.frag.glsl";
+import { SDFAtlas } from "../../Font/SDFAtlas";
+import { MeshBasicNodeMaterial } from "three/webgpu";
 
 export function createHaloMaterial(atlas: SDFAtlas): ShaderMaterial {
     const material = new ShaderMaterial({

@@ -3,7 +3,7 @@ import {
   InstancedBufferGeometry,
   PlaneGeometry,
 } from "three";
-import { LabelInstance } from "../Layout/GlyphRun";
+import { LabelInstance } from "../../Layout/GlyphRun";
 
 export function buildLabelGeometry(
   labels: LabelInstance[],

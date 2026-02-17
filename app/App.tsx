@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import dynamic from "next/dynamic";
 import { UIKitCloud } from "./TextRenderers/UIKit";
 import { CSS3DCloud } from "./TextRenderers/CSS3DRenderer";
 import {
@@ -11,13 +10,9 @@ import {
   BatchedTroikaCloud,
   BatchedTroikaCloudOpt,
 } from "./TextRenderers/Troika";
-import { ThomasCloud } from "./TextRenderers/Thomas";
-import { InstancedLabelsEZ } from './TextRenderers/Instanced2Mesh'
+import { InstancedLabelsComponent } from './TextRenderers/InstancedLabels'
 import { makeItems } from "./Utils/MakeItems";
-
-const Perf = dynamic(() => import("r3f-perf").then((m) => m.Perf), {
-  ssr: false,
-});
+import { Perf } from "r3f-perf";
 
 function App() {
   const [mode, setMode] = useState<
@@ -25,7 +20,6 @@ function App() {
     | "troika"
     | "troika-batched"
     | "troika-batched-opt"
-    | "thomas"
     | "css3d"
     | "custom-instanced"
   >("uikit");
@@ -73,7 +67,6 @@ function App() {
             ["troika", "Troika"],
             ["troika-batched", "Batched Troika"],
             ["troika-batched-opt", "Batched Troika Opt"],
-            ["thomas", "Thomas"],
             ["css3d", "CSS3D"],
             ["custom-instanced", "Custom Instanced"],
           ] as const
@@ -151,7 +144,6 @@ function App() {
 
       <Canvas
         key={canvasKey}
-        gl={{ antialias: false }}
         dpr={1}
         camera={{ fov: 45, near: 0.1, far: 10000, position: [0, 0, 50] }}
         style={{ position: "absolute", inset: 0, background: "#505050" }}
@@ -171,15 +163,12 @@ function App() {
             items={items}
             halo={halo}
           />
-        ) : mode === "thomas" ? (
-          <ThomasCloud key="thomas" items={items} halo={halo} />
         ) : mode === "css3d" ? (
           <CSS3DCloud key="css3d" items={items} halo={halo} />
         ) : (
-            <InstancedLabelsEZ
+            <InstancedLabelsComponent
                 items={items}
                 halo={halo}
-                pxPerUnit={100}
                 viewportPredicate={(item) => item.key % 2 === 0}
             />
         )}

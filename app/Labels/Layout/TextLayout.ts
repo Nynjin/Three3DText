@@ -89,8 +89,6 @@ export default function layoutText(
     }
   }
 
-  console.log("Layouted label:", label.text, new Vector3().fromArray(label.color.toArray()));
-
   return {
     label: {
       position: label.position,

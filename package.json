@@ -11,14 +11,13 @@
   "dependencies": {
     "@mapbox/tiny-sdf": "^2.0.7",
     "@react-three/drei": "^10.7.7",
-    "@react-three/fiber": "^9.4.2",
+    "@react-three/fiber": "^9.5.0",
     "@react-three/uikit": "^1.0.60",
     "@react-three/uikit-default": "^1.0.60",
-    "next": "16.1.0",
+    "next": "^16.1.6",
     "r3f-perf": "^7.2.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "thomas": "^1.1.0",
     "three": "^0.182.0",
     "troika-three-text": "^0.52.4"
   },
@@ -29,7 +28,7 @@
     "@types/react-dom": "^19",
     "@types/three": "^0.182.0",
     "eslint": "^9",
-    "eslint-config-next": "16.1.0",
+    "eslint-config-next": "16.1.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
