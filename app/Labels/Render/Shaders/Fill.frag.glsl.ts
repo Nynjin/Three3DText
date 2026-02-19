@@ -4,29 +4,45 @@ precision highp float;
 uniform sampler2D uAtlas;
 uniform float uCutoff;
 uniform float uRadius;
+uniform highp sampler2D uLabelTex;
+uniform int uLabelTexWidth;
+uniform highp sampler2D uGlyphTex;
+uniform int uGlyphTexWidth;
 
-varying vec2 vUv;
-varying vec4 vUvRect;
-varying vec4 vColor;
-varying float vOpacity;
+in vec2 vUv;
+flat in int vLabelId;
+flat in int vGlyphId;
+
+out vec4 outColor;
+
+const int LABEL_TEXELS_C = 6;
+const int GLYPH_TEXELS_C = 3;
+
+vec4 labelFetch(int instanceId, int texel) {
+  int li = instanceId * LABEL_TEXELS_C + texel;
+  return texelFetch(uLabelTex, ivec2(li % uLabelTexWidth, li / uLabelTexWidth), 0);
+}
+
+vec4 glyphFetch(int instanceId, int texel) {
+  int li = instanceId * GLYPH_TEXELS_C + texel;
+  return texelFetch(uGlyphTex, ivec2(li % uGlyphTexWidth, li / uGlyphTexWidth), 0);
+}
 
 void main() {
-  // Sample SDF
-  vec2 atlasUV = mix(vUvRect.xy, vUvRect.zw, vUv);
-  float sdf = texture2D(
-    uAtlas,
-    atlasUV
-  ).r;
+  vec4 uvRect   = glyphFetch(vGlyphId, 2);
+  vec4 t2       = labelFetch(vLabelId, 2);
+  vec3 color   = t2.rgb;
+  float opacity = t2.a;
 
-  // Convert signed distance to pixel distance (negative = outside glyph, positive = inside)
+  // Sample SDF
+  vec2 atlasUV = mix(uvRect.xy, uvRect.zw, vUv);
+  float sdf    = texture(uAtlas, atlasUV).r;
+
+  // Convert signed distance to pixel distance
   float sdPx = (sdf - uCutoff) / fwidth(sdf);
 
-  // Fill glyph area only
-  if (sdPx >= 0.0) {
-    gl_FragColor = vec4(vColor.rgb, vOpacity);
-    return;
-  }
-
-  discard;
+  float alpha = smoothstep(-0.5, 0.5, sdPx);
+  if (alpha <= 0.0) discard;
+  outColor = vec4(color, opacity * alpha);
 }
 `;

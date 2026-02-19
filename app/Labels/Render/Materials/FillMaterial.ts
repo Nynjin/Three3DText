@@ -1,16 +1,27 @@
-import { ShaderMaterial } from "three";
+import { DataTexture, GLSL3, ShaderMaterial } from "three";
 import { GLYPH_VERT } from "../Shaders/Glyph.vert.glsl";
 import { FILL_FRAG } from "../Shaders/Fill.frag.glsl";
 import { SDFAtlas } from "../../Font/SDFAtlas";
 
-export function createFillMaterial(atlas: SDFAtlas): ShaderMaterial {
+export function createFillMaterial(
+    atlas: SDFAtlas,
+    labelTex: DataTexture,
+    glyphTex: DataTexture,
+    labelTexWidth: number,
+    glyphTexWidth: number,
+): ShaderMaterial {
     const material = new ShaderMaterial({
+        glslVersion: GLSL3,
         vertexShader: GLYPH_VERT,
         fragmentShader: FILL_FRAG,
         uniforms: {
             uAtlas: { value: atlas.texture },
             uCutoff: { value: atlas.cutoff },
             uRadius: { value: atlas.radius },
+            uLabelTex: { value: labelTex },
+            uGlyphTex: { value: glyphTex },
+            uLabelTexWidth: { value: labelTexWidth },
+            uGlyphTexWidth: { value: glyphTexWidth },
         },
         transparent: true,
         depthWrite: true,

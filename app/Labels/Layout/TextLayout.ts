@@ -1,4 +1,4 @@
-import { Quaternion, Vector2, Vector3 } from "three";
+import { Vector2 } from "three";
 import { Label } from "../Core/Label";
 import { GlyphInfo } from "../Font/SDFAtlas";
 import { GlyphInstance, LabelInstance } from "./GlyphRun";
@@ -6,18 +6,11 @@ import lineBreak from "./LineBreak";
 import textAlign from "./TextAlign";
 import textAnchors from "./TextAnchors";
 
-export interface LabelLayout {
-  label: LabelInstance;
-  width: number;
-  height: number;
-}
-
-
 export default function layoutText(
   label: Label,
   glyphs: Map<string, GlyphInfo>,
   pxPerUnit: number
-): LabelLayout {
+): LabelInstance {
   const fallback = glyphs.get("?")!;
   const chars: GlyphInstance[] = [];
 
@@ -90,21 +83,8 @@ export default function layoutText(
   }
 
   return {
-    label: {
-      position: label.position,
-      fontSize: label.fontSize,
-      color: new Vector3(label.color.r, label.color.g, label.color.b),
-      haloColor: new Vector3(label.haloColor.r, label.haloColor.g, label.haloColor.b),
-      opacity: label.opacity,
-      haloOpacity: label.haloOpacity,
-      haloWidth: label.haloWidth,
-      haloBlur: label.haloBlur,
-      rotation: new Quaternion().setFromEuler(label.rotation),
-      rotationAlignment: label.rotationAlignment,
-      symbolPlacement: label.symbolPlacement,
-      glyphs: chars,
-    },
-    width: maxLineWidth / pxPerUnit,
-    height: totalHeight / pxPerUnit,
+    ...label,
+    haloOpacity: label.hasHalo() ? label.haloOpacity : 0,
+    glyphs: chars,
   };
 }

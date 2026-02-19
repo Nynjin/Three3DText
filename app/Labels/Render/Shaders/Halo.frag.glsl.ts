@@ -4,20 +4,43 @@ precision highp float;
 uniform sampler2D uAtlas;
 uniform float uCutoff;
 uniform float uRadius;
+uniform highp sampler2D uLabelTex;
+uniform int uLabelTexWidth;
+uniform highp sampler2D uGlyphTex;
+uniform int uGlyphTexWidth;
 
-varying vec2 vUv;
-varying vec4 vUvRect;
-varying vec4 vHaloColor;
-varying float vHaloOpacity;
-varying float vHaloWidth;
-varying float vHaloBlur;
+in vec2 vUv;
+flat in int vLabelId;
+flat in int vGlyphId;
+
+out vec4 outColor;
+
+const int LABEL_TEXELS_C = 6;
+const int GLYPH_TEXELS_C = 3;
+
+vec4 labelFetch(int instanceId, int texel) {
+  int li = instanceId * LABEL_TEXELS_C + texel;
+  return texelFetch(uLabelTex, ivec2(li % uLabelTexWidth, li / uLabelTexWidth), 0);
+}
+
+vec4 glyphFetch(int instanceId, int texel) {
+  int li = instanceId * GLYPH_TEXELS_C + texel;
+  return texelFetch(uGlyphTex, ivec2(li % uGlyphTexWidth, li / uGlyphTexWidth), 0);
+}
 
 void main() {
-  // Sample SDF
-  vec2 atlasUV = mix(vUvRect.xy, vUvRect.zw, vUv);
+  vec4 uvRect     = glyphFetch(vGlyphId, 2);
+  vec4 t3         = labelFetch(vLabelId, 3);
+  vec3 haloColor  = t3.rgb;
+  float haloOpacity = t3.a;
+  vec4 t4         = labelFetch(vLabelId, 4);
+  float haloWidth = t4.x;
+  float haloBlur  = t4.y;
 
-  float sdf = texture2D(uAtlas, atlasUV).r;
-  float fw = fwidth(sdf);
+  // Sample SDF
+  vec2 atlasUV = mix(uvRect.xy, uvRect.zw, vUv);
+  float sdf    = texture(uAtlas, atlasUV).r;
+  float fw     = fwidth(sdf);
 
   // Signed distance from glyph edge in SDF units
   float signedDist = sdf - uCutoff;
@@ -26,18 +49,15 @@ void main() {
   float d = max(-signedDist, 0.0);
 
   // Scale halo width and blur to SDF units
-  float haloWidthSDF = vHaloWidth * fw;
-  float haloBlurSDF = vHaloBlur * fw;
+  float haloWidthSDF = haloWidth * fw;
+  float haloBlurSDF  = haloBlur  * fw;
 
   // Calculate halo alpha with a Gaussian falloff
   float t = max(d - haloWidthSDF, 0.0) / max(haloBlurSDF, 1e-5);
   float alpha = exp(-5.0 * t * t);
 
-  // Discard low alpha to limit artefacts
-  if (alpha <= 0.01) {
-    discard;
-  }
+  if (alpha <= 0.01) discard;
 
-  gl_FragColor = vec4(vHaloColor.rgb, alpha * vHaloOpacity);
+  outColor = vec4(haloColor, alpha * haloOpacity);
 }
 `;

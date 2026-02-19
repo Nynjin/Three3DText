@@ -1,35 +1,37 @@
 export const GLYPH_VERT = /* glsl */ `
 precision highp float;
 
-// Attributes
-attribute vec3 aLabelPos;
-attribute vec2 aCharOffset;
-attribute vec2 aSize;
-attribute vec4 aUvRect;
-attribute vec4 aGlyphQuat;
+// Per-instance data textures
+// Label texture layout (LABEL_TEXELS = 6 texels per layer):
+//   T0: labelPos.xyz, -
+//   T1: rotation quat (x, y, z, w)
+//   T2: color (r, g, b) + opacity
+//   T3: haloColor (r, g, b) + haloOpacity
+//   T4: haloWidth, haloBlur, -, -
+//   T5: rotationAlignment, symbolPlacement, -, -
+uniform highp sampler2D uLabelTex;
+uniform int uLabelTexWidth;
 
-attribute float aRotationAlignment;
-attribute float aSymbolPlacement;
+uniform highp sampler2D uGlyphTex;
+uniform int uGlyphTexWidth;
 
-attribute vec4 aColor;
-attribute float aOpacity;
+// Varyings — only what fragment needs
+out vec2 vUv;
+flat out int vLabelId;
+flat out int vGlyphId;
 
-attribute vec4 aHaloColor;
-attribute float aHaloOpacity;
-attribute float aHaloWidth;
-attribute float aHaloBlur;
+const int LABEL_TEXELS_C = 6;
+const int GLYPH_TEXELS_C = 3;
 
-// Varyings
-varying vec2 vUv;
-varying vec4 vUvRect;
+vec4 labelFetch(int instanceId, int texel) {
+  int li = instanceId * LABEL_TEXELS_C + texel;
+  return texelFetch(uLabelTex, ivec2(li % uLabelTexWidth, li / uLabelTexWidth), 0);
+}
 
-varying vec4 vColor;
-varying float vOpacity;
-
-varying vec4 vHaloColor;
-varying float vHaloOpacity;
-varying float vHaloWidth;
-varying float vHaloBlur;
+vec4 glyphFetch(int instanceId, int texel) {
+  int li = instanceId * GLYPH_TEXELS_C + texel;
+  return texelFetch(uGlyphTex, ivec2(li % uGlyphTexWidth, li / uGlyphTexWidth), 0);
+}
 
 // Quaternion rotation
 vec3 rotateByQuat(vec3 v, vec4 q) {
@@ -37,8 +39,8 @@ vec3 rotateByQuat(vec3 v, vec4 q) {
 }
 
 // Map-aligned position computation
-vec4 computeMapAlignedPosition(vec3 localPos, vec4 glyphQuat, vec3 labelPos) {
-  vec3 rotated = rotateByQuat(localPos, glyphQuat);
+vec4 computeMapAlignedPosition(vec3 localPos, vec4 rot, vec3 labelPos) {
+  vec3 rotated = rotateByQuat(localPos, rot);
   vec4 worldPos = modelMatrix * vec4(labelPos + rotated, 1.0);
   return projectionMatrix * viewMatrix * worldPos;
 }
@@ -53,37 +55,43 @@ vec4 computeViewportAlignedPosition(vec3 localPos, vec3 labelPos) {
 // Calculate scale factor based on distance to camera
 float getDistanceScale(vec3 labelPos) {
   vec4 viewPos = modelViewMatrix * vec4(labelPos, 1.0);
-  float dist = length(viewPos.xyz);
-  return dist / 10.0;
+  return length(viewPos.xyz) / 10.0;
 }
 
 void main() {
   vUv = uv;
-  vUvRect = aUvRect;
-  vColor = aColor;
-  vHaloColor = aHaloColor;
-  vOpacity = aOpacity;
-  vHaloOpacity = aHaloOpacity;
-  vHaloWidth = aHaloWidth;
-  vHaloBlur = aHaloBlur;
+  vGlyphId = gl_InstanceID;
 
-  // Apply distance scaling to maintain constant glyph size
-  float sizeScale = getDistanceScale(aLabelPos);
-  vec3 quad = position * vec3(aSize * sizeScale, 1.0);
-  vec3 local = vec3(aCharOffset * sizeScale, 0.0) + quad;
+  // Read glyph data
+  vec4 g0    = glyphFetch(gl_InstanceID, 0);
+  vLabelId   = int(g0.x);
+  vec4 g1    = glyphFetch(gl_InstanceID, 1);
+  vec2 charOffset = g1.xy;
+  vec2 size       = g1.zw;
 
-  switch (int(aRotationAlignment)) {
+  // Read label data
+  vec3 labelPos = labelFetch(vLabelId, 0).xyz;
+  vec4 rot      = labelFetch(vLabelId, 1);
+  vec4 t5       = labelFetch(vLabelId, 5);
+  int rotAlign  = int(t5.x);
+  int symPlace  = int(t5.y);
+
+  float sizeScale = getDistanceScale(labelPos);
+  vec3 quad  = position * vec3(size * sizeScale, 1.0);
+  vec3 local = vec3(charOffset * sizeScale, 0.0) + quad;
+
+  switch (rotAlign) {
     case 0: // Map-aligned
-        gl_Position = computeMapAlignedPosition(local, aGlyphQuat, aLabelPos);
-        break;
+      gl_Position = computeMapAlignedPosition(local, rot, labelPos);
+      break;
     case 1: // Viewport-aligned
-        gl_Position = computeViewportAlignedPosition(local, aLabelPos);
-        break;
-    default: // Auto (viewport-aligned if symbol placement is point)
-        gl_Position = (int(aSymbolPlacement) == 0) ?
-          computeViewportAlignedPosition(local, aLabelPos) :
-          computeMapAlignedPosition(local, aGlyphQuat, aLabelPos);
-        break;
+      gl_Position = computeViewportAlignedPosition(local, labelPos);
+      break;
+    default: // Auto
+      gl_Position = (symPlace == 0)
+        ? computeViewportAlignedPosition(local, labelPos)
+        : computeMapAlignedPosition(local, rot, labelPos);
+      break;
   }
 }
 `;

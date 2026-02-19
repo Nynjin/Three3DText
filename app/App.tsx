@@ -10,7 +10,7 @@ import {
   BatchedTroikaCloud,
   BatchedTroikaCloudOpt,
 } from "./TextRenderers/Troika";
-import { InstancedLabelsComponent } from './TextRenderers/InstancedLabels'
+import { InstancedLabelComponent } from './TextRenderers/InstancedLabelComponent'
 import { makeItems } from "./Utils/MakeItems";
 import { Perf } from "r3f-perf";
 
@@ -121,7 +121,7 @@ function App() {
           <span>Count</span>
           <input
             type="range"
-            min={1}
+            min={0}
             max={10000}
             step={1}
             value={count}
@@ -129,13 +129,13 @@ function App() {
           />
           <input
             type="number"
-            min={1}
+            min={0}
             max={10000}
             step={1}
             value={count}
             onChange={(e) =>
               setCount(
-                Math.max(1, Math.min(10000, Number(e.target.value) || 1))
+                Math.max(0, Math.min(1000000, Number(e.target.value) || 0))
               )
             }
           />
@@ -166,7 +166,7 @@ function App() {
         ) : mode === "css3d" ? (
           <CSS3DCloud key="css3d" items={items} halo={halo} />
         ) : (
-            <InstancedLabelsComponent
+            <InstancedLabelComponent
                 items={items}
                 halo={halo}
                 viewportPredicate={(item) => item.key % 2 === 0}

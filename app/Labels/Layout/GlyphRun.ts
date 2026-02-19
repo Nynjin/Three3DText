@@ -3,11 +3,11 @@ import type { GlyphInfo } from "../Font/SDFAtlas";
 import { RotationAlignment, SymbolPlacement } from "../Core/Label";
 
 export interface LabelInstance {
+  // Unique identifier linked to the source Label
+  id: string;
+
   // world anchor
   position: Vector3;
-
-  // font
-  fontSize: number;
 
   // visual style
   color: Vector3;
