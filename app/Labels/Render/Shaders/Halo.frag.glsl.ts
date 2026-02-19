@@ -56,7 +56,7 @@ void main() {
   float t = max(d - haloWidthSDF, 0.0) / max(haloBlurSDF, 1e-5);
   float alpha = exp(-5.0 * t * t);
 
-  if (alpha <= 0.01) discard;
+  if (alpha <= 0.2) discard;
 
   outColor = vec4(haloColor, alpha * haloOpacity);
 }

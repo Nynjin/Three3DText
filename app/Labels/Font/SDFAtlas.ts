@@ -1,8 +1,8 @@
 import TinySDF from "@mapbox/tiny-sdf";
-import { CanvasTexture } from "three";
+import { CanvasTexture, LinearFilter, LinearMipMapLinearFilter } from "three";
 import { FontKey } from "./FontKey";
 
-// TODO : try generating larger canva then downsample for better text quality
+const SCALE = 4;
 
 export interface GlyphInfo {
   uv: number[];
@@ -24,19 +24,19 @@ export default function buildSDFAtlas(
   fontKey: FontKey
 ): SDFAtlas {
   // ensure enough glyph space for halo and blur without artefacts
-  const buffer = fontKey.size / 2,
-    radius = fontKey.size,
+  const buffer = fontKey.size * 2,
+    radius = buffer,
     cutoff = 0.5;
   const sdf = new TinySDF({
-    fontSize: fontKey.size,
+    fontSize: fontKey.size * SCALE,
     fontFamily: fontKey.font,
     fontWeight: fontKey.weight,
-    buffer,
-    radius,
+    buffer: buffer * SCALE,
+    radius: radius * SCALE,
     cutoff,
   });
 
-  const cellSize = fontKey.size + buffer * 2;
+  const cellSize = (fontKey.size + buffer * 2) * SCALE;
   const cols = Math.ceil(Math.sqrt(chars.length));
   const atlasW = cols * cellSize;
   const atlasH = Math.ceil(chars.length / cols) * cellSize;
@@ -45,10 +45,7 @@ export default function buildSDFAtlas(
   canvas.width = atlasW;
   canvas.height = atlasH;
   const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, atlasW, atlasH);
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
 
   const glyphs = new Map<string, GlyphInfo>();
 
@@ -74,16 +71,18 @@ export default function buildSDFAtlas(
         (x + g.width) / atlasW,
         (y + g.height) / atlasH,
       ],
-      w: g.width || 1,
-      h: g.height || 1,
-      advance: g.glyphAdvance,
-      top: g.glyphTop,
+      w: g.width / SCALE || 1,
+      h: g.height / SCALE || 1,
+      advance: g.glyphAdvance / SCALE || 1,
+      top: g.glyphTop / SCALE || 0,
     });
   };
 
   const texture = new CanvasTexture(canvas);
   texture.flipY = false;
   texture.generateMipmaps = true;
+  texture.minFilter = LinearMipMapLinearFilter;
+  texture.magFilter = LinearFilter;
 
   canvas.remove();
 

@@ -1,5 +1,4 @@
 import {
-  CompressedArrayTexture,
   DataTexture,
   FloatType,
   InstancedBufferGeometry,
@@ -18,10 +17,11 @@ import { LabelInstance } from "../../Layout/GlyphRun";
  * T5: rotation alignment + symbol placement (rotationAlignment, symbolPlacement, -, -)
  */
 export const LABEL_TEXELS = 6;
+
 /**
  * T0: label index (i, -, -, -)
  * T1: char offset (x, y) + size (w, h)
- * T2: uv rect (u0, v0, u1, v1)
+ * T2: uv rect (u0, v1, u1, v0)
  */
 export const GLYPH_TEXELS = 3;
 
@@ -42,15 +42,15 @@ function texDims(totalTexels: number): number {
 
 function write(
   data: Float32Array,
-  layer: number,
-  texelsPerLayer: number,
+  element: number,
+  texelsPerElement: number,
   texel: number,
   x: number,
   y: number,
   z: number,
   w: number,
 ) {
-  const idx = (layer * texelsPerLayer + texel) * 4;
+  const idx = (element * texelsPerElement + texel) * 4;
   data[idx + 0] = x;
   data[idx + 1] = y;
   data[idx + 2] = z;
@@ -100,8 +100,6 @@ function fillGlyphTexelData(
   w(2, u0, v1, u1, v0);
 }
 
-
-
 function makeTexture(data: Float32Array, width: number) {
   const tex = new DataTexture(data, width, width, RGBAFormat, FloatType);
   tex.minFilter = tex.magFilter = NearestFilter;
@@ -117,7 +115,7 @@ function updateTexture(texture: DataTexture, data: Float32Array) {
 // ---------- Geometry Manager Class ----------
 
 export class LabelGeometryManager {
-  geom: InstancedBufferGeometry = new InstancedBufferGeometry();
+  readonly geom: InstancedBufferGeometry = new InstancedBufferGeometry();
   
   labelData: Float32Array = new Float32Array(0);
   glyphData: Float32Array = new Float32Array(0);
@@ -125,7 +123,6 @@ export class LabelGeometryManager {
   labelTex: DataTexture = makeTexture(this.labelData, 1);
   glyphTex: DataTexture = makeTexture(this.glyphData, 1);
 
-  // Exposed for shader uniforms
   labelTexWidth: number = 1;
   glyphTexWidth: number = 1;
 
@@ -164,7 +161,6 @@ export class LabelGeometryManager {
     this.glyphTex.dispose();
     this.glyphTex = makeTexture(this.glyphData, w);
   }
-
 
   addLabels(labels: LabelInstance[], pxPerUnit: number) {
     const newLabelCount = this.labelCount + labels.length;
