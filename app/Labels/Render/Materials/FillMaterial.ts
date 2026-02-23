@@ -30,3 +30,25 @@ export function createFillMaterial(
 
     return material;
 }
+
+export function updateFillAtlas(
+    material: ShaderMaterial,
+    atlas: SDFAtlas,
+) {
+    material.uniforms.uAtlas.value        = atlas.texture;
+    material.uniforms.uCutoff.value       = atlas.cutoff;
+    material.uniforms.uRadius.value       = atlas.radius;
+}
+
+export function updateFillUniforms(
+    material: ShaderMaterial,
+    labelTex: DataTexture,
+    glyphTex: DataTexture,
+    labelTexWidth: number,
+    glyphTexWidth: number,
+) {
+    material.uniforms.uLabelTex.value     = labelTex;
+    material.uniforms.uGlyphTex.value     = glyphTex;
+    material.uniforms.uLabelTexWidth.value = labelTexWidth;
+    material.uniforms.uGlyphTexWidth.value = glyphTexWidth;
+}

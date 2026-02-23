@@ -84,7 +84,12 @@ export default function layoutText(
 
   return {
     ...label,
+    position: label.position.clone(),
+    rotation: label.rotation.clone(),
+    color: label.color.clone(),
+    haloColor: label.haloColor.clone(),
     haloOpacity: label.hasHalo() ? label.haloOpacity : 0,
+    visible: (label.opacity + label.haloOpacity > 0 && label.visible) ? 1 : 0,
     glyphs: chars,
   };
 }

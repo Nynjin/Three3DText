@@ -148,7 +148,7 @@ function App() {
         camera={{ fov: 45, near: 0.1, far: 10000, position: [0, 0, 50] }}
         style={{ position: "absolute", inset: 0, background: "#505050" }}
       >
-        <Perf position="top-left" />
+        <Perf position="top-left" overClock={true} matrixUpdate={true} deepAnalyze={true} />
         <OrbitControls />
 
         {mode === "uikit" ? (

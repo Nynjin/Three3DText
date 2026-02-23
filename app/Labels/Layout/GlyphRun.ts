@@ -16,11 +16,14 @@ export interface LabelInstance {
   haloOpacity: number;
   haloWidth: number;
   haloBlur: number;
-
+  
   // orientation
   rotation: Quaternion;
   rotationAlignment: RotationAlignment;
   symbolPlacement: SymbolPlacement;
+  
+  // visibility
+  visible: 0 | 1;
 
   // glyphs belonging to this label
   glyphs: GlyphInstance[];
@@ -34,17 +37,4 @@ export interface GlyphInstance {
 
   // OPTIONAL orientation (identity by default)
   rotation?: Quaternion;
-}
-
-export interface GlyphRun {
-  glyphs: GlyphInstance[];
-
-  width: number;
-  height: number;
-
-  // layout-space bounding box
-  bounds: {
-    min: Vector2;
-    max: Vector2;
-  };
 }

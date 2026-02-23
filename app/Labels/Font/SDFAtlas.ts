@@ -2,7 +2,8 @@ import TinySDF from "@mapbox/tiny-sdf";
 import { CanvasTexture, LinearFilter, LinearMipMapLinearFilter } from "three";
 import { FontKey } from "./FontKey";
 
-const SCALE = 4;
+const SCALE = 2;
+const CAPACITY_MULTIPLIER = 2;
 
 export interface GlyphInfo {
   uv: number[];
@@ -12,84 +13,123 @@ export interface GlyphInfo {
   top: number;
 }
 
-export interface SDFAtlas {
-  texture: CanvasTexture;
-  glyphs: Map<string, GlyphInfo>;
-  cutoff: number;
-  radius: number;
-}
+export class SDFAtlas {
+  readonly texture: CanvasTexture;
+  readonly glyphs: Map<string, GlyphInfo> = new Map();
+  readonly cutoff: number;
+  readonly radius: number;
 
-export default function buildSDFAtlas(
-  chars: string[],
-  fontKey: FontKey
-): SDFAtlas {
-  // ensure enough glyph space for halo and blur without artefacts
-  const buffer = fontKey.size * 2,
-    radius = buffer,
-    cutoff = 0.5;
-  const sdf = new TinySDF({
-    fontSize: fontKey.size * SCALE,
-    fontFamily: fontKey.font,
-    fontWeight: fontKey.weight,
-    buffer: buffer * SCALE,
-    radius: radius * SCALE,
-    cutoff,
-  });
+  private _canvas: HTMLCanvasElement;
+  private _ctx: CanvasRenderingContext2D;
+  private _sdf: TinySDF;
+  private _cellSize: number;
+  private _cols: number;
+  private _capacity: number;
+  private _slotCount = 0;
 
-  const cellSize = (fontKey.size + buffer * 2) * SCALE;
-  const cols = Math.ceil(Math.sqrt(chars.length));
-  const atlasW = cols * cellSize;
-  const atlasH = Math.ceil(chars.length / cols) * cellSize;
+  constructor(chars: string[], fontKey: FontKey) {
+    const buffer = fontKey.size * 2;
+    this.radius = buffer;
+    this.cutoff = 0.5;
 
-  const canvas = document.createElement("canvas");
-  canvas.width = atlasW;
-  canvas.height = atlasH;
-  const ctx = canvas.getContext("2d")!;
-  ctx.fillRect(0, 0, atlasW, atlasH);
+    this._sdf = new TinySDF({
+      fontSize: fontKey.size * SCALE,
+      fontFamily: fontKey.font,
+      fontWeight: fontKey.weight,
+      buffer: buffer * SCALE,
+      radius: buffer * SCALE,
+      cutoff: this.cutoff,
+    });
 
-  const glyphs = new Map<string, GlyphInfo>();
+    this._cellSize = (fontKey.size + buffer * 2) * SCALE;
+    this._capacity = Math.max(8, Math.ceil(chars.length * CAPACITY_MULTIPLIER));
+    this._cols = Math.ceil(Math.sqrt(this._capacity));
+    const rows = Math.ceil(this._capacity / this._cols);
 
-  for (let i = 0; i < chars.length; i++) {
-    const c = chars[i];
-    const x = (i % cols) * cellSize;
-    const y = Math.floor(i / cols) * cellSize;
-    const g = sdf.draw(c);
+    this._canvas = document.createElement("canvas");
+    this._canvas.width  = this._cols * this._cellSize;
+    this._canvas.height = rows      * this._cellSize;
+    this._ctx = this._canvas.getContext("2d")!;
+    this._ctx.fillRect(0, 0, this._canvas.width, this._canvas.height);
 
-    if (g.width > 0 && g.height > 0) {
-      const img = ctx.createImageData(g.width, g.height);
-      for (let j = 0; j < g.data.length; j++) {
-        img.data[j * 4] = img.data[j * 4 + 1] = img.data[j * 4 + 2] = g.data[j];
-        img.data[j * 4 + 3] = 255;
-      }
-      ctx.putImageData(img, x, y);
+    this._drawChars(chars);
+
+    this.texture = new CanvasTexture(this._canvas);
+    this.texture.flipY = false;
+    this.texture.generateMipmaps = true;
+    this.texture.minFilter = LinearMipMapLinearFilter;
+    this.texture.magFilter = LinearFilter;
+  }
+
+  addChars(chars: Iterable<string>): boolean {
+    const newChars: string[] = [];
+    for (const c of chars) {
+      if (!this.glyphs.has(c)) newChars.push(c);
+    }
+    if (newChars.length === 0) return false;
+
+    if (this._slotCount + newChars.length > this._capacity) {
+      this._resize(this._slotCount + newChars.length);
     }
 
-    glyphs.set(c, {
-      uv: [
-        x / atlasW,
-        y / atlasH,
-        (x + g.width) / atlasW,
-        (y + g.height) / atlasH,
-      ],
-      w: g.width / SCALE || 1,
-      h: g.height / SCALE || 1,
-      advance: g.glyphAdvance / SCALE || 1,
-      top: g.glyphTop / SCALE || 0,
-    });
-  };
+    this._drawChars(newChars);
+    this.texture.needsUpdate = true;
+    return true;
+  }
 
-  const texture = new CanvasTexture(canvas);
-  texture.flipY = false;
-  texture.generateMipmaps = true;
-  texture.minFilter = LinearMipMapLinearFilter;
-  texture.magFilter = LinearFilter;
+  dispose() {
+    this.texture.dispose();
+    this._canvas.remove();
+  }
 
-  canvas.remove();
+  private _drawChars(chars: string[]) {
+    for (const c of chars) {
+      if (this.glyphs.has(c)) continue;
+      const slot = this._slotCount++;
+      const x = (slot % this._cols) * this._cellSize;
+      const y = Math.floor(slot / this._cols) * this._cellSize;
+      const g = this._sdf.draw(c);
 
-  return {
-    texture,
-    glyphs,
-    cutoff,
-    radius,
-  };
+      if (g.width > 0 && g.height > 0) {
+        const img = this._ctx.createImageData(g.width, g.height);
+        for (let j = 0; j < g.data.length; j++) {
+          img.data[j * 4]     = g.data[j];
+          img.data[j * 4 + 1] = g.data[j];
+          img.data[j * 4 + 2] = g.data[j];
+          img.data[j * 4 + 3] = 255;
+        }
+        this._ctx.putImageData(img, x, y);
+      }
+
+      const W = this._canvas.width, H = this._canvas.height;
+      this.glyphs.set(c, {
+        uv: [x / W, y / H, (x + g.width) / W, (y + g.height) / H],
+        w:       g.width        / SCALE || 1,
+        h:       g.height       / SCALE || 1,
+        advance: g.glyphAdvance / SCALE || 1,
+        top:     g.glyphTop     / SCALE || 0,
+      });
+    }
+  }
+
+  private _resize(minChars: number) {
+    this._capacity = Math.ceil(minChars * CAPACITY_MULTIPLIER);
+    this._cols = Math.ceil(Math.sqrt(this._capacity));
+    const rows = Math.ceil(this._capacity / this._cols);
+
+    const oldCanvas = this._canvas;
+    this._canvas = document.createElement("canvas");
+    this._canvas.width  = this._cols * this._cellSize;
+    this._canvas.height = rows      * this._cellSize;
+    this._ctx = this._canvas.getContext("2d")!;
+    this._ctx.fillRect(0, 0, this._canvas.width, this._canvas.height);
+
+    const allChars = [...this.glyphs.keys()];
+    this.glyphs.clear();
+    this._slotCount = 0;
+    this._drawChars(allChars);
+
+    oldCanvas.remove();
+    this.texture.image = this._canvas;
+  }
 }

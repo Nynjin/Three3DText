@@ -31,11 +31,16 @@ vec4 glyphFetch(int instanceId, int texel) {
 void main() {
   vec4 uvRect     = glyphFetch(vGlyphId, 2);
   vec4 t3         = labelFetch(vLabelId, 3);
+  vec4 t4         = labelFetch(vLabelId, 4);
   vec3 haloColor  = t3.rgb;
   float haloOpacity = t3.a;
-  vec4 t4         = labelFetch(vLabelId, 4);
   float haloWidth = t4.x;
   float haloBlur  = t4.y;
+  int visible = int(labelFetch(vLabelId, 0).w);
+
+  // Discard immediately if not visible
+  if (visible <= 0) discard;
+  if (haloOpacity <= 0.0) discard;
 
   // Sample SDF
   vec2 atlasUV = mix(uvRect.xy, uvRect.zw, vUv);

@@ -33,6 +33,11 @@ void main() {
   vec4 t2       = labelFetch(vLabelId, 2);
   vec3 color   = t2.rgb;
   float opacity = t2.a;
+  int visible = int(labelFetch(vLabelId, 0).w);
+
+  // Discard immediately if not visible
+  if (visible <= 0) discard;
+  if (opacity <= 0.0) discard;
 
   // Sample SDF
   vec2 atlasUV = mix(uvRect.xy, uvRect.zw, vUv);

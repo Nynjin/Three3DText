@@ -1,5 +1,5 @@
 import { Color, Euler, Quaternion, Vector2, Vector3 } from "three";
-import { toColor, toQuaternion, toVector2, toVector3 } from "../Utils/LabelUtils";
+import { toBinary, toColor, toQuaternion, toVector2, toVector3 } from "../Utils/LabelUtils";
 
 export enum TextAnchorX {
     Left = 0,
@@ -47,7 +47,7 @@ export enum LabelChangeType {
   Style = 1 << 3,
   Transform = 1 << 4,
   Visibility = 1 << 5,
-  Discard = 1 << 6,
+  Dispose = 1 << 6,
 }
 
 export type LabelChangeListener = (changes: LabelChangeType) => void;
@@ -88,7 +88,7 @@ export interface LabelOptions {
   // Rendering
   rotationAlignment?: RotationAlignment;
   symbolPlacement?: SymbolPlacement;
-  visible?: boolean;
+  visible?: boolean | 0 | 1;
   
   // Transform
   textTransform?: TextTransform;
@@ -137,7 +137,7 @@ export class Label {
   // Rendering
   rotationAlignment: RotationAlignment;
   symbolPlacement: SymbolPlacement;
-  visible: boolean;
+  visible: 0 | 1;
   
   // Transform
   textTransform: TextTransform;
@@ -171,7 +171,7 @@ export class Label {
     
     this.rotationAlignment = options.rotationAlignment ?? RotationAlignment.Map;
     this.symbolPlacement = options.symbolPlacement ?? SymbolPlacement.Point;
-    this.visible = options.visible ?? true;
+    this.visible = options.visible !== undefined ? toBinary(options.visible) : 1;
     
     this.textTransform = options.textTransform ?? TextTransform.None;
   }
@@ -309,11 +309,11 @@ export class Label {
 
     // Visibility
     if (options.visible !== undefined) {
-      this.visible = options.visible;
+      this.visible = toBinary(options.visible);
       changes |= LabelChangeType.Visibility;
     }
 
-    this._emitChange(changes);
+    this._emit(changes);
     return this;
   }
 
@@ -347,7 +347,7 @@ export class Label {
   }
 
   dispose() {
-    this._emitChange(LabelChangeType.Discard);
+    this._emit(LabelChangeType.Dispose);
     this._listeners.clear();
   }
 
@@ -356,7 +356,7 @@ export class Label {
     return () => this._listeners.delete(listener);
   }
 
-  private _emitChange(changes: LabelChangeType): void {
+  private _emit(changes: LabelChangeType): void {
     if (changes === LabelChangeType.None) return;
     for (const listener of this._listeners) {
       listener(changes);

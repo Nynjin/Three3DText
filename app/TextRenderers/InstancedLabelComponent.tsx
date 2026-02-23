@@ -1,8 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import {
-  Mesh,
-  Group,
-} from "three";
+import { Group } from "three";
 import { Label, TextAlign, TextAnchorX, TextAnchorY } from "../Labels/Core/Label";
 import { InstancedLabelManager } from "../Labels/Core/InstancedLabelManager";
 import { Item } from "../Types/Item";
@@ -25,58 +22,48 @@ export function InstancedLabelComponent({
   const groupRef = useRef<Group>(null);
 
   const manager = useMemo(() => {
+    // Batch all additions before syncing
     const m = new InstancedLabelManager(pxPerUnit);
-    for (const item of items) {
-      m.addLabel(new Label({
-        text: item.text,
-        position: item.position,
-        rotation: item.rotation,
-        rotationAlignment: 0,
-        color: "#000000",
-        haloColor: viewportPredicate(item) ? "#ffcccc" : "#cce5ff",
-        haloWidth: halo ? 10 : 0,
-        haloBlur: halo ? 2000 : 0,
-        font: (() => viewportPredicate(item) ? "Arial" : "Times New Roman")(),
-        // fontWeight: (() => Math.random() > 0.5 ? "bold" : "normal")(),
-        fontSize,
-        maxWidth: 1,
-        textAlign: TextAlign.Justify,
-        lineHeight: 1,
-        anchorX: TextAnchorX.Center,
-        anchorY: TextAnchorY.Middle,
-      }));
-    };
+    m.autoUpdate = false;
+
+    m.addLabels(items.map((item) => new Label({
+      text: item.text,
+      position: item.position,
+      rotation: item.rotation,
+      rotationAlignment: 0,
+      color: "#000000",
+      haloColor: viewportPredicate(item) ? "#ffcccc" : "#cce5ff",
+      haloWidth: halo ? 10 : 0,
+      haloBlur: halo ? 2000 : 0,
+      font: viewportPredicate(item) ? "Arial" : "Times New Roman",
+      fontSize,
+      maxWidth: 1,
+      textAlign: TextAlign.Justify,
+      lineHeight: 1,
+      anchorX: TextAnchorX.Center,
+      anchorY: TextAnchorY.Middle,
+    })));
+
+    // Single sync for all groups, then enable reactive updates
+    m.update();
+    m.autoUpdate = true;
     return m;
   }, [items, viewportPredicate, halo, fontSize, pxPerUnit]);
 
-  const meshes = useMemo(() => {
-    return manager.buildMeshes();
-  }, [manager]);
-
   useEffect(() => {
-    if (!groupRef.current) return;
+    const group = groupRef.current;
+    if (!group) return;
 
-    for (const child of groupRef.current.children) {
-      const mesh = child as Mesh;
-      mesh.geometry.dispose();
-      const mat = mesh.material;
-      if (Array.isArray(mat)) {
-        for (const m of mat) {
-          m.dispose();
-        }
-      } else {
-        mat.dispose();
-      }
+    // Meshes are persistent — add once, manager keeps them in sync
+    for (const { fill, halo } of manager.meshes) {
+      group.add(halo, fill); // halo behind fill
     }
 
-    // Clear old children
-    groupRef.current.children.length = 0;
-
-    // Add new meshes
-    for (const mesh of meshes) {
-      groupRef.current.add(mesh);
-    }
-  }, [meshes]);
+    return () => {
+      group.clear();
+      manager.dispose();
+    };
+  }, [manager]);
 
   return <group ref={groupRef} />;
 }

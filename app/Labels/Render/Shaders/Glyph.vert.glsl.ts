@@ -3,7 +3,7 @@ precision highp float;
 
 // Per-instance data textures
 // Label texture layout (LABEL_TEXELS = 6 texels per layer):
-//   T0: labelPos.xyz, -
+//   T0: labelPos.xyz, opacity
 //   T1: rotation quat (x, y, z, w)
 //   T2: color (r, g, b) + opacity
 //   T3: haloColor (r, g, b) + haloOpacity
@@ -62,22 +62,28 @@ void main() {
   vUv = uv;
   vGlyphId = gl_InstanceID;
 
-  // Read glyph data
-  vec4 g0    = glyphFetch(gl_InstanceID, 0);
-  vLabelId   = int(g0.x);
-  vec4 g1    = glyphFetch(gl_InstanceID, 1);
+  // Read glyph data first to get the label index
+  vec4 g0 = glyphFetch(gl_InstanceID, 0);
+  vLabelId = int(g0.x);
+  vec4 g1 = glyphFetch(gl_InstanceID, 1);
   vec2 charOffset = g1.xy;
-  vec2 size       = g1.zw;
+  vec2 size = g1.zw;
 
-  // Read label data
+  // Read label data using the label index from glyph T0
   vec3 labelPos = labelFetch(vLabelId, 0).xyz;
-  vec4 rot      = labelFetch(vLabelId, 1);
-  vec4 t5       = labelFetch(vLabelId, 5);
+  vec4 rot = labelFetch(vLabelId, 1);
+  vec4 t5 = labelFetch(vLabelId, 5);
+  int visible = int(labelFetch(vLabelId, 0).w);
   int rotAlign  = int(t5.x);
   int symPlace  = int(t5.y);
 
+  if (visible <= 0) {
+    gl_Position = vec4(2.0);
+    return;
+  }
+
   float sizeScale = getDistanceScale(labelPos);
-  vec3 quad  = position * vec3(size * sizeScale, 1.0);
+  vec3 quad = position * vec3(size * sizeScale, 1.0);
   vec3 local = vec3(charOffset * sizeScale, 0.0) + quad;
 
   switch (rotAlign) {
