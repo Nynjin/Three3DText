@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Group } from "three";
-import { Label, TextAlign, TextAnchorX, TextAnchorY } from "../Labels/Core/Label";
+import { Label, RotationAlignment, TextAlign, TextAnchorX, TextAnchorY } from "../Labels/Core/Label";
 import { InstancedLabelManager } from "../Labels/Core/InstancedLabelManager";
 import { Item } from "../Types/Item";
+import { useFrame, useThree } from "@react-three/fiber";
 
 export interface InstancedLabelsProps {
   items: Item[];
@@ -21,6 +22,8 @@ export function InstancedLabelComponent({
 }: InstancedLabelsProps) {
   const groupRef = useRef<Group>(null);
 
+  const camera = useThree((state) => state.camera);
+
   const manager = useMemo(() => {
     // Batch all additions before syncing
     const m = new InstancedLabelManager(pxPerUnit);
@@ -30,13 +33,13 @@ export function InstancedLabelComponent({
       text: item.text,
       position: item.position,
       rotation: item.rotation,
-      rotationAlignment: 0,
+      rotationAlignment: RotationAlignment.Map,
       color: "#000000",
       haloColor: viewportPredicate(item) ? "#ffcccc" : "#cce5ff",
       haloWidth: halo ? 10 : 0,
       haloBlur: halo ? 2000 : 0,
       font: viewportPredicate(item) ? "Arial" : "Times New Roman",
-      fontSize,
+      fontSize: fontSize,
       maxWidth: 1,
       textAlign: TextAlign.Justify,
       lineHeight: 1,
@@ -49,6 +52,10 @@ export function InstancedLabelComponent({
     m.autoUpdate = true;
     return m;
   }, [items, viewportPredicate, halo, fontSize, pxPerUnit]);
+
+  useFrame(() => {
+    manager.cull(camera);
+  });
 
   useEffect(() => {
     const group = groupRef.current;

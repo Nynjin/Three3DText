@@ -1,17 +1,10 @@
 import TinySDF from "@mapbox/tiny-sdf";
 import { CanvasTexture, LinearFilter, LinearMipMapLinearFilter } from "three";
 import { FontKey } from "./FontKey";
+import { GlyphInfo } from "../Layout/GlyphRun";
 
 const SCALE = 2;
 const CAPACITY_MULTIPLIER = 2;
-
-export interface GlyphInfo {
-  uv: number[];
-  w: number;
-  h: number;
-  advance: number;
-  top: number;
-}
 
 export class SDFAtlas {
   readonly texture: CanvasTexture;

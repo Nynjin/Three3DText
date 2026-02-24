@@ -15,6 +15,9 @@ uniform int uLabelTexWidth;
 uniform highp sampler2D uGlyphTex;
 uniform int uGlyphTexWidth;
 
+// Indirect draw index: points into glyphTex, set by LabelMeshGroup.cullByFrustum
+attribute uint glyphIndex;
+
 // Varyings — only what fragment needs
 out vec2 vUv;
 flat out int vLabelId;
@@ -60,12 +63,15 @@ float getDistanceScale(vec3 labelPos) {
 
 void main() {
   vUv = uv;
-  vGlyphId = gl_InstanceID;
+
+  // glyphIndex is the permanent texture slot for this glyph (set by CPU cull)
+  int gId = int(glyphIndex);
+  vGlyphId = gId;  // fragment must fetch from the same slot, not gl_InstanceID
 
   // Read glyph data first to get the label index
-  vec4 g0 = glyphFetch(gl_InstanceID, 0);
+  vec4 g0 = glyphFetch(gId, 0);
   vLabelId = int(g0.x);
-  vec4 g1 = glyphFetch(gl_InstanceID, 1);
+  vec4 g1 = glyphFetch(gId, 1);
   vec2 charOffset = g1.xy;
   vec2 size = g1.zw;
 

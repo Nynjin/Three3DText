@@ -3,6 +3,7 @@ import { Label, LabelChangeType } from "./Label";
 import { FontKey, fontKeyString } from "../Font/FontKey";
 import { SDFAtlas } from "../Font/SDFAtlas";
 
+// TODO : prevent case where one label is added to multiple dirty levels (added then updated then deleted should do nothing)
 export const enum DirtyLevel {
   None = 0,
   Update = 1,

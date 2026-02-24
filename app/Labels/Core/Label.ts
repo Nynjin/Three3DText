@@ -1,5 +1,5 @@
 import { Color, Euler, Quaternion, Vector2, Vector3 } from "three";
-import { toBinary, toColor, toQuaternion, toVector2, toVector3 } from "../Utils/LabelUtils";
+import { toColor, toQuaternion, toVector2, toVector3 } from "../Utils/LabelUtils";
 
 export enum TextAnchorX {
     Left = 0,
@@ -39,6 +39,7 @@ export enum SymbolPlacement {
     "Line-Center" = 2,
 }
 
+// TODO : there aren't cases that require masking yet
 export enum LabelChangeType {
   None = 0,
   Font = 1 << 0,
@@ -88,14 +89,14 @@ export interface LabelOptions {
   // Rendering
   rotationAlignment?: RotationAlignment;
   symbolPlacement?: SymbolPlacement;
-  visible?: boolean | 0 | 1;
+  visible?: boolean;
   
   // Transform
   textTransform?: TextTransform;
 }
 
 
-
+// TODO : enforce safe set that calls emit
 export class Label {
   private _listeners = new Set<LabelChangeListener>();
 
@@ -125,11 +126,11 @@ export class Label {
   padding: [number, number, number, number];
   
   // Fill
-  color: Vector3;
+  color: Color;
   opacity: number;
   
   // Halo
-  haloColor: Vector3;
+  haloColor: Color;
   haloWidth: number;
   haloBlur: number;
   haloOpacity: number;
@@ -137,7 +138,7 @@ export class Label {
   // Rendering
   rotationAlignment: RotationAlignment;
   symbolPlacement: SymbolPlacement;
-  visible: 0 | 1;
+  visible: boolean;
   
   // Transform
   textTransform: TextTransform;
@@ -161,17 +162,17 @@ export class Label {
     this.anchorY = options.anchorY ?? TextAnchorY.Middle;
     this.padding = options.padding ?? [0, 0, 0, 0];
     
-    this.color = options.color !== undefined ? toColor(options.color) : new Vector3(0, 0, 0);
+    this.color = options.color !== undefined ? toColor(options.color) : new Color(0, 0, 0);
     this.opacity = options.opacity ?? 1;
     
-    this.haloColor = options.haloColor !== undefined ? toColor(options.haloColor) : new Vector3(1, 1, 1);
+    this.haloColor = options.haloColor !== undefined ? toColor(options.haloColor) : new Color(1, 1, 1);
     this.haloWidth = options.haloWidth ?? 0;
     this.haloBlur = options.haloBlur ?? 0;
     this.haloOpacity = options.haloOpacity ?? 1;
     
     this.rotationAlignment = options.rotationAlignment ?? RotationAlignment.Map;
     this.symbolPlacement = options.symbolPlacement ?? SymbolPlacement.Point;
-    this.visible = options.visible !== undefined ? toBinary(options.visible) : 1;
+    this.visible = options.visible !== undefined ? options.visible : true;
     
     this.textTransform = options.textTransform ?? TextTransform.None;
   }
@@ -195,7 +196,7 @@ export class Label {
   set(options: Partial<LabelOptions>): this {
     let changes = LabelChangeType.None;
 
-    // Special transformations for complex types
+    // Transform properties
     if (options.position !== undefined) {
       this.position = toVector3(options.position);
       changes |= LabelChangeType.Transform;
@@ -207,14 +208,6 @@ export class Label {
     if (options.offset !== undefined) {
       this.offset = toVector2(options.offset);
       changes |= LabelChangeType.Layout;
-    }
-    if (options.color !== undefined) {
-      this.color = toColor(options.color);
-      changes |= LabelChangeType.Style;
-    }
-    if (options.haloColor !== undefined) {
-      this.haloColor = toColor(options.haloColor);
-      changes |= LabelChangeType.Style;
     }
 
     // Font properties
@@ -272,13 +265,21 @@ export class Label {
     }
 
     // Style properties
+    if (options.color !== undefined) {
+      this.color = toColor(options.color);
+      changes |= LabelChangeType.Style;
+    }
     if (options.opacity !== undefined) {
       this.opacity = options.opacity;
       changes |= LabelChangeType.Style;
     }
+    if (options.haloColor !== undefined) {
+      this.haloColor = toColor(options.haloColor);
+      changes |= LabelChangeType.Style;
+    }
     if (options.haloWidth !== undefined) {
       if (options.haloWidth > this.fontSize / 4) {
-        console.warn(`haloWidth of ${options.haloWidth} is too large for fontSize ${this.fontSize}. Clamping to ${this.fontSize / 4}.`);
+        console.warn(`Label.set - haloWidth of ${options.haloWidth} is too large for fontSize ${this.fontSize}. Clamping to ${this.fontSize / 4}.`);
         this.haloWidth = this.fontSize / 4;
       } else {
         this.haloWidth = options.haloWidth;
@@ -287,7 +288,7 @@ export class Label {
     }
     if (options.haloBlur !== undefined) {
       if (options.haloBlur > this.fontSize / 4) {
-        console.warn(`haloBlur of ${options.haloBlur} is too large for fontSize ${this.fontSize}. Clamping to ${this.fontSize / 4}.`);
+        console.warn(`Label.set - haloBlur of ${options.haloBlur} is too large for fontSize ${this.fontSize}. Clamping to ${this.fontSize / 4}.`);
         this.haloBlur = this.fontSize / 4;
       } else {
         this.haloBlur = options.haloBlur;
@@ -309,7 +310,7 @@ export class Label {
 
     // Visibility
     if (options.visible !== undefined) {
-      this.visible = toBinary(options.visible);
+      this.visible = options.visible;
       changes |= LabelChangeType.Visibility;
     }
 

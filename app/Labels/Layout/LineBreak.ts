@@ -1,5 +1,5 @@
 import { Label } from "../Core/Label";
-import { GlyphInfo } from "../Font/SDFAtlas";
+import { GlyphInfo } from "./GlyphRun";
 
 export default function lineBreak(
   label: Label,

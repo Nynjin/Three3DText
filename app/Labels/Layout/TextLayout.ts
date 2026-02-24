@@ -1,10 +1,10 @@
 import { Vector2 } from "three";
 import { Label } from "../Core/Label";
-import { GlyphInfo } from "../Font/SDFAtlas";
-import { GlyphInstance, LabelInstance } from "./GlyphRun";
+import { GlyphInfo, GlyphInstance, LabelInstance } from "./GlyphRun";
 import lineBreak from "./LineBreak";
 import textAlign from "./TextAlign";
 import textAnchors from "./TextAnchors";
+import { toVector3 } from "../Utils/LabelUtils";
 
 export default function layoutText(
   label: Label,
@@ -86,8 +86,8 @@ export default function layoutText(
     ...label,
     position: label.position.clone(),
     rotation: label.rotation.clone(),
-    color: label.color.clone(),
-    haloColor: label.haloColor.clone(),
+    color: toVector3(label.color),
+    haloColor: toVector3(label.haloColor),
     haloOpacity: label.hasHalo() ? label.haloOpacity : 0,
     visible: (label.opacity + label.haloOpacity > 0 && label.visible) ? 1 : 0,
     glyphs: chars,

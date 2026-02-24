@@ -42,9 +42,9 @@ export function updateHaloAtlas(
     material: ShaderMaterial,
     atlas: SDFAtlas,
 ) {
-    material.uniforms.uAtlas.value        = atlas.texture;
-    material.uniforms.uCutoff.value       = atlas.cutoff;
-    material.uniforms.uRadius.value       = atlas.radius;
+    material.uniforms.uAtlas.value = atlas.texture;
+    material.uniforms.uCutoff.value = atlas.cutoff;
+    material.uniforms.uRadius.value = atlas.radius;
 }
 
 export function updateHaloUniforms(
@@ -54,8 +54,8 @@ export function updateHaloUniforms(
     labelTexWidth: number,
     glyphTexWidth: number,
 ) {
-    material.uniforms.uLabelTex.value     = labelTex;
-    material.uniforms.uGlyphTex.value     = glyphTex;
+    material.uniforms.uLabelTex.value = labelTex;
+    material.uniforms.uGlyphTex.value = glyphTex;
     material.uniforms.uLabelTexWidth.value = labelTexWidth;
     material.uniforms.uGlyphTexWidth.value = glyphTexWidth;
 }

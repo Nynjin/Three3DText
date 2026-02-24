@@ -1,6 +1,13 @@
 import { Vector2, Vector3, Quaternion } from "three";
-import type { GlyphInfo } from "../Font/SDFAtlas";
 import { RotationAlignment, SymbolPlacement } from "../Core/Label";
+
+export interface GlyphInfo {
+  uv: number[];
+  w: number;
+  h: number;
+  advance: number;
+  top: number;
+}
 
 export interface LabelInstance {
   // Unique identifier linked to the source Label
@@ -35,6 +42,6 @@ export interface GlyphInstance {
   // label-local position
   offset: Vector2;
 
-  // OPTIONAL orientation (identity by default)
+  // Optional orientation (identity by default)
   rotation?: Quaternion;
 }
