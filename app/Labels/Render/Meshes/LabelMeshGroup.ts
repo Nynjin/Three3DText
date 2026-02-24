@@ -134,32 +134,32 @@ export class LabelMeshGroup {
   readonly fillMesh: LabelMesh = new Mesh(this.geom);
   readonly haloMesh: LabelMesh = new Mesh(this.geom);
 
-  private readonly pxPerUnit: number;
+  private readonly _pxPerUnit: number;
 
-  private glyphIndex: Uint32Array = new Uint32Array(0);
-  private glyphIndexAttr: InstancedBufferAttribute | null = null;
+  private _glyphIndex: Uint32Array = new Uint32Array(0);
+  private _glyphIndexAttr: InstancedBufferAttribute | null = null;
 
-  private glyphFreeSlots: number[] = [];
-  private glyphSlotCount = 0;
+  private _glyphFreeSlots: number[] = [];
+  private _glyphSlotCount = 0;
 
-  private labelData: Float32Array = new Float32Array(0);
-  private glyphData: Float32Array = new Float32Array(0);
+  private _labelData: Float32Array = new Float32Array(0);
+  private _glyphData: Float32Array = new Float32Array(0);
 
-  private labelTex: DataTexture = makeTexture(this.labelData, 1);
-  private glyphTex: DataTexture = makeTexture(this.glyphData, 1);
+  private _labelTex: DataTexture = makeTexture(this._labelData, 1);
+  private _glyphTex: DataTexture = makeTexture(this._glyphData, 1);
 
-  private labelTexWidth = 1;
-  private glyphTexWidth = 1;
+  private _labelTexWidth = 1;
+  private _glyphTexWidth = 1;
 
-  private labelCapacity = 0;
-  private glyphCapacity = 0;
-  private labelCount = 0;
-  private glyphActiveCount = 0;
+  private _labelCapacity = 0;
+  private _glyphCapacity = 0;
+  private _labelCount = 0;
+  private _glyphActiveCount = 0;
 
-  private labelToGlyphs = new Map<number, number[]>();
-  private labelIdToIdx = new Map<string, number>();
-  private labelIdxToId = new Map<number, string>();
-  private glyphSlotToLabelIdx = new Map<number, number>();
+  private _labelToGlyphs = new Map<number, number[]>();
+  private _labelIdToIdx = new Map<string, number>();
+  private _labelIdxToId = new Map<number, string>();
+  private _glyphSlotToLabelIdx = new Map<number, number>();
 
   constructor(pxPerUnit: number) {
     const base = new PlaneGeometry(1, 1);
@@ -175,54 +175,54 @@ export class LabelMeshGroup {
     this.fillMesh.matrixAutoUpdate = false;
     this.haloMesh.matrixAutoUpdate = false;
 
-    this.pxPerUnit = pxPerUnit;
+    this._pxPerUnit = pxPerUnit;
   }
 
   private _syncUniforms() {
     if (!this.fillMesh.material?.uniforms) return;
     updateFillUniforms(
       this.fillMesh.material,
-      this.labelTex,
-      this.glyphTex,
-      this.labelTexWidth,
-      this.glyphTexWidth,
+      this._labelTex,
+      this._glyphTex,
+      this._labelTexWidth,
+      this._glyphTexWidth,
     );
     updateHaloUniforms(
       this.haloMesh.material,
-      this.labelTex,
-      this.glyphTex,
-      this.labelTexWidth,
-      this.glyphTexWidth,
+      this._labelTex,
+      this._glyphTex,
+      this._labelTexWidth,
+      this._glyphTexWidth,
     );
   }
 
   private _resizeLabel(newCount: number) {
-    this.labelCapacity = Math.ceil(newCount * CAPACITY_MULTIPLIER);
-    const w = texDims(this.labelCapacity * LABEL_TEXELS);
+    this._labelCapacity = Math.ceil(newCount * CAPACITY_MULTIPLIER);
+    const w = texDims(this._labelCapacity * LABEL_TEXELS);
     const next = new Float32Array(w * w * 4);
-    next.set(this.labelData);
-    this.labelData = next;
-    this.labelTexWidth = w;
-    this.labelTex.dispose();
-    this.labelTex = makeTexture(this.labelData, w);
+    next.set(this._labelData);
+    this._labelData = next;
+    this._labelTexWidth = w;
+    this._labelTex.dispose();
+    this._labelTex = makeTexture(this._labelData, w);
     this._syncUniforms();
   }
 
 private _resizeGlyph(minSlots: number) {
-    this.glyphCapacity = Math.ceil(minSlots * CAPACITY_MULTIPLIER);
-    const w = texDims(this.glyphCapacity * GLYPH_TEXELS);
+    this._glyphCapacity = Math.ceil(minSlots * CAPACITY_MULTIPLIER);
+    const w = texDims(this._glyphCapacity * GLYPH_TEXELS);
     const next = new Float32Array(w * w * 4);
-    next.set(this.glyphData);
-    this.glyphData = next;
-    this.glyphTexWidth = w;
-    this.glyphTex.dispose();
-    this.glyphTex = makeTexture(this.glyphData, w);
+    next.set(this._glyphData);
+    this._glyphData = next;
+    this._glyphTexWidth = w;
+    this._glyphTex.dispose();
+    this._glyphTex = makeTexture(this._glyphData, w);
 
-    const newIndex = new Uint32Array(this.glyphCapacity);
-    newIndex.set(this.glyphIndex.subarray(0, this.glyphActiveCount));
-    this.glyphIndex = newIndex;
-    this.glyphIndexAttr = new InstancedBufferAttribute(this.glyphIndex, 1);
-    this.geom.setAttribute("glyphIndex", this.glyphIndexAttr);
+    const newIndex = new Uint32Array(this._glyphCapacity);
+    newIndex.set(this._glyphIndex.subarray(0, this._glyphActiveCount));
+    this._glyphIndex = newIndex;
+    this._glyphIndexAttr = new InstancedBufferAttribute(this._glyphIndex, 1);
+    this.geom.setAttribute("glyphIndex", this._glyphIndexAttr);
 
     this._syncUniforms();
   }
@@ -234,37 +234,37 @@ private _resizeGlyph(minSlots: number) {
     if (labels.length === 0) return;
 
     const newGlyphCount = labels.reduce((s, l) => s + l.glyphs.length, 0);
-    if (this.labelCount + labels.length > this.labelCapacity)
-      this._resizeLabel(this.labelCount + labels.length);
+    if (this._labelCount + labels.length > this._labelCapacity)
+      this._resizeLabel(this._labelCount + labels.length);
     // fresh slots needed beyond what the free list can supply
-    const freshNeeded = Math.max(0, newGlyphCount - this.glyphFreeSlots.length);
-    if (this.glyphSlotCount + freshNeeded > this.glyphCapacity)
-      this._resizeGlyph(this.glyphSlotCount + freshNeeded);
+    const freshNeeded = Math.max(0, newGlyphCount - this._glyphFreeSlots.length);
+    if (this._glyphSlotCount + freshNeeded > this._glyphCapacity)
+      this._resizeGlyph(this._glyphSlotCount + freshNeeded);
 
-    let labelIdx = this.labelCount;
+    let labelIdx = this._labelCount;
     for (const label of labels) {
-      if (this.labelIdToIdx.has(label.id)) {
+      if (this._labelIdToIdx.has(label.id)) {
         console.warn(
           `MeshGroup.addLabels - Label ${label.id} already exists in label mesh group`,
         );
         continue;
       }
-      this.labelIdToIdx.set(label.id, labelIdx);
-      this.labelIdxToId.set(labelIdx, label.id);
-      fillLabelTexelData(this.labelData, label, labelIdx, this.pxPerUnit);
+      this._labelIdToIdx.set(label.id, labelIdx);
+      this._labelIdxToId.set(labelIdx, label.id);
+      fillLabelTexelData(this._labelData, label, labelIdx, this._pxPerUnit);
       const slots: number[] = [];
       for (const glyph of label.glyphs) {
-        const slot = this.glyphFreeSlots.pop() ?? this.glyphSlotCount++;
-        fillGlyphTexelData(this.glyphData, glyph, labelIdx, slot, this.pxPerUnit);
-        this.glyphSlotToLabelIdx.set(slot, labelIdx);
+        const slot = this._glyphFreeSlots.pop() ?? this._glyphSlotCount++;
+        fillGlyphTexelData(this._glyphData, glyph, labelIdx, slot, this._pxPerUnit);
+        this._glyphSlotToLabelIdx.set(slot, labelIdx);
         slots.push(slot);
       }
-      this.labelToGlyphs.set(labelIdx, slots);
-      this.glyphActiveCount += slots.length;
+      this._labelToGlyphs.set(labelIdx, slots);
+      this._glyphActiveCount += slots.length;
       labelIdx++;
     }
 
-    this.labelCount = labelIdx;
+    this._labelCount = labelIdx;
     this._rebuildGlyphIndex();
   }
 
@@ -278,36 +278,36 @@ private _resizeGlyph(minSlots: number) {
 
     let glyphIndexDirty = false;
     for (const label of labels) {
-      const labelIdx = this.labelIdToIdx.get(label.id);
+      const labelIdx = this._labelIdToIdx.get(label.id);
       if (labelIdx === undefined) {
         console.warn(
           `MeshGroup.updateLabels - Label ${label.id} not found in label mesh group`,
         );
         continue;
       }
-      fillLabelTexelData(this.labelData, label, labelIdx, this.pxPerUnit);
+      fillLabelTexelData(this._labelData, label, labelIdx, this._pxPerUnit);
       if (label.glyphs.length === 0) continue;
-      const existingSlots = this.labelToGlyphs.get(labelIdx)!;
+      const existingSlots = this._labelToGlyphs.get(labelIdx)!;
       if (existingSlots.length === label.glyphs.length) {
         // same count: overwrite in-place at the same permanent slots
         for (let i = 0; i < label.glyphs.length; i++) {
-          fillGlyphTexelData(this.glyphData, label.glyphs[i], labelIdx, existingSlots[i], this.pxPerUnit);
+          fillGlyphTexelData(this._glyphData, label.glyphs[i], labelIdx, existingSlots[i], this._pxPerUnit);
         }
       } else {
         // different count: free old slots, allocate new ones
         this._removeGlyphSlots(labelIdx);
-        const freshNeeded = Math.max(0, label.glyphs.length - this.glyphFreeSlots.length);
-        if (this.glyphSlotCount + freshNeeded > this.glyphCapacity)
-          this._resizeGlyph(this.glyphSlotCount + freshNeeded);
+        const freshNeeded = Math.max(0, label.glyphs.length - this._glyphFreeSlots.length);
+        if (this._glyphSlotCount + freshNeeded > this._glyphCapacity)
+          this._resizeGlyph(this._glyphSlotCount + freshNeeded);
         const newSlots: number[] = [];
         for (const glyph of label.glyphs) {
-          const slot = this.glyphFreeSlots.pop() ?? this.glyphSlotCount++;
-          fillGlyphTexelData(this.glyphData, glyph, labelIdx, slot, this.pxPerUnit);
-          this.glyphSlotToLabelIdx.set(slot, labelIdx);
+          const slot = this._glyphFreeSlots.pop() ?? this._glyphSlotCount++;
+          fillGlyphTexelData(this._glyphData, glyph, labelIdx, slot, this._pxPerUnit);
+          this._glyphSlotToLabelIdx.set(slot, labelIdx);
           newSlots.push(slot);
         }
-        this.labelToGlyphs.set(labelIdx, newSlots);
-        this.glyphActiveCount += newSlots.length;
+        this._labelToGlyphs.set(labelIdx, newSlots);
+        this._glyphActiveCount += newSlots.length;
         glyphIndexDirty = true;
       }
     }
@@ -316,29 +316,29 @@ private _resizeGlyph(minSlots: number) {
   }
 
   private _removeGlyphSlots(labelIdx: number) {
-    const slots = this.labelToGlyphs.get(labelIdx) ?? [];
+    const slots = this._labelToGlyphs.get(labelIdx) ?? [];
     for (const slot of slots) {
-      this.glyphFreeSlots.push(slot);
-      this.glyphSlotToLabelIdx.delete(slot);
+      this._glyphFreeSlots.push(slot);
+      this._glyphSlotToLabelIdx.delete(slot);
     }
-    this.glyphActiveCount -= slots.length;
-    this.labelToGlyphs.set(labelIdx, []);
+    this._glyphActiveCount -= slots.length;
+    this._labelToGlyphs.set(labelIdx, []);
   }
 
   private _rebuildGlyphIndex() {
     let pos = 0;
-    for (const slots of this.labelToGlyphs.values()) {
+    for (const slots of this._labelToGlyphs.values()) {
       for (const slot of slots) {
-        this.glyphIndex[pos++] = slot;
+        this._glyphIndex[pos++] = slot;
       }
     }
-    this.glyphActiveCount = pos;
+    this._glyphActiveCount = pos;
     this.geom.instanceCount = pos;
-    if (this.glyphIndexAttr) this.glyphIndexAttr.needsUpdate = true;
+    if (this._glyphIndexAttr) this._glyphIndexAttr.needsUpdate = true;
   }
 
   private _swapDelete(id: string) {
-    const labelIdx = this.labelIdToIdx.get(id);
+    const labelIdx = this._labelIdToIdx.get(id);
     if (labelIdx === undefined) {
       console.warn(
         `MeshGroup.removeLabels - Label ${id} not found in label mesh group`,
@@ -346,31 +346,31 @@ private _resizeGlyph(minSlots: number) {
       return;
     }
     this._removeGlyphSlots(labelIdx);
-    this.labelToGlyphs.delete(labelIdx);
-    this.labelIdToIdx.delete(id);
-    this.labelIdxToId.delete(labelIdx);
+    this._labelToGlyphs.delete(labelIdx);
+    this._labelIdToIdx.delete(id);
+    this._labelIdxToId.delete(labelIdx);
 
-    const last = this.labelCount - 1;
+    const last = this._labelCount - 1;
     if (labelIdx !== last) {
-      this.labelData.copyWithin(
+      this._labelData.copyWithin(
         labelIdx * LABEL_TEXELS * 4,
         last * LABEL_TEXELS * 4,
         (last + 1) * LABEL_TEXELS * 4,
       );
-      const movedSlots = this.labelToGlyphs.get(last) ?? [];
-      this.labelToGlyphs.set(labelIdx, movedSlots);
-      this.labelToGlyphs.delete(last);
+      const movedSlots = this._labelToGlyphs.get(last) ?? [];
+      this._labelToGlyphs.set(labelIdx, movedSlots);
+      this._labelToGlyphs.delete(last);
       // update T0 (label index stored in glyph texture) for moved label's glyphs
       for (const slot of movedSlots) {
-        this.glyphData[slot * GLYPH_TEXELS * 4] = labelIdx;
-        this.glyphSlotToLabelIdx.set(slot, labelIdx);
+        this._glyphData[slot * GLYPH_TEXELS * 4] = labelIdx;
+        this._glyphSlotToLabelIdx.set(slot, labelIdx);
       }
-      const movedId = this.labelIdxToId.get(last)!;
-      this.labelIdToIdx.set(movedId, labelIdx);
-      this.labelIdxToId.set(labelIdx, movedId);
-      this.labelIdxToId.delete(last);
+      const movedId = this._labelIdxToId.get(last)!;
+      this._labelIdToIdx.set(movedId, labelIdx);
+      this._labelIdxToId.set(labelIdx, movedId);
+      this._labelIdxToId.delete(last);
     }
-    this.labelCount--;
+    this._labelCount--;
     this._rebuildGlyphIndex();
   }
 
@@ -389,7 +389,7 @@ private _resizeGlyph(minSlots: number) {
   private _batchRemove(ids: string[]) {
     const deleteIdxs = new Set<number>();
     for (const id of ids) {
-      const idx = this.labelIdToIdx.get(id);
+      const idx = this._labelIdToIdx.get(id);
       if (idx === undefined) {
         console.warn(
           `MeshGroup.removeLabels - Label ${id} not found in label mesh group`,
@@ -403,16 +403,16 @@ private _resizeGlyph(minSlots: number) {
     // Free glyph slots for all deleted labels (no texture copyWithin needed)
     for (const labelIdx of deleteIdxs) {
       this._removeGlyphSlots(labelIdx);
-      this.labelToGlyphs.delete(labelIdx);
+      this._labelToGlyphs.delete(labelIdx);
     }
 
     // Pack label texture, build old→new index map
     const oldToNew = new Map<number, number>();
     let lwp = 0;
-    for (let rp = 0; rp < this.labelCount; rp++) {
+    for (let rp = 0; rp < this._labelCount; rp++) {
       if (deleteIdxs.has(rp)) continue;
       if (lwp !== rp)
-        this.labelData.copyWithin(
+        this._labelData.copyWithin(
           lwp * LABEL_TEXELS * 4,
           rp * LABEL_TEXELS * 4,
           (rp + 1) * LABEL_TEXELS * 4,
@@ -420,25 +420,25 @@ private _resizeGlyph(minSlots: number) {
       oldToNew.set(rp, lwp);
       lwp++;
     }
-    this.labelCount = lwp;
+    this._labelCount = lwp;
 
     // Remap id↔idx; for moved labels update their glyphs' T0 in glyph texture
-    this.labelIdxToId.clear();
-    for (const [id, oldIdx] of this.labelIdToIdx) {
+    this._labelIdxToId.clear();
+    for (const [id, oldIdx] of this._labelIdToIdx) {
       if (deleteIdxs.has(oldIdx)) {
-        this.labelIdToIdx.delete(id);
+        this._labelIdToIdx.delete(id);
         continue;
       }
       const newIdx = oldToNew.get(oldIdx)!;
-      this.labelIdToIdx.set(id, newIdx);
-      this.labelIdxToId.set(newIdx, id);
+      this._labelIdToIdx.set(id, newIdx);
+      this._labelIdxToId.set(newIdx, id);
       if (newIdx !== oldIdx) {
-        const slots = this.labelToGlyphs.get(oldIdx)!;
-        this.labelToGlyphs.set(newIdx, slots);
-        this.labelToGlyphs.delete(oldIdx);
+        const slots = this._labelToGlyphs.get(oldIdx)!;
+        this._labelToGlyphs.set(newIdx, slots);
+        this._labelToGlyphs.delete(oldIdx);
         for (const slot of slots) {
-          this.glyphData[slot * GLYPH_TEXELS * 4] = newIdx;
-          this.glyphSlotToLabelIdx.set(slot, newIdx);
+          this._glyphData[slot * GLYPH_TEXELS * 4] = newIdx;
+          this._glyphSlotToLabelIdx.set(slot, newIdx);
         }
       }
     }
@@ -450,14 +450,14 @@ private _resizeGlyph(minSlots: number) {
    * Clear all data and re-add the given labels from scratch
    */
   rebuild(labels: LabelInstance[]) {
-    this.labelCount = 0;
-    this.glyphActiveCount = 0;
-    this.glyphSlotCount = 0;
-    this.glyphFreeSlots.length = 0;
-    this.labelToGlyphs.clear();
-    this.labelIdToIdx.clear();
-    this.labelIdxToId.clear();
-    this.glyphSlotToLabelIdx.clear();
+    this._labelCount = 0;
+    this._glyphActiveCount = 0;
+    this._glyphSlotCount = 0;
+    this._glyphFreeSlots.length = 0;
+    this._labelToGlyphs.clear();
+    this._labelIdToIdx.clear();
+    this._labelIdxToId.clear();
+    this._glyphSlotToLabelIdx.clear();
     this.geom.instanceCount = 0;
     this._resizeLabel(labels.length);
     const totalGlyphs = labels.reduce((s, l) => s + l.glyphs.length, 0);
@@ -472,17 +472,17 @@ private _resizeGlyph(minSlots: number) {
     if (!this.fillMesh.material?.uniforms) {
       this.fillMesh.material = createFillMaterial(
         atlas,
-        this.labelTex,
-        this.glyphTex,
-        this.labelTexWidth,
-        this.glyphTexWidth,
+        this._labelTex,
+        this._glyphTex,
+        this._labelTexWidth,
+        this._glyphTexWidth,
       );
       this.haloMesh.material = createHaloMaterial(
         atlas,
-        this.labelTex,
-        this.glyphTex,
-        this.labelTexWidth,
-        this.glyphTexWidth,
+        this._labelTex,
+        this._glyphTex,
+        this._labelTexWidth,
+        this._glyphTexWidth,
       );
     } else {
       updateFillAtlas(this.fillMesh.material, atlas);
@@ -506,8 +506,8 @@ private _resizeGlyph(minSlots: number) {
       this.addLabels(toAdd);
     }
 
-    this.labelTex.needsUpdate = true;
-    this.glyphTex.needsUpdate = true;
+    this._labelTex.needsUpdate = true;
+    this._glyphTex.needsUpdate = true;
   }
 
   /**
@@ -517,16 +517,24 @@ private _resizeGlyph(minSlots: number) {
    */
   cullByFrustum(visibleIds: Set<string>) {
     let pos = 0;
-    for (const [id, labelIdx] of this.labelIdToIdx) {
+    let hasHalo = false;
+    for (const [id, labelIdx] of this._labelIdToIdx) {
       if (!visibleIds.has(id)) {
         continue;
       }
-      for (const slot of this.labelToGlyphs.get(labelIdx)!) {
-        this.glyphIndex[pos++] = slot;
+      if (!hasHalo && this._labelData[(labelIdx * LABEL_TEXELS + 3) * 4 + 3] > 0) {
+        hasHalo = true;
+      }
+      for (const slot of this._labelToGlyphs.get(labelIdx)!) {
+        this._glyphIndex[pos++] = slot;
       }
     }
     this.geom.instanceCount = pos;
-    if (this.glyphIndexAttr) this.glyphIndexAttr.needsUpdate = true;
+    if (this._glyphIndexAttr) {
+      this._glyphIndexAttr.needsUpdate = true;
+    }
+    this.fillMesh.visible = pos > 0;
+    this.haloMesh.visible = hasHalo;
   }
 
   /**
@@ -534,8 +542,8 @@ private _resizeGlyph(minSlots: number) {
    */
   dispose() {
     this.geom.dispose();
-    this.labelTex.dispose();
-    this.glyphTex.dispose();
+    this._labelTex.dispose();
+    this._glyphTex.dispose();
     this.fillMesh.material.dispose();
     this.haloMesh.material.dispose();
   }
