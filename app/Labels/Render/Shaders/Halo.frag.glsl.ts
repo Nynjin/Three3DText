@@ -15,17 +15,16 @@ flat in int vGlyphId;
 
 out vec4 outColor;
 
-const int LABEL_TEXELS_C = 6;
-const int GLYPH_TEXELS_C = 3;
-
 vec4 labelFetch(int instanceId, int texel) {
-  int li = instanceId * LABEL_TEXELS_C + texel;
-  return texelFetch(uLabelTex, ivec2(li % uLabelTexWidth, li / uLabelTexWidth), 0);
+  int li = instanceId + texel;
+  int w = max(uLabelTexWidth, 1);
+  return texelFetch(uLabelTex, ivec2(li % w, li / w), 0);
 }
 
 vec4 glyphFetch(int instanceId, int texel) {
-  int li = instanceId * GLYPH_TEXELS_C + texel;
-  return texelFetch(uGlyphTex, ivec2(li % uGlyphTexWidth, li / uGlyphTexWidth), 0);
+  int li = instanceId + texel;
+  int w = max(uGlyphTexWidth, 1);
+  return texelFetch(uGlyphTex, ivec2(li % w, li / w), 0);
 }
 
 void main() {
@@ -36,11 +35,6 @@ void main() {
   float haloOpacity = t3.a;
   float haloWidth = t4.x;
   float haloBlur  = t4.y;
-  int visible = int(labelFetch(vLabelId, 0).w);
-
-  // Discard immediately if not visible
-  if (visible <= 0) discard;
-  if (haloOpacity <= 0.0) discard;
 
   // Sample SDF
   vec2 atlasUV = mix(uvRect.xy, uvRect.zw, vUv);

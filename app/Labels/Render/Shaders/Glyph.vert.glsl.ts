@@ -23,18 +23,18 @@ out vec2 vUv;
 flat out int vLabelId;
 flat out int vGlyphId;
 
-const int LABEL_TEXELS_C = 6;
-const int GLYPH_TEXELS_C = 3;
-
 vec4 labelFetch(int instanceId, int texel) {
-  int li = instanceId * LABEL_TEXELS_C + texel;
-  return texelFetch(uLabelTex, ivec2(li % uLabelTexWidth, li / uLabelTexWidth), 0);
+  int li = instanceId + texel;
+  int w = max(uLabelTexWidth, 1);
+  return texelFetch(uLabelTex, ivec2(li % w, li / w), 0);
 }
 
 vec4 glyphFetch(int instanceId, int texel) {
-  int li = instanceId * GLYPH_TEXELS_C + texel;
-  return texelFetch(uGlyphTex, ivec2(li % uGlyphTexWidth, li / uGlyphTexWidth), 0);
+  int li = instanceId + texel;
+  int w = max(uGlyphTexWidth, 1);
+  return texelFetch(uGlyphTex, ivec2(li % w, li / w), 0);
 }
+
 
 // Quaternion rotation
 vec3 rotateByQuat(vec3 v, vec4 q) {
@@ -64,9 +64,9 @@ float getDistanceScale(vec3 labelPos) {
 void main() {
   vUv = uv;
 
-  // glyphIndex is the permanent texture slot for this glyph (set by CPU cull)
+  // glyphIndex is the texture slot for this glyph set by culling
   int gId = int(glyphIndex);
-  vGlyphId = gId;  // fragment must fetch from the same slot, not gl_InstanceID
+  vGlyphId = gId;
 
   // Read glyph data first to get the label index
   vec4 g0 = glyphFetch(gId, 0);
@@ -82,11 +82,6 @@ void main() {
   int visible = int(labelFetch(vLabelId, 0).w);
   int rotAlign  = int(t5.x);
   int symPlace  = int(t5.y);
-
-  if (visible <= 0) {
-    gl_Position = vec4(2.0);
-    return;
-  }
 
   float sizeScale = getDistanceScale(labelPos);
   vec3 quad = position * vec3(size * sizeScale, 1.0);
