@@ -2,6 +2,7 @@ export const HALO_FRAG = /* glsl */ `
 precision highp float;
 
 uniform sampler2D uAtlas;
+uniform vec2  uAtlasSize;
 uniform float uCutoff;
 uniform float uRadius;
 uniform highp sampler2D uLabelTex;
@@ -28,7 +29,7 @@ vec4 glyphFetch(int instanceId, int texel) {
 }
 
 void main() {
-  vec4 uvRect     = glyphFetch(vGlyphId, 2);
+  vec4 g2         = glyphFetch(vGlyphId, 2);
   vec4 t3         = labelFetch(vLabelId, 3);
   vec4 t4         = labelFetch(vLabelId, 4);
   vec3 haloColor  = t3.rgb;
@@ -37,7 +38,8 @@ void main() {
   float haloBlur  = t4.y;
 
   // Sample SDF
-  vec2 atlasUV = mix(uvRect.xy, uvRect.zw, vUv);
+  // vUv.y is flipped
+  vec2 atlasUV = (g2.xy + vec2(vUv.x, 1.0 - vUv.y) * g2.zw) / uAtlasSize;
   float sdf    = texture(uAtlas, atlasUV).r;
   float fw     = fwidth(sdf);
 

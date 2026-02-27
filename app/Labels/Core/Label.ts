@@ -101,95 +101,311 @@ export class Label {
   private _listeners = new Set<LabelChangeListener>();
 
   // Unique id
-  id = crypto.randomUUID();
+  private _id: string;
 
   // Content
-  text: string;
+  private _text: string;
+  private _textTransform: TextTransform;
   
   // Position & Transform
-  position: Vector3;
-  rotation: Quaternion;
-  offset: Vector2;
+  private _position: Vector3;
+  private _rotation: Quaternion;
+  private _offset: Vector2;
   
   // Font
-  font: string;
-  fontSize: number;
-  fontWeight: string;
-  letterSpacing: number;
-  lineHeight: number;
+  private _font: string;
+  private _fontSize: number;
+  private _fontWeight: string;
+  private _letterSpacing: number;
+  private _lineHeight: number;
   
   // Layout
-  maxWidth: number;
-  textAlign: TextAlign;
-  anchorX: TextAnchorX;
-  anchorY: TextAnchorY;
-  padding: [number, number, number, number];
+  private _maxWidth: number;
+  private _textAlign: TextAlign;
+  private _anchorX: TextAnchorX;
+  private _anchorY: TextAnchorY;
+  private _padding: [number, number, number, number];
   
   // Fill
-  color: Color;
-  opacity: number;
+  private _color: Color;
+  private _opacity: number;
   
   // Halo
-  haloColor: Color;
-  haloWidth: number;
-  haloBlur: number;
-  haloOpacity: number;
+  private _haloColor: Color;
+  private _haloWidth: number;
+  private _haloBlur: number;
+  private _haloOpacity: number;
   
   // Rendering
-  rotationAlignment: RotationAlignment;
-  symbolPlacement: SymbolPlacement;
-  visible: boolean;
+  private _rotationAlignment: RotationAlignment;
+  private _symbolPlacement: SymbolPlacement;
+
+  // Visibility
+  private _visible: boolean;  
+
+  get id() {
+    return this._id;
+  }
+  set id(_) {
+    console.warn("Label.id is read-only.");
+  }
+
+  get text() {
+    return this._text;
+  }
+  set text(value: string) {
+    this._text = value;
+    this._emit(LabelChangeType.Text);
+  }
+
+  get textTransform() {
+    return this._textTransform;
+  }
+  set textTransform(value: TextTransform) {
+    this._textTransform = value;
+    this._emit(LabelChangeType.Text);
+  }
+
+  get position(): Vector3 {
+    return this._position;
+  }
+  set position(value: Vector3 | [number, number, number]) {
+    this._position = toVector3(value);
+    this._emit(LabelChangeType.Transform);
+  }
   
-  // Transform
-  textTransform: TextTransform;
-  
+  get rotation(): Quaternion {
+    return this._rotation;
+  }
+  set rotation(value: [number, number, number] | Euler | Quaternion) {
+    this._rotation = toQuaternion(value);
+    this._emit(LabelChangeType.Transform);
+  }
+
+  get offset(): Vector2 {
+    return this._offset;
+  }
+  set offset(value: Vector2 | [number, number]) {
+    this._offset = toVector2(value);
+    this._emit(LabelChangeType.Layout);
+  }
+
+  get font() {
+    return this._font;
+  }
+  set font(value: string) {
+    this._font = value;
+    this._emit(LabelChangeType.Font);
+  }
+
+  get fontSize() {
+    return this._fontSize;
+  }
+  set fontSize(value: number) {
+    this._fontSize = value;
+    this._emit(LabelChangeType.Font);
+  }
+
+  get fontWeight() {
+    return this._fontWeight;
+  }
+  set fontWeight(value: string) {
+    this._fontWeight = value;
+    this._emit(LabelChangeType.Font);
+  }
+
+  get letterSpacing() {
+    return this._letterSpacing;
+  }
+  set letterSpacing(value: number) {
+    this._letterSpacing = value;
+    this._emit(LabelChangeType.Layout);
+  }
+
+  get lineHeight() {
+    return this._lineHeight;
+  }
+  set lineHeight(value: number) {
+    this._lineHeight = value;
+    this._emit(LabelChangeType.Layout);
+  }
+
+  get maxWidth() {
+    return this._maxWidth;
+  }
+  set maxWidth(value: number) {
+    this._maxWidth = value;
+    this._emit(LabelChangeType.Layout);
+  }
+
+  get textAlign() {
+    return this._textAlign;
+  }
+  set textAlign(value: TextAlign) {
+    this._textAlign = value;
+    this._emit(LabelChangeType.Layout);
+  }
+
+  get anchorX() {
+    return this._anchorX;
+  }
+  set anchorX(value: TextAnchorX) {
+    this._anchorX = value;
+    this._emit(LabelChangeType.Layout);
+  }
+
+  get anchorY() {
+    return this._anchorY;
+  }
+  set anchorY(value: TextAnchorY) {
+    this._anchorY = value;
+    this._emit(LabelChangeType.Layout);
+  }
+
+  get padding() {
+    return this._padding;
+  }
+  set padding(value: [number, number, number, number]) {
+    this._padding = value;
+    this._emit(LabelChangeType.Layout);
+  }
+
+  get color(): Color {
+    return this._color;
+  }
+  set color(value: string | number | Color | Vector3) {
+    this._color = toColor(value);
+    this._emit(LabelChangeType.Style);
+  }
+
+  get opacity() {
+    return this._opacity;
+  }
+  set opacity(value: number) {
+    this._opacity = value;
+    this._emit(LabelChangeType.Style);
+  }
+
+  get haloColor(): Color {
+    return this._haloColor;
+  }
+  set haloColor(value: string | number | Color | Vector3) {
+    this._haloColor = toColor(value);
+    this._emit(LabelChangeType.Style);
+  }
+
+  get haloWidth() {
+    return this._haloWidth;
+  }
+  set haloWidth(value: number) { 
+    this._haloWidth = this._clampHaloWidth(value);
+    this._emit(LabelChangeType.Style);
+  }
+
+  get haloBlur() {
+    return this._haloBlur;
+  }
+  set haloBlur(value: number) {
+    this._haloBlur = this._clampHaloBlur(value);
+    this._emit(LabelChangeType.Style);
+  }
+
+  get haloOpacity() {
+    return this._haloOpacity;
+  }
+  set haloOpacity(value: number) {
+    this._haloOpacity = value;
+    this._emit(LabelChangeType.Style);
+  }
+
+  get rotationAlignment() {
+    return this._rotationAlignment;
+  }
+  set rotationAlignment(value: RotationAlignment) {
+    this._rotationAlignment = value;
+    this._emit(LabelChangeType.Style);
+  }
+
+  get symbolPlacement() {
+    return this._symbolPlacement;
+  }
+  set symbolPlacement(value: SymbolPlacement) {
+    this._symbolPlacement = value;
+    this._emit(LabelChangeType.Style);
+  }
+
+  get visible() {
+    return this._visible && this._opacity > 0;
+  }
+  set visible(value: boolean) {
+    this._visible = value;
+    this._emit(LabelChangeType.Visibility);
+  }
+
   constructor(options: LabelOptions) {
-    this.text = options.text;
+    this._id = crypto.randomUUID();
+    this._text = options.text;
     
-    this.position = options.position ? toVector3(options.position) : new Vector3();
-    this.rotation = options.rotation ? toQuaternion(options.rotation) : new Quaternion();
-    this.offset = options.offset ? toVector2(options.offset) : new Vector2();
+    this._position = options.position ? toVector3(options.position) : new Vector3();
+    this._rotation = options.rotation ? toQuaternion(options.rotation) : new Quaternion();
+    this._offset = options.offset ? toVector2(options.offset) : new Vector2();
     
-    this.font = options.font ?? "sans-serif";
-    this.fontSize = options.fontSize ?? 16;
-    this.fontWeight = options.fontWeight ?? "normal";
-    this.letterSpacing = options.letterSpacing ?? 0;
-    this.lineHeight = options.lineHeight ?? 0.5;
+    this._font = options.font ?? "sans-serif";
+    this._fontSize = options.fontSize ?? 16;
+    this._fontWeight = options.fontWeight ?? "normal";
+    this._letterSpacing = options.letterSpacing ?? 0;
+    this._lineHeight = options.lineHeight ?? 0.5;
     
-    this.maxWidth = options.maxWidth ?? Infinity;
-    this.textAlign = options.textAlign ?? TextAlign.Center;
-    this.anchorX = options.anchorX ?? TextAnchorX.Center;
-    this.anchorY = options.anchorY ?? TextAnchorY.Middle;
-    this.padding = options.padding ?? [0, 0, 0, 0];
+    this._maxWidth = options.maxWidth ?? Infinity;
+    this._textAlign = options.textAlign ?? TextAlign.Center;
+    this._anchorX = options.anchorX ?? TextAnchorX.Center;
+    this._anchorY = options.anchorY ?? TextAnchorY.Middle;
+    this._padding = options.padding ?? [0, 0, 0, 0];
     
-    this.color = options.color !== undefined ? toColor(options.color) : new Color(0, 0, 0);
-    this.opacity = options.opacity ?? 1;
+    this._color = options.color !== undefined ? toColor(options.color) : new Color(0, 0, 0);
+    this._opacity = options.opacity ?? 1;
     
-    this.haloColor = options.haloColor !== undefined ? toColor(options.haloColor) : new Color(1, 1, 1);
-    this.haloWidth = options.haloWidth ?? 0;
-    this.haloBlur = options.haloBlur ?? 0;
-    this.haloOpacity = options.haloOpacity ?? 1;
+    this._haloColor = options.haloColor !== undefined ? toColor(options.haloColor) : new Color(1, 1, 1);
+    this._haloWidth = this._clampHaloWidth(options.haloWidth ?? 0);
+    this._haloBlur = this._clampHaloBlur(options.haloBlur ?? 0);
+    this._haloOpacity = options.haloOpacity ?? 1;
     
-    this.rotationAlignment = options.rotationAlignment ?? RotationAlignment.Map;
-    this.symbolPlacement = options.symbolPlacement ?? SymbolPlacement.Point;
-    this.visible = options.visible !== undefined ? options.visible : true;
+    this._rotationAlignment = options.rotationAlignment ?? RotationAlignment.Map;
+    this._symbolPlacement = options.symbolPlacement ?? SymbolPlacement.Point;
+    this._visible = options.visible !== undefined ? options.visible : true;
     
-    this.textTransform = options.textTransform ?? TextTransform.None;
+    this._textTransform = options.textTransform ?? TextTransform.None;
+  }
+
+  _clampHaloWidth(value: number): number {
+    if (value > this._fontSize * 4) {
+      console.warn(`Label.haloWidth ${value} is too large for fontSize ${this._fontSize}. Clamping to ${this._fontSize * 4}.`);
+      return this._fontSize * 4;
+    }
+    return value;
+  }
+
+  _clampHaloBlur(value: number): number {
+    if (value > this._fontSize * 4) {
+      console.warn(`Label.haloBlur ${value} is too large for fontSize ${this._fontSize}. Clamping to ${this._fontSize * 4}.`);
+      return this._fontSize * 4;
+    }
+    return value;
   }
   
   /** Get transformed text based on textTransform property */
   getDisplayText(): string {
-    switch (this.textTransform) {
-      case TextTransform.Uppercase: return this.text.toUpperCase();
-      case TextTransform.Lowercase: return this.text.toLowerCase();
-      case TextTransform.Capitalize: return this.text.replace(/\b\w/g, c => c.toUpperCase());
-      default: return this.text;
+    switch (this._textTransform) {
+      case TextTransform.Uppercase: return this._text.toUpperCase();
+      case TextTransform.Lowercase: return this._text.toLowerCase();
+      case TextTransform.Capitalize: return this._text.replace(/\b\w/g, c => c.toUpperCase());
+      default: return this._text;
     }
   }
   
   /** Check if halo should be rendered */
   hasHalo(): boolean {
-    return this.haloWidth > 0 && this.haloOpacity > 0;
+    return this._haloWidth > 0 && this._haloOpacity > 0;
   }
   
   /** Update multiple properties at once */
@@ -198,119 +414,109 @@ export class Label {
 
     // Transform properties
     if (options.position !== undefined) {
-      this.position = toVector3(options.position);
+      this._position = toVector3(options.position);
       changes |= LabelChangeType.Transform;
     }
     if (options.rotation !== undefined) {
-      this.rotation = toQuaternion(options.rotation);
+      this._rotation = toQuaternion(options.rotation);
       changes |= LabelChangeType.Transform;
     }
     if (options.offset !== undefined) {
-      this.offset = toVector2(options.offset);
+      this._offset = toVector2(options.offset);
       changes |= LabelChangeType.Layout;
     }
 
     // Font properties
     if (options.font !== undefined) {
-      this.font = options.font;
+      this._font = options.font;
       changes |= LabelChangeType.Font;
     }
     if (options.fontSize !== undefined) {
-      this.fontSize = options.fontSize;
+      this._fontSize = options.fontSize;
       changes |= LabelChangeType.Font;
     }
     if (options.fontWeight !== undefined) {
-      this.fontWeight = options.fontWeight;
+      this._fontWeight = options.fontWeight;
       changes |= LabelChangeType.Font;
     }
     
     // Text content properties
     if (options.text !== undefined) {
-      this.text = options.text;
+      this._text = options.text;
       changes |= LabelChangeType.Text;
     }
     if (options.textTransform !== undefined) {
-      this.textTransform = options.textTransform;
+      this._textTransform = options.textTransform;
       changes |= LabelChangeType.Text;
     }
 
     // Text layout properties
     if (options.letterSpacing !== undefined) {
-      this.letterSpacing = options.letterSpacing;
+      this._letterSpacing = options.letterSpacing;
       changes |= LabelChangeType.Layout;
     }
     if (options.lineHeight !== undefined) {
-      this.lineHeight = options.lineHeight;
+      this._lineHeight = options.lineHeight;
       changes |= LabelChangeType.Layout;
     }
     if (options.maxWidth !== undefined) {
-      this.maxWidth = options.maxWidth;
+      this._maxWidth = options.maxWidth;
       changes |= LabelChangeType.Layout;
     }
     if (options.textAlign !== undefined) {
-      this.textAlign = options.textAlign;
+      this._textAlign = options.textAlign;
       changes |= LabelChangeType.Layout;
     }
     if (options.anchorX !== undefined) {
-      this.anchorX = options.anchorX;
+      this._anchorX = options.anchorX;
       changes |= LabelChangeType.Layout;
     }
     if (options.anchorY !== undefined) {
-      this.anchorY = options.anchorY;
+      this._anchorY = options.anchorY;
       changes |= LabelChangeType.Layout;
     }
     if (options.padding !== undefined) {
-      this.padding = options.padding;
+      this._padding = options.padding;
       changes |= LabelChangeType.Layout;
     }
 
     // Style properties
     if (options.color !== undefined) {
-      this.color = toColor(options.color);
+      this._color = toColor(options.color);
       changes |= LabelChangeType.Style;
     }
     if (options.opacity !== undefined) {
-      this.opacity = options.opacity;
+      this._opacity = options.opacity;
       changes |= LabelChangeType.Style;
     }
     if (options.haloColor !== undefined) {
-      this.haloColor = toColor(options.haloColor);
+      this._haloColor = toColor(options.haloColor);
       changes |= LabelChangeType.Style;
     }
     if (options.haloWidth !== undefined) {
-      if (options.haloWidth > this.fontSize / 4) {
-        console.warn(`Label.set - haloWidth of ${options.haloWidth} is too large for fontSize ${this.fontSize}. Clamping to ${this.fontSize / 4}.`);
-        this.haloWidth = this.fontSize / 4;
-      } else {
-        this.haloWidth = options.haloWidth;
-      }
+      this._haloWidth = this._clampHaloWidth(options.haloWidth);
       changes |= LabelChangeType.Style;
     }
     if (options.haloBlur !== undefined) {
-      if (options.haloBlur > this.fontSize / 4) {
-        console.warn(`Label.set - haloBlur of ${options.haloBlur} is too large for fontSize ${this.fontSize}. Clamping to ${this.fontSize / 4}.`);
-        this.haloBlur = this.fontSize / 4;
-      } else {
-        this.haloBlur = options.haloBlur;
-      }
+      this._haloBlur = this._clampHaloBlur(options.haloBlur);
       changes |= LabelChangeType.Style;
     }
     if (options.haloOpacity !== undefined) {
-      this.haloOpacity = options.haloOpacity;
+      this._haloOpacity = options.haloOpacity;
       changes |= LabelChangeType.Style;
     }
     if (options.rotationAlignment !== undefined) {
-      this.rotationAlignment = options.rotationAlignment;
+      this._rotationAlignment = options.rotationAlignment;
       changes |= LabelChangeType.Style;
     }
     if (options.symbolPlacement !== undefined) {
-      this.symbolPlacement = options.symbolPlacement;
+      this._symbolPlacement = options.symbolPlacement;
       changes |= LabelChangeType.Style;
     }
 
     // Visibility
     if (options.visible !== undefined) {
-      this.visible = options.visible;
+      this._visible = options.visible;
       changes |= LabelChangeType.Visibility;
     }
 
@@ -320,30 +526,30 @@ export class Label {
 
   clone(): Label {
     return new Label({
-      text: this.text,
-      position: this.position.clone(),
-      rotation: this.rotation.clone(),
-      offset: this.offset.clone(),
-      font: this.font,
-      fontSize: this.fontSize,
-      fontWeight: this.fontWeight,
-      letterSpacing: this.letterSpacing,
-      lineHeight: this.lineHeight,
-      maxWidth: this.maxWidth,
-      textAlign: this.textAlign,
-      anchorX: this.anchorX,
-      anchorY: this.anchorY,
-      padding: [...this.padding],
-      color: this.color.clone(),
-      opacity: this.opacity,
-      haloColor: this.haloColor.clone(),
-      haloWidth: this.haloWidth,
-      haloBlur: this.haloBlur,
-      haloOpacity: this.haloOpacity,
-      rotationAlignment: this.rotationAlignment,
-      symbolPlacement: this.symbolPlacement,
-      visible: this.visible,
-      textTransform: this.textTransform,
+      text: this._text,
+      position: this._position.clone(),
+      rotation: this._rotation.clone(),
+      offset: this._offset.clone(),
+      font: this._font,
+      fontSize: this._fontSize,
+      fontWeight: this._fontWeight,
+      letterSpacing: this._letterSpacing,
+      lineHeight: this._lineHeight,
+      maxWidth: this._maxWidth,
+      textAlign: this._textAlign,
+      anchorX: this._anchorX,
+      anchorY: this._anchorY,
+      padding: [...this._padding],
+      color: this._color.clone(),
+      opacity: this._opacity,
+      haloColor: this._haloColor.clone(),
+      haloWidth: this._haloWidth,
+      haloBlur: this._haloBlur,
+      haloOpacity: this._haloOpacity,
+      rotationAlignment: this._rotationAlignment,
+      symbolPlacement: this._symbolPlacement,
+      visible: this._visible,
+      textTransform: this._textTransform,
     });
   }
 

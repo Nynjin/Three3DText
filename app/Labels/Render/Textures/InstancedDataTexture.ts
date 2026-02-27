@@ -36,13 +36,14 @@ export class InstancedDataTexture {
   private _usedSlots: number = 0;
 
   private _keyToItems: Map<string, Item[]> = new Map();
+  private _keyToIdx: Map<string, number[]> = new Map();
   private _freeSlotsIdx: number[] = [];
 
   private readonly _texelsPerItem: number = 0;
   private readonly _maxTexWidth: number;
   private readonly _capacityMultiplier: number;
 
-  get texture() {
+  get texture(): DataTexture {
     return this._texture;
   }
   get width() {
@@ -53,9 +54,6 @@ export class InstancedDataTexture {
   }
   get usedSlots() { 
     return this._usedSlots; 
-  }
-  get keyToItems(): ReadonlyMap<string, Item[]> { 
-    return this._keyToItems; 
   }
 
   constructor(
@@ -109,22 +107,21 @@ export class InstancedDataTexture {
   private _resize(needed: number) {
     const newCap = Math.ceil(needed * this._capacityMultiplier);
     const newWidth = this._calcWidth(newCap);
-    if (newWidth === this._width) return;
 
     const newData = new Float32Array(newWidth * newWidth * TEXEL_SIZE);
     newData.set(this._data);
     this._data = newData;
     this._width = newWidth;
-
+    
     for (let i = this._capacity; i < newCap; i++) {
       this._freeSlotsIdx.push(i * this._texelsPerItem);
     }
 
     this._capacity = newCap;
-    this._texture.image.data = this._data;
-    this._texture.image.width = newWidth;
-    this._texture.image.height = newWidth;
-    this._texture.needsUpdate = true;
+
+    this._texture.dispose();
+    this._texture = this._initTexture();
+    // this._texture.needsUpdate = true;
   }
 
   /**
@@ -150,10 +147,8 @@ export class InstancedDataTexture {
 
   getAllIdx(): number[] {
     const indices: number[] = [];
-    for (const [, items] of this._keyToItems) {
-      for (const item of items) {
-        indices.push(item.idx);
-      }
+    for (const idx of this._keyToIdx.values()) {
+      indices.push(...idx);
     }
     return indices;
   }
@@ -163,39 +158,28 @@ export class InstancedDataTexture {
   }
 
   getFirstIdxOf(key: string): number | undefined {
-    const items = this._keyToItems.get(key);
+    const items = this._keyToIdx.get(key);
     if (!items || items.length === 0) return undefined;
-    return items[0].idx; // Return the index of the first item for the key
+    return items[0];
   }
 
   getIdxOf(key: string): number[] | undefined {
-    const items = this._keyToItems.get(key);
-    if (!items || items.length === 0) return undefined;
-    return items.map((item) => item.idx); // Return an array of indices for the key
+    return this._keyToIdx.get(key);
   }
 
   getFirstItemOf(key: string): Item | undefined {
-    const items = this._keyToItems.get(key);
-    if (!items || items.length === 0) return undefined;
-    return items[0]; // Return the first item for the key
+    return this._keyToItems.get(key)?.[0];
   }
 
   /**
-   * Retrieves a copy of the items associated with a given key to prevent external mutation.
+   * Retrieves the items associated with a given key.
    * 
    * @param key - The unique key identifying the items to retrieve.
    * 
    * @returns An array of items associated with the key, or undefined if no items are found for the key.
    */
   getItemsOf(key: string): Item[] | undefined {
-    const items = this._keyToItems.get(key);
-    if (!items) return undefined;
-
-    // Return a copy of items to prevent external mutation
-    return items.map((item) => ({
-      idx: item.idx,
-      data: item.data.map((t) => ({ ...t })),
-    }));
+    return this._keyToItems.get(key);
   }
 
   /**
@@ -244,27 +228,31 @@ export class InstancedDataTexture {
     for (const { key, flatData } of validItems) {
       const itemCount = Math.ceil(flatData.length / this._texelsPerItem);
       const existingItems = this._keyToItems.get(key) ?? [];
+      const existingIdx   = this._keyToIdx.get(key) ?? [];
 
       for (let i = 0; i < itemCount; i++) {
         const idx = this._freeSlotsIdx.pop();
         if (idx === undefined) {
           throw new Error("Unexpected undefined index in free slots");
         }
-        const item = {
-          idx,
-          data: flatData.slice(
-            i * this._texelsPerItem,
-            (i + 1) * this._texelsPerItem,
-          ),
-        };
-        existingItems.push(item);
-        this._data.set(
-          item.data.flatMap((t) => [t.x, t.y, t.z, t.w]),
-          idx * TEXEL_SIZE,
-        );
+        
+        const data : Texel[] = [];
+        
+        let base = idx * TEXEL_SIZE;
+        for (let j = 0; j < this._texelsPerItem; j++) {
+          const t = flatData[i * this._texelsPerItem + j];
+          data.push(t);
+          this._data[base++] = t.x;
+          this._data[base++] = t.y;
+          this._data[base++] = t.z;
+          this._data[base++] = t.w;
+        }
+        existingItems.push({ idx, data });
+        existingIdx.push(idx);
       }
 
       this._keyToItems.set(key, existingItems);
+      this._keyToIdx.set(key, existingIdx);
     }
     
     this._usedSlots += totalNewItems;
@@ -302,6 +290,7 @@ export class InstancedDataTexture {
         this._freeSlotsIdx.push(item.idx);
       }
       this._keyToItems.delete(key);
+      this._keyToIdx.delete(key);
       this._usedSlots -= items.length;
     }
   }

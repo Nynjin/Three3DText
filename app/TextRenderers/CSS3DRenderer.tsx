@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import {
   CSS3DRenderer,
@@ -22,6 +22,7 @@ function createDiv(text: Item["text"]) {
 export function CSS3DCloud({ items, halo }: { items: Item[]; halo: boolean }) {
   const { camera, scene, gl, size } = useThree();
   const cssRenderer = useRef<CSS3DRenderer | null>(null);
+  const mapRef = useRef(new Map<number, CSS3DObject>());
 
   useEffect(() => {
     const renderer = new CSS3DRenderer();
@@ -37,50 +38,45 @@ export function CSS3DCloud({ items, halo }: { items: Item[]; halo: boolean }) {
     };
   }, [gl, size]);
 
-  const cssObjects = useMemo(() => {
-    const created: CSS3DObject[] = [];
-
-    if (halo) {
-      for (const { text, position, rotation } of items) {
-        const div = createDiv(text);
-        div.style.backgroundColor = "#cccccc";
-        const obj = new CSS3DObject(div);
-        obj.position.set(...position);
-        obj.rotation.set(...rotation);
-        scene.add(obj);
-        created.push(obj);
-      }
-    } else {
-      for (const { text, position, rotation } of items) {
-        const div = createDiv(text);
-        const obj = new CSS3DObject(div);
-        obj.position.set(...position);
-        obj.rotation.set(...rotation);
-        scene.add(obj);
-        created.push(obj);
+  useLayoutEffect(() => {
+    const map = mapRef.current;
+    const nextKeys = new Set(items.map(i => i.key));
+    for (const [key, obj] of map) {
+      if (!nextKeys.has(key)) {
+        scene.remove(obj);
+        obj.element.remove?.();
+        map.delete(key);
       }
     }
+    for (const { key, text, position, rotation } of items) {
+      if (!map.has(key)) {
+        const div = createDiv(text);
+        const obj = new CSS3DObject(div);
+        obj.position.set(...position);
+        obj.rotation.set(...rotation);
+        scene.add(obj);
+        map.set(key, obj);
+      }
+    }
+  }, [items, scene]);
 
-    return created;
-  }, [items, scene, halo]);
+  useEffect(() => {
+    for (const obj of mapRef.current.values()) {
+      obj.element.style.backgroundColor = halo ? "#cccccc" : "";
+    }
+  }, [halo]);
+
+  useEffect(() => () => {
+    for (const obj of mapRef.current.values()) {
+      scene.remove(obj);
+      obj.element.remove?.();
+    }
+    mapRef.current.clear();
+  }, [scene]);
 
   useFrame(() => {
     cssRenderer.current?.render(scene, camera);
   });
 
-  useEffect(() => {
-    return () => {
-      for (const obj of cssObjects) {
-        scene.remove(obj);
-        obj.element.remove?.();
-      }
-    };
-  }, [cssObjects, scene]);
-
   return null;
 }
-
-// function InstancedCSS3DCloud({ items, halo }: { items: Item[]; halo: boolean }) {
-//     const { camera, scene, gl, size } = useThree();
-//     const cssRenderer = useRef<CSS3DRenderer | null>(null);
-// }

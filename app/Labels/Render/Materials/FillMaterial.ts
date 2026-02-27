@@ -16,7 +16,8 @@ export function createFillMaterial(
         fragmentShader: FILL_FRAG,
         uniforms: {
             uAtlas: { value: atlas.texture },
-            uCutoff: { value: atlas.cutoff },
+            uAtlasSize: { value: atlas.atlasSize },
+            uCutoff:{ value: atlas.cutoff },
             uRadius: { value: atlas.radius },
             uLabelTex: { value: labelTex },
             uGlyphTex: { value: glyphTex },
@@ -36,6 +37,7 @@ export function updateFillAtlas(
     atlas: SDFAtlas,
 ) {
     material.uniforms.uAtlas.value = atlas.texture;
+    material.uniforms.uAtlasSize.value = atlas.atlasSize;
     material.uniforms.uCutoff.value = atlas.cutoff;
     material.uniforms.uRadius.value = atlas.radius;
 }

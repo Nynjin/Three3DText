@@ -2,7 +2,11 @@ import { Vector2, Vector3, Quaternion } from "three";
 import { RotationAlignment, SymbolPlacement } from "../Core/Label";
 
 export interface GlyphInfo {
-  uv: number[];
+  px: number;
+  py: number;
+  pw: number;
+  ph: number;
+
   w: number;
   h: number;
   advance: number;

@@ -2,8 +2,8 @@ export const GLYPH_VERT = /* glsl */ `
 precision highp float;
 
 // Per-instance data textures
-// Label texture layout (LABEL_TEXELS = 6 texels per layer):
-//   T0: labelPos.xyz, opacity
+// Label texture layout:
+//   T0: labelPos.xyz, visible
 //   T1: rotation quat (x, y, z, w)
 //   T2: color (r, g, b) + opacity
 //   T3: haloColor (r, g, b) + haloOpacity
@@ -12,13 +12,17 @@ precision highp float;
 uniform highp sampler2D uLabelTex;
 uniform int uLabelTexWidth;
 
+// Glyph texture layout:
+//   T0: label index, -, -, -
+//   T1: char offset (x, y) + size (w, h)
+//   T2: (px, py) in atlas + (pw, ph) size in atlas
 uniform highp sampler2D uGlyphTex;
 uniform int uGlyphTexWidth;
 
-// Indirect draw index: points into glyphTex, set by LabelMeshGroup.cullByFrustum
+// Indirect draw index: points into glyphTex, set by culling
 attribute uint glyphIndex;
 
-// Varyings — only what fragment needs
+// Varyings for fragment shader
 out vec2 vUv;
 flat out int vLabelId;
 flat out int vGlyphId;

@@ -16,6 +16,7 @@ export function createHaloMaterial(
         fragmentShader: HALO_FRAG,
         uniforms: {
             uAtlas: { value: atlas.texture },
+            uAtlasSize: { value: atlas.atlasSize },
             uCutoff: { value: atlas.cutoff },
             uRadius: { value: atlas.radius },
             uLabelTex: { value: labelTex },
@@ -43,6 +44,7 @@ export function updateHaloAtlas(
     atlas: SDFAtlas,
 ) {
     material.uniforms.uAtlas.value = atlas.texture;
+    material.uniforms.uAtlasSize.value = atlas.atlasSize;
     material.uniforms.uCutoff.value = atlas.cutoff;
     material.uniforms.uRadius.value = atlas.radius;
 }

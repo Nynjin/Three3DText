@@ -4,7 +4,7 @@ import { LabelFontGroup, DirtyLevel } from "./LabelFontGroup";
 import { Label } from "./Label";
 import { LabelMeshGroup } from "../Render/Meshes/LabelMeshGroup";
 import type { LabelMesh } from "../Render/Meshes/LabelMeshGroup";
-import { Camera, Frustum, Matrix4, Vector3 } from "three";
+import { Camera, Frustum, Matrix4 } from "three";
 import { toLabelInstance } from "../Utils/LabelUtils";
 
 interface LabelGroup {
@@ -18,16 +18,14 @@ export interface LabelMeshPair {
 }
 
 export class InstancedLabelManager {
-  // TODO : either set once at construction or add method to remove/readd listeners on group changes
   autoUpdate = true;
+  cullingRate = 0.1; // seconds
 
   private groups = new Map<string, LabelGroup>();
   private pxPerUnit: number;
-  private _pendingGroups = new Set<LabelGroup>();
 
   private readonly _frustum = new Frustum();
   private readonly _mat4 = new Matrix4();
-  private readonly _pos = new Vector3();
   private readonly _lastVP = new Matrix4();
   private _vpChanged = true;
 
@@ -87,18 +85,22 @@ export class InstancedLabelManager {
       const group = this.groups.get(key);
       if (!group) continue;
       group.fontGroup.removeLabels(bucket);
-      group.meshGroup.removeLabels(bucket.map(l => l.id));
     }
   }
 
   /** Manually flush all dirty groups (use when autoUpdate = false). */
   update() {
     for (const group of this.groups.values()) {
-      const hasDirty = [...group.fontGroup.dirtyLabelsMap.values()].some(s => s.size > 0);
+      let hasDirty = false;
+      for (const s of group.fontGroup.dirtyLabelsMap.values()) {
+        if (s.size > 0) { hasDirty = true; break; }
+      }
       if (hasDirty) this._syncGroup(group);
     }
+    this._vpChanged = true;
   }
 
+  // todo : use listeners to avoid looping every frame ?
   cull(camera: Camera) {
     this._mat4.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     if (!this._vpChanged && this._mat4.equals(this._lastVP)) return;
@@ -107,15 +109,7 @@ export class InstancedLabelManager {
     this._frustum.setFromProjectionMatrix(this._mat4);
 
     for (const group of this.groups.values()) {
-      const visibleIds = new Set<string>();
-      for (const label of group.fontGroup.labels) {
-        this._pos.copy(label.position);
-        if (this._frustum.containsPoint(this._pos)) {
-          visibleIds.add(label.id);
-        }
-      }
-
-      group.meshGroup.cullByFrustum(visibleIds);
+      group.meshGroup.cullByFrustum(group.fontGroup.labels, this._frustum);
     }
   }
 
@@ -139,10 +133,7 @@ export class InstancedLabelManager {
 
     fontGroup.onChange(() => {
       if (!this.autoUpdate) return;
-      if (this._pendingGroups.has(group)) return;
-      this._pendingGroups.add(group);
       queueMicrotask(() => {
-        this._pendingGroups.delete(group);
         this._syncGroup(group);
         this._vpChanged = true;
       });

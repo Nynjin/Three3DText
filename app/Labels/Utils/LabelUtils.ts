@@ -1,5 +1,5 @@
 import { Color, Euler, Quaternion, Vector2, Vector3 } from "three";
-import { LabelInstance } from "../Layout/GlyphRun";
+import { GlyphInstance, LabelInstance } from "../Layout/GlyphRun";
 import { Label } from "../Core/Label";
 
 export function toBinary(value: boolean | 0 | 1): 0 | 1 {
@@ -35,15 +35,20 @@ export function toQuaternion(value: [number, number, number] | Euler | Quaternio
   return new Quaternion().setFromEuler(new Euler(...value, "XYZ"));
 }
 
-export function toLabelInstance(label: Label): LabelInstance {
+export function toLabelInstance(label: Label, glyphs?: GlyphInstance[]): LabelInstance {
   return {
-    ...label,
-    position: label.position.clone(),
-    rotation: label.rotation.clone(),
-    color: toVector3(label.color),
-    haloColor: toVector3(label.haloColor),
-    haloOpacity: label.hasHalo() ? label.haloOpacity : 0,
-    visible: (label.opacity + label.haloOpacity > 0 && label.visible) ? 1 : 0,
-    glyphs: [],
+    id:                label.id,
+    position:          label.position.clone(),
+    rotation:          label.rotation.clone(),
+    color:             toVector3(label.color),
+    haloColor:         toVector3(label.haloColor),
+    opacity:           label.opacity,
+    haloOpacity:       label.hasHalo() ? label.haloOpacity : 0,
+    haloWidth:         label.haloWidth,
+    haloBlur:          label.haloBlur,
+    rotationAlignment: label.rotationAlignment,
+    symbolPlacement:   label.symbolPlacement,
+    visible:           label.visible ? 1 : 0,
+    glyphs:            glyphs ?? [],
   };
 }

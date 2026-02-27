@@ -4,7 +4,7 @@ import { GlyphInfo, GlyphInstance, LabelInstance } from "./GlyphRun";
 import lineBreak from "./LineBreak";
 import textAlign from "./TextAlign";
 import textAnchors from "./TextAnchors";
-import { toVector3 } from "../Utils/LabelUtils";
+import { toLabelInstance } from "../Utils/LabelUtils";
 
 export default function layoutText(
   label: Label,
@@ -16,80 +16,107 @@ export default function layoutText(
 
   const lines: string[] = lineBreak(label, glyphs, pxPerUnit);
 
-  // Calculate line widths
-  const lineWidths: number[] = [];
-  for (const line of lines) {
-    let w = 0;
+  const letterSpacing = label.letterSpacing * pxPerUnit;
+  const lineHeightPx  = label.fontSize * label.lineHeight;
+  const offsetX       = label.offset.x;
+  const offsetY       = label.offset.y;
+
+  // Resolve each line's glyphs once
+  const resolvedLines: GlyphInfo[][] = lines.map(line => {
+    const resolved: GlyphInfo[] = new Array(line.length);
     for (let i = 0; i < line.length; i++) {
-      const g = glyphs.get(line[i]) || fallback;
-      w +=
-        g.advance + (i < line.length - 1 ? label.letterSpacing * pxPerUnit : 0);
+      resolved[i] = glyphs.get(line[i]) ?? fallback;
     }
-    lineWidths.push(w);
-  }
+    return resolved;
+  });
 
-  const maxLineWidth = Math.max(...lineWidths, 0);
-  const lineHeightPx = label.fontSize * label.lineHeight;
-  const totalHeight = lines.length * lineHeightPx;
+  // Calculate line widths from resolved glyphs
+  const lineWidths: number[] = resolvedLines.map((resolved) => {
+    let w = 0;
+    const last = resolved.length - 1;
+    for (let i = 0; i < last; i++) {
+      w += resolved[i].advance;
+      w += letterSpacing;
+    }
+    w += resolved[last].advance;
+    return w;
+  });
 
-  const contentMaxWidth = maxLineWidth;
+  const maxLineWidth = lineWidths.length > 0 ? Math.max(...lineWidths) : 0;
+  const totalHeight  = lines.length * lineHeightPx;
 
   const { anchorOffsetX, anchorOffsetY } = textAnchors(
     label,
-    contentMaxWidth,
+    maxLineWidth,
     totalHeight,
     lineHeightPx
   );
 
   // Layout each character
   for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-    const line = lines[lineIdx];
-    const lineWidth = lineWidths[lineIdx];
+    const line     = lines[lineIdx];
+    const resolved = resolvedLines[lineIdx];
+    const last     = resolved.length - 1;
 
     // Text alignment within line
     const { alignOffsetX, extraSpacePerWordGap } = textAlign(
       label,
-      { idx: lineIdx, text: line, width: lineWidth, count: lines.length },
-      contentMaxWidth
+      { idx: lineIdx, text: line, width: lineWidths[lineIdx], count: lines.length },
+      maxLineWidth
     );
 
     let cursor = anchorOffsetX + alignOffsetX;
     const y = anchorOffsetY - lineIdx * lineHeightPx;
 
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      const g = glyphs.get(char) || fallback;
+    for (let i = 0; i < last; i++) {
+      const g = {
+        px: resolved[i].px,
+        py: resolved[i].py,
+        pw: resolved[i].pw,
+        ph: resolved[i].ph,
+        w: resolved[i].w / pxPerUnit,
+        h: resolved[i].h / pxPerUnit,
+        advance: resolved[i].advance,
+        top: resolved[i].top,
+      }
 
       chars.push({
         glyph: g,
         offset: new Vector2(
-          (cursor + g.w / 2) / pxPerUnit + label.offset.x,
-          (g.top - g.h / 2 + y) / pxPerUnit + label.offset.y,
+          cursor / pxPerUnit + g.w / 2 + offsetX,
+          (g.top + y) / pxPerUnit - g.h / 2 + offsetY,
         ),
       });
 
       cursor += g.advance;
+      cursor += letterSpacing;
 
-      // Add letter spacing
-      if (i < line.length - 1) {
-        cursor += label.letterSpacing * pxPerUnit;
-
-        // Add extra space only at word gaps
-        if (char === " ") {
-          cursor += extraSpacePerWordGap;
-        }
+      if (line[i] === " ") {
+        cursor += extraSpacePerWordGap;
       }
     }
+
+    const g = resolved[last];
+    const gW = g.w / pxPerUnit;
+    const gH = g.h / pxPerUnit;
+
+    chars.push({
+      glyph: {
+        px: g.px,
+        py: g.py,
+        pw: g.pw,
+        ph: g.ph,
+        w: gW,
+        h: gH,
+        advance: g.advance,
+        top: g.top,
+      },
+      offset: new Vector2(
+        cursor / pxPerUnit + gW / 2 + offsetX,
+        (g.top + y) / pxPerUnit - gH / 2 + offsetY,
+      ),
+    });
   }
 
-  return {
-    ...label,
-    position: label.position.clone(),
-    rotation: label.rotation.clone(),
-    color: toVector3(label.color),
-    haloColor: toVector3(label.haloColor),
-    haloOpacity: label.hasHalo() ? label.haloOpacity : 0,
-    visible: (label.opacity + label.haloOpacity > 0 && label.visible) ? 1 : 0,
-    glyphs: chars,
-  };
+  return toLabelInstance(label, chars);
 }
