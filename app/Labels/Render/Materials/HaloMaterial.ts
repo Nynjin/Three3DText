@@ -7,8 +7,6 @@ export function createHaloMaterial(
     atlas: SDFAtlas,
     labelTex: DataTexture,
     glyphTex: DataTexture,
-    labelTexWidth: number,
-    glyphTexWidth: number,
 ): ShaderMaterial {
     const material = new ShaderMaterial({
         glslVersion: GLSL3,
@@ -16,13 +14,13 @@ export function createHaloMaterial(
         fragmentShader: HALO_FRAG,
         uniforms: {
             uAtlas: { value: atlas.texture },
-            uAtlasSize: { value: atlas.atlasSize },
+            uAtlasWidth: { value: atlas.texture.width },
             uCutoff: { value: atlas.cutoff },
             uRadius: { value: atlas.radius },
             uLabelTex: { value: labelTex },
             uGlyphTex: { value: glyphTex },
-            uLabelTexWidth: { value: labelTexWidth },
-            uGlyphTexWidth: { value: glyphTexWidth },
+            uLabelTexWidth: { value: labelTex.width },
+            uGlyphTexWidth: { value: glyphTex.width },
         },
         transparent: true,
 
@@ -44,7 +42,7 @@ export function updateHaloAtlas(
     atlas: SDFAtlas,
 ) {
     material.uniforms.uAtlas.value = atlas.texture;
-    material.uniforms.uAtlasSize.value = atlas.atlasSize;
+    material.uniforms.uAtlasWidth.value = atlas.texture.width;
     material.uniforms.uCutoff.value = atlas.cutoff;
     material.uniforms.uRadius.value = atlas.radius;
 }
@@ -53,11 +51,9 @@ export function updateHaloUniforms(
     material: ShaderMaterial,
     labelTex: DataTexture,
     glyphTex: DataTexture,
-    labelTexWidth: number,
-    glyphTexWidth: number,
 ) {
     material.uniforms.uLabelTex.value = labelTex;
     material.uniforms.uGlyphTex.value = glyphTex;
-    material.uniforms.uLabelTexWidth.value = labelTexWidth;
-    material.uniforms.uGlyphTexWidth.value = glyphTexWidth;
+    material.uniforms.uLabelTexWidth.value = labelTex.width;
+    material.uniforms.uGlyphTexWidth.value = glyphTex.width;
 }

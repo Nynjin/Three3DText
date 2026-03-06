@@ -7,11 +7,22 @@ interface Line {
     count: number;
 }
 
-export default function textAlign(label: Label, line: Line, contentMaxWidth: number) {
+export default function textAlign(
+    label: Label,
+    line: Line,
+    contentMaxWidth: number,
+    lineIsRTL = false,
+) {
     let alignOffsetX = 0;
     let extraSpacePerWordGap = 0;
 
-    switch (label.textAlign) {
+    let align = label.textAlign;
+
+    if (align === TextAlign.Auto) {
+        align = lineIsRTL ? TextAlign.Right : TextAlign.Left;
+    }
+
+    switch (align) {
       case TextAlign.Left:
         alignOffsetX = 0;
         break;

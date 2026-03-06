@@ -4,7 +4,7 @@ const CAPACITY_MULTIPLIER = 1.5;
 
 const TEXEL_SIZE = 4; // RGBA channels per texel
 
-const MAX_TEX_SIZE = 4096; // should be safe for most devices
+const MAX_TEXTURE_WIDTH = 4096; // should be safe for most devices
 
 // TODO : may be possible to increase max size with a DataArrayTexture using layers
 // const MAX_LAYERS = 256;
@@ -21,6 +21,13 @@ export interface Item {
   data: Texel[];
 }
 
+export interface ItemAllocation {
+  key: string;
+  flatItems: Texel[]; // flat array of texels for all items of this key, concatenated
+}
+
+// Todo : avoid freeSlots sorting
+
 /**
  * @class InstancedDataTexture  
  * @description Manages a dynamic texture buffer for instanced rendering, 
@@ -32,16 +39,16 @@ export class InstancedDataTexture {
   private _texture: DataTexture;
 
   private _width: number = 1;
-  private _capacity: number = 0;
+  private _itemCapacity: number = 0;
   private _usedSlots: number = 0;
 
   private _keyToItems: Map<string, Item[]> = new Map();
-  private _keyToIdx: Map<string, number[]> = new Map();
-  private _freeSlotsIdx: number[] = [];
+  private _keyToTexelIndices: Map<string, number[]> = new Map();
+  private _availableTexelIdx: number[] = [];
 
-  private readonly _texelsPerItem: number = 0;
-  private readonly _maxTexWidth: number;
-  private readonly _capacityMultiplier: number;
+  readonly _texelsPerItem: number = 0;
+  readonly _maxTextureWidth: number;
+  readonly _capacityMultiplier: number;
 
   get texture(): DataTexture {
     return this._texture;
@@ -50,7 +57,7 @@ export class InstancedDataTexture {
     return this._width;
   }
   get capacity() {
-    return this._capacity;
+    return this._itemCapacity;
   }
   get usedSlots() { 
     return this._usedSlots; 
@@ -58,15 +65,15 @@ export class InstancedDataTexture {
 
   constructor(
     texelsPerItem: number,
-    maxTexWidth = MAX_TEX_SIZE,
+    maxTexWidth = MAX_TEXTURE_WIDTH,
     capacityMultiplier = CAPACITY_MULTIPLIER,
   ) {
     this._texelsPerItem = texelsPerItem;
-    this._maxTexWidth = maxTexWidth;
+    this._maxTextureWidth = maxTexWidth;
     this._capacityMultiplier = capacityMultiplier;
 
     this._data = new Float32Array();
-    this._texture = this._initTexture();
+    this._texture = new DataTexture();
   }
 
   /**
@@ -80,17 +87,16 @@ export class InstancedDataTexture {
    * @todo consider using a hard width limit
    */
   private _calcWidth(capacity: number) {
-    const texels =
-      capacity * this._texelsPerItem;
+    const texelCapacity = Math.ceil(capacity * this._texelsPerItem * this._capacityMultiplier);
 
-    if (texels === 0) {
+    if (texelCapacity === 0) {
       return 1; 
     }
 
-    const w = Math.ceil(Math.sqrt(texels));
-    if (w > this._maxTexWidth) {
+    const w = Math.ceil(Math.sqrt(texelCapacity));
+    if (w > this._maxTextureWidth) {
       console.warn(
-        `InstancedDataBuffer.calcWidth - Requested texture width ${w} exceeds max of ${this._maxTexWidth}. This may cause rendering issues on some devices.`,
+        `InstancedDataBuffer.calcWidth - Requested texture width ${w} exceeds max of ${this._maxTextureWidth}. This may cause rendering issues on some devices.`,
       );
     }
     return w;
@@ -105,23 +111,26 @@ export class InstancedDataTexture {
    * @todo handle shrinking
    */
   private _resize(needed: number) {
-    const newCap = Math.ceil(needed * this._capacityMultiplier);
-    const newWidth = this._calcWidth(newCap);
+    const newWidth = this._calcWidth(needed);
 
-    const newData = new Float32Array(newWidth * newWidth * TEXEL_SIZE);
+    const texelCount = newWidth * newWidth;
+    const newData = new Float32Array(texelCount * TEXEL_SIZE);
     newData.set(this._data);
     this._data = newData;
     this._width = newWidth;
     
-    for (let i = this._capacity; i < newCap; i++) {
-      this._freeSlotsIdx.push(i * this._texelsPerItem);
+    const oldCapacity = this._itemCapacity;
+    const newCapacity = Math.floor(texelCount / this._texelsPerItem);
+
+    for (let i = oldCapacity; i < newCapacity; i++) {
+      this._availableTexelIdx.push(i * this._texelsPerItem);
     }
 
-    this._capacity = newCap;
+    this._itemCapacity = newCapacity;
 
-    this._texture.dispose();
-    this._texture = this._initTexture();
-    // this._texture.needsUpdate = true;
+    // THREE allocates fixed size for image. Need to recreate the texture if resize.
+    this._regenerateTexture(); 
+
   }
 
   /**
@@ -129,8 +138,9 @@ export class InstancedDataTexture {
    * 
    * @returns The initialized DataTexture.
    */
-  private _initTexture() {
-    const tex = new DataTexture(
+  private _regenerateTexture() {
+    this._texture.dispose();
+    this._texture = new DataTexture(
       this._data,
       this._width,
       this._width,
@@ -138,37 +148,33 @@ export class InstancedDataTexture {
       FloatType,
     );
 
-    tex.minFilter = NearestFilter;
-    tex.magFilter = NearestFilter;
-    tex.needsUpdate = true;
-
-    return tex;
-  }
-
-  getAllIdx(): number[] {
-    const indices: number[] = [];
-    for (const idx of this._keyToIdx.values()) {
-      indices.push(...idx);
-    }
-    return indices;
+    this._texture.minFilter = NearestFilter;
+    this._texture.magFilter = NearestFilter;
+    this._texture.needsUpdate = true;
   }
 
   getKeys(): string[] {
     return Array.from(this._keyToItems.keys());
   }
 
-  getFirstIdxOf(key: string): number | undefined {
-    const items = this._keyToIdx.get(key);
-    if (!items || items.length === 0) return undefined;
+  getAllTexelIndices(): number[] {
+    const indices: number[] = [];
+    for (const idx of this._keyToTexelIndices.values()) {
+      indices.push(...idx);
+    }
+    return indices;
+  }
+  
+  getTexelIndicesOf(key: string): number[] | undefined {
+    return this._keyToTexelIndices.get(key);
+  }
+
+  getFirstTexelIdxOf(key: string): number | undefined {
+    const items = this._keyToTexelIndices.get(key);
+    if (!items || items.length === 0) {
+      return undefined;
+    }
     return items[0];
-  }
-
-  getIdxOf(key: string): number[] | undefined {
-    return this._keyToIdx.get(key);
-  }
-
-  getFirstItemOf(key: string): Item | undefined {
-    return this._keyToItems.get(key)?.[0];
   }
 
   /**
@@ -182,77 +188,95 @@ export class InstancedDataTexture {
     return this._keyToItems.get(key);
   }
 
+  getFirstItemOf(key: string): Item | undefined {
+    return this._keyToItems.get(key)?.[0];
+  }
+
   /**
    * Public method to add items to the buffer for a specific key
    */
-  addToKey(key: string, flatData: Texel[]) {
-    this.addToKeys([{ key, flatData }]);
+  addToKey(allocation: ItemAllocation) {
+    this.addToKeys([allocation]);
   }
 
   /**
    * Public method to add multiple items to the buffer for multiple keys
    */
-  addToKeys(items: { key: string; flatData: Texel[] }[]) {
-    this._addToKeys(items);
+  addToKeys(allocations: ItemAllocation[]) {
+    const validAllocations = this._filterValidAllocations(allocations);
+    this._addToKeys(validAllocations);
     this._texture.needsUpdate = true;
   }
 
-  private _addToKeys(items: { key: string; flatData: Texel[] }[]) {
-    // Check if the data is a valid flat array of texels
-    const validItems = items.filter(({ key, flatData }) => {
-      if (flatData.length === 0) {
+  private _filterValidAllocations(allocations: ItemAllocation[]) {
+    return allocations.filter(({ key, flatItems }) => {
+      // empty flatItems is valid — treated as removal in _updateKeys
+      if (flatItems.length === 0) {
+        return true
+      };
+      if (flatItems.length % this._texelsPerItem !== 0) {
         console.warn(
-          `InstancedDataBuffer.addToKeys - Attempting to add item ${key} with empty data`,
-        );
-        return false;
-      }
-      if (flatData.length % this._texelsPerItem !== 0) {
-        console.warn(
-          `InstancedDataBuffer.addToKeys - Item ${key} with data length ${flatData.length} which is not a multiple of texelsPerItem ${this._texelsPerItem}`,
+          `InstancedDataBuffer - Item ${key} has data length ${flatItems.length} which is not a multiple of texelsPerItem ${this._texelsPerItem}`,
         );
         return false;
       }
       return true;
     });
+  }
 
-    if (validItems.length === 0) return;
+  private _setTexelDataAt(idx: number, offset: number, flatItems: Texel[], out?: Texel[]) {
+    const data = out ?? new Array<Texel>(this._texelsPerItem);
+        
+    let base = idx * TEXEL_SIZE;
+    for (let i = 0; i < this._texelsPerItem; i++) {
+      const t = flatItems[offset * this._texelsPerItem + i];
+      data[i] = t;
+      this._data[base++] = t.x;
+      this._data[base++] = t.y;
+      this._data[base++] = t.z;
+      this._data[base++] = t.w;
+    }
+
+    return data;
+  }
+
+  private _addToKeys(allocations: ItemAllocation[]) {
+    if (allocations.length === 0) {
+      return;
+    };
 
     // Resize buffer if needed
-    const totalNewItems = validItems.reduce(
-      (sum, { flatData }) => sum + flatData.length, 0) / this._texelsPerItem;
+    let totalNewItems = 0;
+    const itemCounts: number[] = [];
+    for (const { flatItems } of allocations) {
+      const count = flatItems.length / this._texelsPerItem;
+      itemCounts.push(count);
+      totalNewItems += count;
+    }
     const totalNeeded = this._usedSlots + totalNewItems;
-    if (totalNewItems > this._freeSlotsIdx.length) {
+    if (totalNeeded > this._itemCapacity) {
       this._resize(totalNeeded);
     }
 
-    for (const { key, flatData } of validItems) {
-      const itemCount = Math.ceil(flatData.length / this._texelsPerItem);
-      const existingItems = this._keyToItems.get(key) ?? [];
-      const existingIdx   = this._keyToIdx.get(key) ?? [];
+    for (let i = 0; i < allocations.length; i++) {
+      const { key, flatItems } = allocations[i];
+      const currentItemCount = itemCounts[i];
+      const storedItems = this._keyToItems.get(key) ?? [];
+      const storedIndices = this._keyToTexelIndices.get(key) ?? [];
 
-      for (let i = 0; i < itemCount; i++) {
-        const idx = this._freeSlotsIdx.pop();
+      for (let j = 0; j < currentItemCount; j++) {
+        const idx = this._availableTexelIdx.pop();
         if (idx === undefined) {
           throw new Error("Unexpected undefined index in free slots");
         }
-        
-        const data : Texel[] = [];
-        
-        let base = idx * TEXEL_SIZE;
-        for (let j = 0; j < this._texelsPerItem; j++) {
-          const t = flatData[i * this._texelsPerItem + j];
-          data.push(t);
-          this._data[base++] = t.x;
-          this._data[base++] = t.y;
-          this._data[base++] = t.z;
-          this._data[base++] = t.w;
-        }
-        existingItems.push({ idx, data });
-        existingIdx.push(idx);
+
+        const data = this._setTexelDataAt(idx, j, flatItems);
+        storedItems.push({ idx, data });
+        storedIndices.push(idx);
       }
 
-      this._keyToItems.set(key, existingItems);
-      this._keyToIdx.set(key, existingIdx);
+      this._keyToItems.set(key, storedItems);
+      this._keyToTexelIndices.set(key, storedIndices);
     }
     
     this._usedSlots += totalNewItems;
@@ -287,10 +311,10 @@ export class InstancedDataTexture {
 
       for (const item of items) {
         this._data.fill(0, item.idx * TEXEL_SIZE, (item.idx + this._texelsPerItem) * TEXEL_SIZE);
-        this._freeSlotsIdx.push(item.idx);
+        this._availableTexelIdx.push(item.idx);
       }
       this._keyToItems.delete(key);
-      this._keyToIdx.delete(key);
+      this._keyToTexelIndices.delete(key);
       this._usedSlots -= items.length;
     }
   }
@@ -298,18 +322,18 @@ export class InstancedDataTexture {
   /**
    * 
    * @param key 
-   * @param flatData 
+   * @param flatItems 
    */
-  updateKey(key: string, flatData: Texel[]) {
-    this.updateKeys([{ key, flatData }]);
+  updateKey(allocation: ItemAllocation) {
+    this.updateKeys([allocation]);
   }
 
   /**
    * 
    * @param items 
    */
-  updateKeys(items: { key: string; flatData: Texel[] }[]) {
-     this._updateKeys(items);
+  updateKeys(allocations: ItemAllocation[]) {
+     this._updateKeys(allocations);
       this._texture.needsUpdate = true;
   }
 
@@ -317,11 +341,53 @@ export class InstancedDataTexture {
    * 
    * @param items 
    * 
-   * @todo optimize to avoid recreating items and allow partial updates of item data
    */
-  private _updateKeys(items: { key: string; flatData: Texel[] }[]) {
-    this._removeKeys(items.map((i) => i.key));
-    this._addToKeys(items);
+  private _updateKeys(allocations: ItemAllocation[]) {
+    const validAllocations = this._filterValidAllocations(allocations);
+
+    const toAdd: ItemAllocation[] = [];
+
+    for (const { key, flatItems } of validAllocations) {
+      const existingItems = this._keyToItems.get(key) ?? [];
+
+      const newItemCount = flatItems.length / this._texelsPerItem;
+      const oldItemCount = existingItems.length;
+      const commonCount = Math.min(newItemCount, oldItemCount);
+      const deleteCount = oldItemCount - commonCount;
+
+      // update existing items with new data
+      for (let i = 0; i < commonCount; i++) {
+        this._setTexelDataAt(existingItems[i].idx, i, flatItems, existingItems[i].data);
+      }
+
+      // delete excess if new count is lower
+      for (let i = commonCount; i < oldItemCount; i++) {
+        const item = existingItems[i];
+        this._data.fill(0, item.idx * TEXEL_SIZE, (item.idx + this._texelsPerItem) * TEXEL_SIZE);
+        this._availableTexelIdx.push(item.idx);
+      }
+      existingItems.length = commonCount;
+      this._usedSlots -= deleteCount;
+      
+      // remove from maps if key does not have any items
+      if (newItemCount === 0) {
+        this._keyToItems.delete(key);
+        this._keyToTexelIndices.delete(key);
+      } else {
+        this._keyToItems.set(key, existingItems);
+
+        if (deleteCount > 0) {
+          this._keyToTexelIndices.set(key, existingItems.map((i) => i.idx));
+        }
+      }
+      
+      // store new items for batched insertion
+      if (newItemCount > oldItemCount) {
+        toAdd.push({ key, flatItems: flatItems.slice(commonCount * this._texelsPerItem) });
+      }
+    }
+
+    this._addToKeys(toAdd);
   }
 
   /**
@@ -332,12 +398,16 @@ export class InstancedDataTexture {
    * 
    * @todo optimize so updateKeys overwrites items to remove directly instead of freeing slots first
    */
-  update(toAdd: { key: string; flatData: Texel[] }[], toRemove: string[], toUpdate: { key: string; flatData: Texel[] }[]) {
+  update(toAdd: ItemAllocation[], toRemove: string[], toUpdate: ItemAllocation[]) {
     if (toAdd.length === 0 && toRemove.length === 0 && toUpdate.length === 0) return;
 
-    this._removeKeys(toRemove);
-    this._updateKeys(toUpdate);
-    this._addToKeys(toAdd);
+    // todo: avoid mapping and unwrapping
+    const all = [
+      ...toUpdate,
+      ...toAdd,
+      ...toRemove.map(key => ({ key, flatItems: [] })),
+    ];
+    this._updateKeys(all);
     this._texture.needsUpdate = true;
   }
 

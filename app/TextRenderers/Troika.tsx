@@ -26,6 +26,8 @@ function createTroikaText({
   mesh.rotation.set(...rotation);
   mesh.anchorX = "center";
   mesh.anchorY = "center";
+  // mesh.maxWidth = 1;
+  // mesh.overflowWrap = "break-word";
   return mesh;
 }
 
@@ -80,6 +82,7 @@ export function TroikaCloud({ items, halo }: { items: Item[]; halo: boolean }) {
     setRenderList(
       items.map((item) => ({ key: item.key, mesh: map.get(item.key)! })),
     );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
 
   // Halo: update existing meshes in-place

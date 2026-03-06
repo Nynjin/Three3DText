@@ -20,7 +20,7 @@ uniform highp sampler2D uGlyphTex;
 uniform int uGlyphTexWidth;
 
 // Indirect draw index: points into glyphTex, set by culling
-attribute uint glyphIndex;
+attribute int glyphIndex;
 
 // Varyings for fragment shader
 out vec2 vUv;
@@ -38,7 +38,6 @@ vec4 glyphFetch(int instanceId, int texel) {
   int w = max(uGlyphTexWidth, 1);
   return texelFetch(uGlyphTex, ivec2(li % w, li / w), 0);
 }
-
 
 // Quaternion rotation
 vec3 rotateByQuat(vec3 v, vec4 q) {
@@ -69,7 +68,7 @@ void main() {
   vUv = uv;
 
   // glyphIndex is the texture slot for this glyph set by culling
-  int gId = int(glyphIndex);
+  int gId = glyphIndex;
   vGlyphId = gId;
 
   // Read glyph data first to get the label index
@@ -83,9 +82,8 @@ void main() {
   vec3 labelPos = labelFetch(vLabelId, 0).xyz;
   vec4 rot = labelFetch(vLabelId, 1);
   vec4 t5 = labelFetch(vLabelId, 5);
-  int visible = int(labelFetch(vLabelId, 0).w);
-  int rotAlign  = int(t5.x);
-  int symPlace  = int(t5.y);
+  int rotAlign = int(t5.x);
+  int symPlace = int(t5.y);
 
   float sizeScale = getDistanceScale(labelPos);
   vec3 quad = position * vec3(size * sizeScale, 1.0);

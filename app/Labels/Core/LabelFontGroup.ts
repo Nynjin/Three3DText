@@ -2,6 +2,7 @@
 import { Label, LabelChangeType } from "./Label";
 import { FontKey, fontKeyString } from "../Font/FontKey";
 import { SDFAtlas } from "../Font/SDFAtlas";
+import { applyShaping } from "../Utils/LabelUtils";
 
 // TODO : prevent case where one label is added to multiple dirty levels (added then updated then deleted should do nothing)
 export const enum DirtyLevel {
@@ -37,7 +38,7 @@ export class LabelFontGroup {
   private _recomputeUniqueChars(): boolean {
     const next = new Set<string>().add("?").add(" ");
     for (const label of this.labels) {
-      for (const c of label.getDisplayText()) next.add(c);
+      for (const c of applyShaping(label.getDisplayText())) next.add(c);
     }
     if (next.size === this.uniqueChars.size) {
       let changed = false;
@@ -50,7 +51,7 @@ export class LabelFontGroup {
 
   private _addChars(label: Label): boolean {
     let newChars = false;
-    for (const c of label.getDisplayText()) {
+    for (const c of applyShaping(label.getDisplayText())) {
       if (!this.uniqueChars.has(c)) { this.uniqueChars.add(c); newChars = true; }
     }
     return newChars;
@@ -142,7 +143,13 @@ export class LabelFontGroup {
       this.atlas = new SDFAtlas([...this.uniqueChars], this.key);
       return { atlas: this.atlas, dirty: true };
     }
-    const dirty = this.atlas.addChars(this.uniqueChars);
+    const { dirty, resize } = this.atlas.addChars(this.uniqueChars);
+
+    if (resize) {
+      // Atlas resize is a breaking change that requires new glyph positions
+      this._markDirty([...this.labels], DirtyLevel.Update);
+    }
+
     return { atlas: this.atlas, dirty };
   }
 

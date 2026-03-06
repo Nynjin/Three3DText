@@ -127,7 +127,7 @@ export class InstancedLabelManager {
     let group = this.groups.get(key);
     if (group) return group;
 
-    const meshGroup = new LabelMeshGroup(this.pxPerUnit);
+    const meshGroup = new LabelMeshGroup();
     const fontGroup = new LabelFontGroup(fontKeyOf(sample));
     group = { fontGroup, meshGroup };
 
@@ -146,8 +146,10 @@ export class InstancedLabelManager {
 
   private _syncGroup(group: LabelGroup) {
     const { fontGroup, meshGroup } = group;
+    const { atlas, dirty } = fontGroup.getAtlas();
+    
     const dirtyMap = fontGroup.dirtyLabelsMap;
-
+    
     const changeGroup = [...(dirtyMap.get(DirtyLevel.ChangeGroup) ?? [])];
     const disposeLabels = [...(dirtyMap.get(DirtyLevel.Dispose) ?? [])];
     const updateLabels = [...(dirtyMap.get(DirtyLevel.Update) ?? [])];
@@ -158,16 +160,18 @@ export class InstancedLabelManager {
       this.addLabels(changeGroup);
     }
 
-    const { atlas, dirty } = fontGroup.getAtlas();
+    // TODO: currently atlas resize marks all labels as update to force glyph sync. 
+    // But only glyph uvs change, not the layout. Shouldn't need to relayout.
+    // Current method forces relayout even of other labels that only had style updates.
+    const addSet = new Set(addLabels);
+    const filteredUpdateLabels = updateLabels.filter(l => !addSet.has(l));
 
-    if (dirty) {
-      meshGroup.syncAtlas(atlas);
-    }
 
     meshGroup.update(
       addLabels.map(l => layoutText(l, atlas.glyphs, this.pxPerUnit)),
       disposeLabels.map(l => l.id),
-      updateLabels.map(l => dirty ? layoutText(l, atlas.glyphs, this.pxPerUnit) : toLabelInstance(l)),
+      filteredUpdateLabels.map(l => dirty ? layoutText(l, atlas.glyphs, this.pxPerUnit) : toLabelInstance(l)),
+      dirty ? atlas : undefined
     );
 
     fontGroup.flushDirty();

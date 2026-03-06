@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Group } from "three";
-import { Label, RotationAlignment, TextAlign, TextAnchorX, TextAnchorY } from "../Labels/Core/Label";
+import {
+  Label,
+  RotationAlignment,
+  TextAlign,
+  TextAnchorX,
+  TextAnchorY,
+} from "../Labels/Core/Label";
 import { InstancedLabelManager } from "../Labels/Core/InstancedLabelManager";
 import { Item } from "../Types/Item";
 import { useFrame, useThree } from "@react-three/fiber";
@@ -13,7 +19,12 @@ export interface InstancedLabelsProps {
   pxPerUnit?: number;
 }
 
-function makeLabel(item: Item, halo: boolean, viewportPredicate: (item: Item) => boolean, fontSize: number): Label {
+function makeLabel(
+  item: Item,
+  halo: boolean,
+  viewportPredicate: (item: Item) => boolean,
+  fontSize: number,
+): Label {
   return new Label({
     text: item.text,
     position: item.position,
@@ -21,13 +32,14 @@ function makeLabel(item: Item, halo: boolean, viewportPredicate: (item: Item) =>
     rotationAlignment: RotationAlignment.Map,
     color: "#000000",
     haloColor: viewportPredicate(item) ? "#ffcccc" : "#cce5ff",
-    haloWidth: halo ? 5 : 0,
+    haloWidth: halo ? 1 : 0,
     haloBlur: halo ? 10 : 0,
-    font: viewportPredicate(item) ? "Arial" : "Times New Roman",
+    font: "Arial",
     fontSize,
-    maxWidth: 1,
+    maxWidth: 5,
     textAlign: TextAlign.Justify,
-    lineHeight: 1,
+    lineHeight: 1.2,
+    offset: [0, 0],
     anchorX: TextAnchorX.Center,
     anchorY: TextAnchorY.Middle,
   });
@@ -43,26 +55,18 @@ export function InstancedLabelComponent({
   const groupRef = useRef<Group>(null);
   const camera = useThree((state) => state.camera);
 
-  // Stable map of item.key → Label, survives all re-renders
+  // Map of item.key to Label
   const labelMapRef = useRef<Map<number, Label>>(new Map());
   // How many mesh pairs are already attached to the group
   const attachedMeshCountRef = useRef(0);
 
   // Manager created once per pxPerUnit change only
-  const manager = useMemo(() => new InstancedLabelManager(pxPerUnit), [pxPerUnit]);
-  manager.autoUpdate = false;
+  const manager = useMemo(() => {
+    const m = new InstancedLabelManager(pxPerUnit);
+    m.autoUpdate = false;
+    return m;
+  }, [pxPerUnit]);
 
-  // Cleanup when manager changes or component unmounts
-  useEffect(() => {
-    return () => {
-      groupRef.current?.clear();
-      manager.dispose();
-      labelMapRef.current.clear();
-      attachedMeshCountRef.current = 0;
-    };
-  }, [manager]);
-
-  // Diff items — add new, remove stale. Never depends on halo.
   useEffect(() => {
     const group = groupRef.current;
     if (!group) return;
@@ -78,7 +82,9 @@ export function InstancedLabelComponent({
         labelMap.delete(key);
       }
     }
-    if (toRemove.length > 0) manager.removeLabels(toRemove);
+    if (toRemove.length > 0) {
+      manager.removeLabels(toRemove);
+    }
 
     // Add labels that are new
     const toAdd: Label[] = [];
@@ -89,13 +95,12 @@ export function InstancedLabelComponent({
         toAdd.push(label);
       }
     }
-
     if (toAdd.length > 0) {
-      // manager.autoUpdate = false;
       manager.addLabels(toAdd);
-      manager.update();
-      // manager.autoUpdate = true;
-    } else if (toRemove.length > 0) {
+    }
+
+    // Always flush dirty state so removes + adds are both committed.
+    if (toAdd.length > 0 || toRemove.length > 0) {
       manager.update();
     }
 
@@ -105,28 +110,20 @@ export function InstancedLabelComponent({
       group.add(haloMesh, fill);
     }
     attachedMeshCountRef.current = manager.meshes.length;
-  // viewportPredicate and halo intentionally excluded — halo handled below
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, manager, fontSize]);
 
   // Halo toggle — mutate labels in-place, no rebuild, no re-layout
   useEffect(() => {
     for (const label of labelMapRef.current.values()) {
-      label.set({ haloWidth: halo ? 5 : 0, haloBlur: halo ? 10 : 0 });
+      label.set({ haloWidth: halo ? 1 : 0, haloBlur: halo ? 10 : 0 });
     }
     manager.update();
-  }, [halo]);
+  }, [halo, manager]);
 
-  const last    = useRef(0);
-
-  useFrame(({ clock }) => {
-    // if (clock.elapsedTime - last.current < 0.1) {
-    //   return;
-    // };
-    // last.current = clock.elapsedTime;
+  useFrame(() => {
     manager.cull(camera);
   });
 
   return <group ref={groupRef} />;
 }
-

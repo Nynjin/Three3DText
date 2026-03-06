@@ -51,13 +51,16 @@ export function CSS3DCloud({ items, halo }: { items: Item[]; halo: boolean }) {
     for (const { key, text, position, rotation } of items) {
       if (!map.has(key)) {
         const div = createDiv(text);
+        div.style.backgroundColor = halo ? "#cccccc" : "";
         const obj = new CSS3DObject(div);
+        div.remove?.();
         obj.position.set(...position);
         obj.rotation.set(...rotation);
         scene.add(obj);
         map.set(key, obj);
       }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, scene]);
 
   useEffect(() => {

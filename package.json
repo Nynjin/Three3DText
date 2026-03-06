@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@mapbox/mapbox-gl-rtl-text": "^0.3.0",
     "@mapbox/tiny-sdf": "^2.0.7",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",

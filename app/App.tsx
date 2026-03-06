@@ -22,10 +22,19 @@ function App() {
     | "troika-batched-opt"
     | "css3d"
     | "custom-instanced"
-  >("uikit");
+  >("custom-instanced");
+
+  const maxInstances = {
+    "uikit": 500,
+    "troika": 500,
+    "troika-batched": 10000,
+    "troika-batched-opt": 10000,
+    "css3d": 1000,
+    "custom-instanced": 300000,
+  }
 
   const [halo, setHalo] = useState(false);
-  const [count, setCount] = useState(100);
+  const [count, setCount] = useState(0);
 
   const seed = 12345;
   const items = useMemo(() => makeItems(count, seed), [count, seed]);
@@ -122,7 +131,7 @@ function App() {
           <input
             type="range"
             min={0}
-            max={10000}
+            max={maxInstances[mode]}
             step={1}
             value={count}
             onChange={(e) => setCount(Number(e.target.value))}
@@ -130,12 +139,12 @@ function App() {
           <input
             type="number"
             min={0}
-            max={10000}
+            max={maxInstances[mode]}
             step={1}
             value={count}
             onChange={(e) =>
               setCount(
-                Math.max(0, Math.min(1000000, Number(e.target.value) || 0))
+                Math.max(0, Math.min(maxInstances[mode], Number(e.target.value) || 0))
               )
             }
           />

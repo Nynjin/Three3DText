@@ -1,42 +1,48 @@
 import { Color, Euler, Quaternion, Vector2, Vector3 } from "three";
-import { toColor, toQuaternion, toVector2, toVector3 } from "../Utils/LabelUtils";
+import {
+  toColor,
+  toQuaternion,
+  toVector2,
+  toVector3,
+} from "../Utils/LabelUtils";
 
 export enum TextAnchorX {
-    Left = 0,
-    Center = 1,
-    Right = 2,
+  Left = 0,
+  Center = 1,
+  Right = 2,
 }
 
 export enum TextAnchorY {
-    Top = 0,
-    Middle = 1,
-    Bottom = 2,
-    Baseline = 3,
+  Top = 0,
+  Middle = 1,
+  Bottom = 2,
+  Baseline = 3,
 }
 
 export enum TextAlign {
-    Left = 0,
-    Center = 1,
-    Right = 2,
-    Justify = 3,
+  Auto = 0,
+  Left = 1,
+  Center = 2,
+  Right = 3,
+  Justify = 4,
 }
 
 export enum TextTransform {
-    None = 0,
-    Uppercase = 1,
-    Lowercase = 2,
-    Capitalize = 3,
+  None = 0,
+  Uppercase = 1,
+  Lowercase = 2,
+  Capitalize = 3,
 }
 
 export enum RotationAlignment {
-    Map = 0,
-    Viewport = 1,
+  Map = 0,
+  Viewport = 1,
 }
 
 export enum SymbolPlacement {
-    Point = 0,
-    Line = 1,
-    "Line-Center" = 2,
+  Point = 0,
+  Line = 1,
+  "Line-Center" = 2,
 }
 
 // TODO : there aren't cases that require masking yet
@@ -56,47 +62,45 @@ export type LabelChangeListener = (changes: LabelChangeType) => void;
 export interface LabelOptions {
   // Content
   text: string;
-  
+
   // Position & Transform
   position?: [number, number, number] | Vector3;
   rotation?: [number, number, number] | Euler | Quaternion;
   offset?: [number, number] | Vector2;
-  
+
   // Font
   font?: string;
   fontSize?: number;
   fontWeight?: string;
   letterSpacing?: number;
   lineHeight?: number;
-  
+
   // Layout
   maxWidth?: number;
   textAlign?: TextAlign;
   anchorX?: TextAnchorX;
   anchorY?: TextAnchorY;
   padding?: [number, number, number, number]; // top, right, bottom, left
-  
+
   // Fill
   color?: string | number | Color | Vector3;
   opacity?: number;
-  
+
   // Halo
   haloColor?: string | number | Color | Vector3;
   haloWidth?: number;
   haloBlur?: number;
   haloOpacity?: number;
-  
+
   // Rendering
   rotationAlignment?: RotationAlignment;
   symbolPlacement?: SymbolPlacement;
   visible?: boolean;
-  
+
   // Transform
   textTransform?: TextTransform;
 }
 
-
-// TODO : enforce safe set that calls emit
 export class Label {
   private _listeners = new Set<LabelChangeListener>();
 
@@ -106,42 +110,42 @@ export class Label {
   // Content
   private _text: string;
   private _textTransform: TextTransform;
-  
+
   // Position & Transform
   private _position: Vector3;
   private _rotation: Quaternion;
   private _offset: Vector2;
-  
+
   // Font
   private _font: string;
   private _fontSize: number;
   private _fontWeight: string;
   private _letterSpacing: number;
   private _lineHeight: number;
-  
+
   // Layout
   private _maxWidth: number;
   private _textAlign: TextAlign;
   private _anchorX: TextAnchorX;
   private _anchorY: TextAnchorY;
   private _padding: [number, number, number, number];
-  
+
   // Fill
   private _color: Color;
   private _opacity: number;
-  
+
   // Halo
   private _haloColor: Color;
   private _haloWidth: number;
   private _haloBlur: number;
   private _haloOpacity: number;
-  
+
   // Rendering
   private _rotationAlignment: RotationAlignment;
   private _symbolPlacement: SymbolPlacement;
 
   // Visibility
-  private _visible: boolean;  
+  private _visible: boolean;
 
   get id() {
     return this._id;
@@ -173,7 +177,7 @@ export class Label {
     this._position = toVector3(value);
     this._emit(LabelChangeType.Transform);
   }
-  
+
   get rotation(): Quaternion {
     return this._rotation;
   }
@@ -297,7 +301,7 @@ export class Label {
   get haloWidth() {
     return this._haloWidth;
   }
-  set haloWidth(value: number) { 
+  set haloWidth(value: number) {
     this._haloWidth = this._clampHaloWidth(value);
     this._emit(LabelChangeType.Style);
   }
@@ -344,42 +348,54 @@ export class Label {
 
   constructor(options: LabelOptions) {
     this._id = crypto.randomUUID();
+
     this._text = options.text;
-    
-    this._position = options.position ? toVector3(options.position) : new Vector3();
-    this._rotation = options.rotation ? toQuaternion(options.rotation) : new Quaternion();
+
+    this._position = options.position
+      ? toVector3(options.position)
+      : new Vector3();
+    this._rotation = options.rotation
+      ? toQuaternion(options.rotation)
+      : new Quaternion();
     this._offset = options.offset ? toVector2(options.offset) : new Vector2();
-    
+
     this._font = options.font ?? "sans-serif";
     this._fontSize = options.fontSize ?? 16;
     this._fontWeight = options.fontWeight ?? "normal";
     this._letterSpacing = options.letterSpacing ?? 0;
     this._lineHeight = options.lineHeight ?? 0.5;
-    
-    this._maxWidth = options.maxWidth ?? Infinity;
+
+    this._maxWidth = options.maxWidth ?? 10;
     this._textAlign = options.textAlign ?? TextAlign.Center;
     this._anchorX = options.anchorX ?? TextAnchorX.Center;
     this._anchorY = options.anchorY ?? TextAnchorY.Middle;
     this._padding = options.padding ?? [0, 0, 0, 0];
-    
-    this._color = options.color !== undefined ? toColor(options.color) : new Color(0, 0, 0);
+
+    this._color =
+      options.color !== undefined ? toColor(options.color) : new Color(0, 0, 0);
     this._opacity = options.opacity ?? 1;
-    
-    this._haloColor = options.haloColor !== undefined ? toColor(options.haloColor) : new Color(1, 1, 1);
+
+    this._haloColor =
+      options.haloColor !== undefined
+        ? toColor(options.haloColor)
+        : new Color(1, 1, 1);
     this._haloWidth = this._clampHaloWidth(options.haloWidth ?? 0);
     this._haloBlur = this._clampHaloBlur(options.haloBlur ?? 0);
     this._haloOpacity = options.haloOpacity ?? 1;
-    
-    this._rotationAlignment = options.rotationAlignment ?? RotationAlignment.Map;
+
+    this._rotationAlignment =
+      options.rotationAlignment ?? RotationAlignment.Map;
     this._symbolPlacement = options.symbolPlacement ?? SymbolPlacement.Point;
     this._visible = options.visible !== undefined ? options.visible : true;
-    
+
     this._textTransform = options.textTransform ?? TextTransform.None;
   }
 
   _clampHaloWidth(value: number): number {
     if (value > this._fontSize * 4) {
-      console.warn(`Label.haloWidth ${value} is too large for fontSize ${this._fontSize}. Clamping to ${this._fontSize * 4}.`);
+      console.warn(
+        `Label.haloWidth ${value} is too large for fontSize ${this._fontSize}. Clamping to ${this._fontSize * 4}.`,
+      );
       return this._fontSize * 4;
     }
     return value;
@@ -387,27 +403,33 @@ export class Label {
 
   _clampHaloBlur(value: number): number {
     if (value > this._fontSize * 4) {
-      console.warn(`Label.haloBlur ${value} is too large for fontSize ${this._fontSize}. Clamping to ${this._fontSize * 4}.`);
+      console.warn(
+        `Label.haloBlur ${value} is too large for fontSize ${this._fontSize}. Clamping to ${this._fontSize * 4}.`,
+      );
       return this._fontSize * 4;
     }
     return value;
   }
-  
+
   /** Get transformed text based on textTransform property */
   getDisplayText(): string {
     switch (this._textTransform) {
-      case TextTransform.Uppercase: return this._text.toUpperCase();
-      case TextTransform.Lowercase: return this._text.toLowerCase();
-      case TextTransform.Capitalize: return this._text.replace(/\b\w/g, c => c.toUpperCase());
-      default: return this._text;
+      case TextTransform.Uppercase:
+        return this._text.toUpperCase();
+      case TextTransform.Lowercase:
+        return this._text.toLowerCase();
+      case TextTransform.Capitalize:
+        return this._text.replace(/\b\w/g, (c) => c.toUpperCase());
+      default:
+        return this._text;
     }
   }
-  
+
   /** Check if halo should be rendered */
   hasHalo(): boolean {
     return this._haloWidth > 0 && this._haloOpacity > 0;
   }
-  
+
   /** Update multiple properties at once */
   set(options: Partial<LabelOptions>): this {
     let changes = LabelChangeType.None;
@@ -439,7 +461,7 @@ export class Label {
       this._fontWeight = options.fontWeight;
       changes |= LabelChangeType.Font;
     }
-    
+
     // Text content properties
     if (options.text !== undefined) {
       this._text = options.text;

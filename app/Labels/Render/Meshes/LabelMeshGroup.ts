@@ -22,7 +22,7 @@ import { Label } from "../../Core/Label";
 import { InstancedDataTexture, Texel } from "../Textures/InstancedDataTexture";
 
 /**
- * T0: label position + opacity (x, y, z, visible)
+ * T0: label position + opacity (x, y, z, -)
  * T1: label rotation (quat x, y, z, w)
  * T2: color + opacity (r, g, b, a)
  * T3: halo color + opacity (r, g, b, a)
@@ -31,6 +31,7 @@ import { InstancedDataTexture, Texel } from "../Textures/InstancedDataTexture";
  */
 export const LABEL_TEXELS = 6;
 
+// todo : consider separating glyphs into a UVs texture and a layout texture to avoid duplicate UV data
 /**
  * T0: label index (i, -, -, -)
  * T1: char offset (x, y) + size (w, h)
@@ -46,7 +47,7 @@ function makeLabelTexels(label: LabelInstance): Texel[] {
       x: label.position.x,
       y: label.position.y,
       z: label.position.z,
-      w: label.visible,
+      w: 0,
     },
     {
       x: label.rotation.x,
@@ -54,7 +55,12 @@ function makeLabelTexels(label: LabelInstance): Texel[] {
       z: label.rotation.z,
       w: label.rotation.w,
     },
-    { x: label.color.x, y: label.color.y, z: label.color.z, w: label.opacity },
+    { 
+      x: label.color.x, 
+      y: label.color.y, 
+      z: label.color.z, 
+      w: label.opacity 
+    },
     {
       x: label.haloColor.x,
       y: label.haloColor.y,
@@ -67,7 +73,12 @@ function makeLabelTexels(label: LabelInstance): Texel[] {
       z: 0,
       w: 0,
     },
-    { x: label.rotationAlignment, y: label.symbolPlacement, z: 0, w: 0 },
+    { 
+      x: label.rotationAlignment, 
+      y: label.symbolPlacement, 
+      z: 0, 
+      w: 0 
+    },
   ];
 }
 
@@ -91,7 +102,7 @@ function makeGlyphTexels(labelIdx: number, glyphs: GlyphInstance[]) {
       y: glyph.glyph.py,
       z: glyph.glyph.pw,
       w: glyph.glyph.ph,
-    },);
+    });
   }
   return texels;
 }
@@ -105,15 +116,16 @@ export class LabelMeshGroup {
   readonly fillMesh: LabelMesh = new Mesh(this.geom);
   readonly haloMesh: LabelMesh = new Mesh(this.geom);
 
-  private readonly _pxPerUnit: number;
-
-  private _glyphIndex: Uint32Array = new Uint32Array(0);
-  private _glyphIndexAttr: InstancedBufferAttribute | null = null;
+  // Static max glyph count
+  // todo : make value public and either calculate absolute max or allow resize with geometry rebuild
+  // todo : consider moving glyphIndex to textureUniform for dynamic indexing ?
+  private _glyphIndex: Int32Array = new Int32Array(300000);
+  private _glyphIndexAttr: InstancedBufferAttribute = new InstancedBufferAttribute(this._glyphIndex, 1);
 
   private _labelDataBuffer = new InstancedDataTexture(LABEL_TEXELS);
   private _glyphDataBuffer = new InstancedDataTexture(GLYPH_TEXELS);
 
-  constructor(pxPerUnit: number) {
+  constructor() {
     const base = new PlaneGeometry(1, 1);
     this.geom.index = base.index;
     this.geom.attributes.position = base.attributes.position;
@@ -127,74 +139,26 @@ export class LabelMeshGroup {
     this.fillMesh.matrixAutoUpdate = false;
     this.haloMesh.matrixAutoUpdate = false;
 
-    this._pxPerUnit = pxPerUnit;
+    this.geom.setAttribute("glyphIndex", this._glyphIndexAttr);
   }
 
   private _syncUniforms() {
-    if (!this.fillMesh.material?.uniforms) return;
+    if (!this.fillMesh.material?.uniforms) {
+      return;
+    }
+
     updateFillUniforms(
       this.fillMesh.material,
       this._labelDataBuffer.texture,
       this._glyphDataBuffer.texture,
-      this._labelDataBuffer.width,
-      this._glyphDataBuffer.width,
     );
     updateHaloUniforms(
       this.haloMesh.material,
       this._labelDataBuffer.texture,
       this._glyphDataBuffer.texture,
-      this._labelDataBuffer.width,
-      this._glyphDataBuffer.width,
     );
-  }
-
-  /**
-   * Append new labels
-   */
-  addLabels(labels: LabelInstance[]) {
-    if (labels.length === 0) return;
-    this._labelDataBuffer.addToKeys(
-      labels.map(l => ({
-        key: l.id,
-        flatData: makeLabelTexels(l),
-      })),
-    );
-    this._glyphDataBuffer.addToKeys(
-      labels
-        .filter(l => l.glyphs.length > 0)
-        .map(l => ({
-          key: l.id,
-          flatData: makeGlyphTexels(this._labelDataBuffer.getFirstIdxOf(l.id)!, l.glyphs),
-        })),
-    );
-  }
-
-  /**
-   * Update existing labels
-   * - Same glyph count: label + glyph data overwritten in-place at existing slots
-   * - Different glyph count: old slots freed, new slots allocated from free list
-   */
-  updateLabels(labels: LabelInstance[]) {
-    if (labels.length === 0) return;
-
-    this._labelDataBuffer.updateKeys(
-      labels.map(l => ({
-        key: l.id,
-        flatData: makeLabelTexels(l),
-      })),
-    );
-    this._glyphDataBuffer.updateKeys(
-      labels.map(l => ({
-        key: l.id,
-        flatData: makeGlyphTexels(this._labelDataBuffer.getFirstIdxOf(l.id)!, l.glyphs),
-      })),
-    );
-  }
-
-  removeLabels(ids: string[]) {
-    if (ids.length === 0) return;
-    this._labelDataBuffer.removeKeys(ids);
-    this._glyphDataBuffer.removeKeys(ids);
+    this.fillMesh.material.uniformsNeedUpdate = true;
+    this.haloMesh.material.uniformsNeedUpdate = true;
   }
 
   /**
@@ -206,16 +170,14 @@ export class LabelMeshGroup {
         atlas,
         this._labelDataBuffer.texture,
         this._glyphDataBuffer.texture,
-        this._labelDataBuffer.width,
-        this._glyphDataBuffer.width,
       );
       this.haloMesh.material = createHaloMaterial(
         atlas,
         this._labelDataBuffer.texture,
         this._glyphDataBuffer.texture,
-        this._labelDataBuffer.width,
-        this._glyphDataBuffer.width,
       );
+      this.fillMesh.material.uniformsNeedUpdate = true;
+      this.haloMesh.material.uniformsNeedUpdate = true;
     } else {
       updateFillAtlas(this.fillMesh.material, atlas);
       updateHaloAtlas(this.haloMesh.material, atlas);
@@ -227,16 +189,17 @@ export class LabelMeshGroup {
     toAdd: LabelInstance[],
     toRemove: string[],
     toUpdate: LabelInstance[],
-  ) {
+    atlas?: SDFAtlas,
+  ) {    
     this._labelDataBuffer.update(
       toAdd.map(l => ({
         key: l.id,
-        flatData: makeLabelTexels(l),
+        flatItems: makeLabelTexels(l),
       })),
       toRemove,
       toUpdate.map(l => ({
         key: l.id,
-        flatData: makeLabelTexels(l),
+        flatItems: makeLabelTexels(l),
       })),
     );
     this._glyphDataBuffer.update(
@@ -244,34 +207,34 @@ export class LabelMeshGroup {
         .filter(l => l.glyphs.length > 0)
         .map(l => ({
           key: l.id,
-          flatData: makeGlyphTexels(this._labelDataBuffer.getFirstIdxOf(l.id)!, l.glyphs),
+          flatItems: makeGlyphTexels(this._labelDataBuffer.getFirstTexelIdxOf(l.id)!, l.glyphs),
         })),
       toRemove,
-      // style-only updates have glyphs: [] — skip to avoid freeing existing glyph slots
+      // style-only updates have glyphs: [] - skip to avoid freeing existing glyph slots
       toUpdate
         .filter(l => l.glyphs.length > 0)
         .map(l => ({
           key: l.id,
-          flatData: makeGlyphTexels(this._labelDataBuffer.getFirstIdxOf(l.id)!, l.glyphs),
+          flatItems: makeGlyphTexels(this._labelDataBuffer.getFirstTexelIdxOf(l.id)!, l.glyphs),
         })),
     );
 
-    this._syncUniforms();
-
-    const totalGlyphs = this._glyphDataBuffer.usedSlots;
-    if (!this._glyphIndexAttr || this._glyphIndex.length < totalGlyphs) {
-      this._glyphIndex = new Uint32Array(totalGlyphs * 1.5);
-      this._glyphIndexAttr = new InstancedBufferAttribute(this._glyphIndex, 1);
-      this.geom.setAttribute("glyphIndex", this._glyphIndexAttr);
+    if (atlas) {
+      this.syncAtlas(atlas);
+    } else {
+      this._syncUniforms();
     }
 
     let count = 0;
-    for (const idx of this._glyphDataBuffer.getAllIdx()) {
+    for (const idx of this._glyphDataBuffer.getAllTexelIndices()) {
       this._glyphIndex[count++] = idx;
     }
 
     this.geom.instanceCount = count;
-    if (this._glyphIndexAttr) this._glyphIndexAttr.needsUpdate = true;
+    this._glyphIndexAttr.needsUpdate = true;
+
+    this.fillMesh.visible = count > 0;
+    this.haloMesh.visible = count > 0;
   }
 
   /**
@@ -288,7 +251,7 @@ export class LabelMeshGroup {
         continue;
       }
 
-      const glyphIndices = this._glyphDataBuffer.getIdxOf(label.id);
+      const glyphIndices = this._glyphDataBuffer.getTexelIndicesOf(label.id);
       if (!glyphIndices) {
         continue;
       }

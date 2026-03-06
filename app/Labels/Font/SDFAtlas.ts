@@ -1,5 +1,5 @@
 import TinySDF from "@mapbox/tiny-sdf";
-import { DataTexture, LinearFilter, RedFormat, UnsignedByteType, Vector2 } from "three";
+import { DataTexture, LinearFilter, RedFormat, UnsignedByteType } from "three";
 import { FontKey } from "./FontKey";
 import { GlyphInfo } from "../Layout/GlyphRun";
 
@@ -7,14 +7,13 @@ const SCALE = 2;
 const CAPACITY_MULTIPLIER = 1.5;
 
 export class SDFAtlas {
-  readonly texture: DataTexture;
+  texture: DataTexture;
   readonly glyphs: Map<string, GlyphInfo> = new Map();
-  readonly atlasSize: Vector2;
   readonly cutoff: number;
   readonly radius: number;
 
   private _data: Uint8Array;
-  private _size: number;
+  private _width: number;
   private _sdf: TinySDF;
   private _cellSize: number;
   private _cols: number;
@@ -35,20 +34,19 @@ export class SDFAtlas {
       cutoff: this.cutoff,
     });
 
-    this._cellSize = fontKey.size + buffer * 2;
+    this._cellSize = fontKey.size * SCALE + buffer * 2;
     this._capacity = Math.max(8, Math.ceil(chars.length * CAPACITY_MULTIPLIER));
     this._cols = Math.ceil(Math.sqrt(this._capacity));
     const rows = Math.ceil(this._capacity / this._cols);
 
-    this._size = this._nextPow2(Math.max(
+    this._width = this._nextPow2(Math.max(
       this._cols * this._cellSize,
       rows * this._cellSize,
     ));
-    this._data = new Uint8Array(this._size * this._size);
+    this._data = new Uint8Array(this._width * this._width);
 
-    this.atlasSize = new Vector2(this._size, this._size);
     this.texture = new DataTexture(
-      this._data, this._size, this._size,
+      this._data, this._width, this._width,
       RedFormat, UnsignedByteType,
     );
     this.texture.flipY  = false;
@@ -60,20 +58,29 @@ export class SDFAtlas {
     this.texture.needsUpdate = true;
   }
 
-  addChars(chars: Iterable<string>): boolean {
+  addChars(chars: Iterable<string>): {
+    dirty: boolean;
+    resize: boolean;
+  } {
+    let resize = false;
     const newChars: string[] = [];
     for (const c of chars) {
-      if (!this.glyphs.has(c)) newChars.push(c);
+      if (!this.glyphs.has(c)) {
+        newChars.push(c);
+      };
     }
-    if (newChars.length === 0) return false;
+    if (newChars.length === 0) {
+      return { dirty: false, resize: false };
+    }
 
     if (this._slotCount + newChars.length > this._capacity) {
       this._resize(this._slotCount + newChars.length);
-    }
+      resize = true;
+    }    
 
     this._drawChars(newChars);
     this.texture.needsUpdate = true;
-    return true;
+    return { dirty: true, resize };
   }
 
   dispose() {
@@ -82,7 +89,9 @@ export class SDFAtlas {
 
   private _drawChars(chars: string[]) {
     for (const c of chars) {
-      if (this.glyphs.has(c)) continue;
+      if (this.glyphs.has(c)) {
+        continue;
+      }
 
       const slot = this._slotCount++;
       const x = (slot % this._cols) * this._cellSize;
@@ -103,6 +112,7 @@ export class SDFAtlas {
         advance: g.glyphAdvance / SCALE || 1,
         top: g.glyphTop / SCALE || 0,
       });
+
     }
   }
 
@@ -110,7 +120,7 @@ export class SDFAtlas {
     for (let row = 0; row < h; row++) {
       this._data.set(
         src.subarray(row * w, (row + 1) * w),
-        (dy + row) * this._size + dx,
+        (dy + row) * this._width + dx,
       );
     }
   }
@@ -125,19 +135,34 @@ export class SDFAtlas {
       rows * this._cellSize,
     ));
 
-    const newData = new Uint8Array(newSize * newSize);
+    const oldData  = this._data;
+    const oldWidth = this._width;
+    const newData  = new Uint8Array(newSize * newSize);
 
-    for (let row = 0; row < this._size; row++) {
-      newData.set(
-        this._data.subarray(row * this._size, (row + 1) * this._size),
-        row * newSize,
-      );
+    let slot = 0;
+    for (const [, g] of this.glyphs) {
+      const newX = (slot % this._cols) * this._cellSize;
+      const newY = Math.floor(slot / this._cols) * this._cellSize;
+
+      for (let row = 0; row < g.ph; row++) {
+        const srcOff = (g.py + row) * oldWidth + g.px;
+        newData.set(oldData.subarray(srcOff, srcOff + g.pw), (newY + row) * newSize + newX);
+      }
+
+      g.px = newX;
+      g.py = newY;
+      slot++;
     }
 
     this._data = newData;
-    this._size = newSize;
-    this.atlasSize.set(newSize, newSize);
-    this.texture.image = { data: newData, width: newSize, height: newSize };
+    this._width = newSize;
+    
+    this.texture.dispose();
+    this.texture = new DataTexture(newData, newSize, newSize, RedFormat, UnsignedByteType);
+    this.texture.flipY = false;
+    this.texture.generateMipmaps = false;
+    this.texture.minFilter = LinearFilter;
+    this.texture.magFilter = LinearFilter;
     this.texture.needsUpdate = true;
   }
 

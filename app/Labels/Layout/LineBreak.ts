@@ -1,70 +1,86 @@
 import { Label } from "../Core/Label";
 import { GlyphInfo } from "./GlyphRun";
 
+export interface LineBreaks {
+  lines: string[];
+  breakIndices: number[];
+}
+
 export default function lineBreak(
   label: Label,
   glyphs: Map<string, GlyphInfo>,
-  pxPerUnit: number
-) {
-  const lines: string[] = [];
-  const text = label.getDisplayText();
+  text = label.getDisplayText(),
+): LineBreaks {
   const fallback = glyphs.get("?")!;
 
-  if (label.maxWidth < Infinity) {
-    const words = text.split(/\s+/);
-    let currentLine = "";
-    let currentWidth = 0;
-
-    for (let i = 0; i < words.length; i++) {
-      const word = words[i];
-      if (!word) continue;
-
-      // Calculate word width including trailing space
-      let wordWidth = 0;
-      for (let j = 0; j < word.length; j++) {
-        const c = word[j];
-        wordWidth += (glyphs.get(c) || fallback).advance;
-        if (j < word.length - 1) {
-          wordWidth += label.letterSpacing * pxPerUnit;
-        }
-      }
-
-      // Add space width if not last word
-      const spaceWidth =
-        i < words.length - 1 ? (glyphs.get(" ") || fallback).advance : 0;
-      const totalWordWidth = wordWidth + spaceWidth;
-
-      // Check if the word fits on the current line
-      if (
-        currentWidth + totalWordWidth > label.maxWidth * pxPerUnit &&
-        currentLine
-      ) {
-        // Push the current line and start a new one
-        lines.push(currentLine.trim());
-        currentLine = word;
-        currentWidth = wordWidth;
-      } else if (wordWidth > label.maxWidth * pxPerUnit) {
-        // If the word itself is longer than maxWidth, place it on its own line
-        if (currentLine) {
-          lines.push(currentLine.trim());
-        }
-        lines.push(word);
-        currentLine = "";
-        currentWidth = 0;
-      } else {
-        // Add the word to the current line
-        if (currentLine) currentLine += " ";
-        currentLine += word;
-        currentWidth += totalWordWidth;
-      }
-    }
-
-    if (currentLine) lines.push(currentLine);
-  } else {
-    lines.push(text);
+  if (!text) {
+    return { lines: [""], breakIndices: [0] };
   }
 
-  if (lines.length === 0) lines.push("");
+  if (label.maxWidth >= Infinity) {
+    return { lines: [text], breakIndices: [text.length] };
+  }
 
-  return lines;
+  const letterSpacing = label.letterSpacing * label.fontSize;
+  const maxWidth = label.maxWidth * label.fontSize;
+  const lines: string[] = [];
+  const breakIndices: number[] = [];
+
+  let i = 0;
+  while (i < text.length) {
+    // Skip leading spaces at the start of each line
+    while (i < text.length && text[i] === " ") i++;
+    if (i >= text.length) break;
+
+    let lineStr = "";
+    let lineWidth = 0;
+
+    // Track the last space position so we can break at a word boundary
+    let lastSpaceI = -1;       // index in `text` of the last space that fit
+    let lastSpaceLineLen = 0;  // length of lineStr when that space was recorded
+
+    while (i < text.length) {
+      const c = text[i];
+      const adv = (glyphs.get(c) ?? fallback).advance;
+      const charW = adv + (lineStr.length > 0 ? letterSpacing : 0);
+
+      // Overflow — only after at least one char is on the line
+      if (lineStr.length > 0 && lineWidth + charW > maxWidth) {
+        if (lastSpaceI >= 0) {
+          // Break at the last word boundary
+          lines.push(lineStr.slice(0, lastSpaceLineLen));
+          // Break index = position just after the space
+          breakIndices.push(lastSpaceI + 1);
+          i = lastSpaceI + 1;
+        } else {
+          // No word boundary — break mid-character
+          lines.push(lineStr);
+          breakIndices.push(i);
+        }
+        lineStr = "";
+        break;
+      }
+
+      if (c === " ") {
+        lastSpaceI = i;
+        lastSpaceLineLen = lineStr.length;
+      }
+
+      lineStr += c;
+      lineWidth += charW;
+      i++;
+    }
+
+    if (lineStr) {
+      lines.push(lineStr);
+      breakIndices.push(i);
+    }
+  }
+
+  if (lines.length === 0) {
+    lines.push("");
+    breakIndices.push(text.length);
+  }
+
+  return { lines, breakIndices };
 }
