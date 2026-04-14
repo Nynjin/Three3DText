@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Three.js 3D Text Benchmark
+
+[![License](https://img.shields.io/badge/license-CeCILL--B%20%2F%20MIT-yellow.svg)](./LICENSE)
+![Three.js](https://img.shields.io/badge/Three.js-0.182-green)
+![React](https://img.shields.io/badge/React-19-blue)
+![Next.js](https://img.shields.io/badge/Next.js-16-black)
+
+This project serves as a prototype and benchmark for a future overhaul of the [iTowns](http://www.itowns-project.org/) labelling system. 
+
+It implements a custom SDF-based instanced text renderer for Three.js, alongside a React Three Fiber testbed to benchmark it against existing 3D text solutions.
+
+<img src="https://github.com/user-attachments/assets/7eb8b804-ce66-4e13-8663-4a28a120e538" alt="Custom renderer example" width="400">
+
+## Motivation and Context
+iTowns' current labelling system does not scale well past a few thousand labels. Existing instanced 3D text renderers for Three.js rely on static font files (`.ttf`, `.woff`) that must be shipped or hosted alongside the application.
+
+This repository explores an alternative approach: a custom text renderer that generates SDF atlases at runtime from system fonts using [`@mapbox/tiny-sdf`](https://github.com/mapbox/tiny-sdf). Labels are drawn using instanced meshes driven by data textures. 
+
+### Key Features
+* Dynamic SDF generation without shipping font files
+* Support for text justification, anchors, colors, and halo effects
+* RTL and Arabic character support via [`@mapbox/mapbox-gl-rtl-text`](https://github.com/mapbox/mapbox-gl-rtl-text)
+* Real-time benchmarking UI against Troika, Batched Troika, UIKit, and CSS3DRenderer
 
 ## Getting Started
 
-First, run the development server:
+> **Note:** This repository uses **Git LFS** for font and SVG assets. Please ensure `git lfs` is installed before cloning.
+
+First, install the dependencies, then run the development server:
 
 ```bash
+npm install / npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## License
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+This project inherits the dual **CeCILL-B / MIT** licensing of the iTowns project. 
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Third-party dependencies (Three.js, `@mapbox/tiny-sdf`, `@mapbox/mapbox-gl-rtl-text`) carry their own respective open-source licenses. See the [LICENSE](./LICENSE) file for full details.
 
-## Learn More
+## Acknowledgements & Context
 
-To learn more about Next.js, take a look at the following resources:
+**Author:** [Moncef Hassani](https://github.com/nynjin)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+This project was developed at [Ciril Group](https://www.cirilgroup.com/), specifically as a research and optimization effort for the iTowns project. 
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+Copyright (c) 2026 Moncef Hassani | Ciril Group
