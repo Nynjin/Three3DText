@@ -1,34 +1,49 @@
 import { Label, TextAnchorX, TextAnchorY } from "../Core/Label";
 
-export default function textAnchors(label: Label, contentMaxWidth: number, totalHeight: number, lineHeightPx: number) {
-  let anchorOffsetX = 0;
+export interface TextBounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+export default function anchorText(
+  label: Label,
+  bounds: TextBounds,
+  offsetX: number,
+  offsetY: number,
+) {
+  let anchorX = 0;
   switch (label.anchorX) {
     case TextAnchorX.Left:
-      anchorOffsetX = 0;
+      anchorX = bounds.minX;
       break;
     case TextAnchorX.Center:
-      anchorOffsetX = -contentMaxWidth / 2;
+      anchorX = (bounds.minX + bounds.maxX) / 2;
       break;
     case TextAnchorX.Right:
-      anchorOffsetX = -contentMaxWidth;
+      anchorX = bounds.maxX;
       break;
   }
 
-  let anchorOffsetY = 0;
+  let anchorY = 0;
   switch (label.anchorY) {
     case TextAnchorY.Top:
-      anchorOffsetY = -lineHeightPx;
+      anchorY = bounds.maxY;
       break;
     case TextAnchorY.Middle:
-      anchorOffsetY = -totalHeight / 2 + lineHeightPx / 2;
+      anchorY = (bounds.minY + bounds.maxY) / 2;
       break;
     case TextAnchorY.Bottom:
-      anchorOffsetY = totalHeight - lineHeightPx;
+      anchorY = bounds.minY;
       break;
     case TextAnchorY.Baseline:
-      anchorOffsetY = 0;
+      anchorY = 0;
       break;
   }
 
-  return { anchorOffsetX, anchorOffsetY };
+  return {
+    shiftX: -anchorX + offsetX,
+    shiftY: -anchorY - offsetY,
+  };
 }

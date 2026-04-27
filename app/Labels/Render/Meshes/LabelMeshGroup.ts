@@ -1,5 +1,4 @@
 import {
-  Frustum,
   InstancedBufferAttribute,
   InstancedBufferGeometry,
   Mesh,
@@ -17,7 +16,7 @@ import {
   updateHaloAtlas,
   updateHaloUniforms,
 } from "../Materials/HaloMaterial";
-import { GlyphInstance, LabelInstance } from "../../Layout/GlyphRun";
+import { GlyphInstance } from "../../Layout/GlyphRun";
 import { Label } from "../../Core/Label";
 import { InstancedDataTexture, Texel } from "../Textures/InstancedDataTexture";
 
@@ -41,7 +40,7 @@ export const GLYPH_TEXELS = 3;
 
 // ---------- Helper functions ----------
 
-function makeLabelTexels(label: LabelInstance): Texel[] {
+function makeLabelTexels(label: Label): Texel[] {
   return [
     {
       x: label.position.x,
@@ -56,16 +55,16 @@ function makeLabelTexels(label: LabelInstance): Texel[] {
       w: label.rotation.w,
     },
     { 
-      x: label.color.x, 
-      y: label.color.y, 
-      z: label.color.z, 
+      x: label.color.r, 
+      y: label.color.g,
+      z: label.color.b, 
       w: label.opacity 
     },
     {
-      x: label.haloColor.x,
-      y: label.haloColor.y,
-      z: label.haloColor.z,
-      w: label.haloOpacity,
+      x: label.haloColor.r,
+      y: label.haloColor.g,
+      z: label.haloColor.b,
+      w: label.getDisplayedHaloOpacity(),
     },
     {
       x: label.haloWidth,
@@ -119,7 +118,7 @@ export class LabelMeshGroup {
   // Static max glyph count
   // todo : make value public and either calculate absolute max or allow resize with geometry rebuild
   // todo : consider moving glyphIndex to textureUniform for dynamic indexing ?
-  private _glyphIndex: Int32Array = new Int32Array(300000);
+  private _glyphIndex: Int32Array = new Int32Array(1000000);
   private _glyphIndexAttr: InstancedBufferAttribute = new InstancedBufferAttribute(this._glyphIndex, 1);
 
   private _labelDataBuffer = new InstancedDataTexture(LABEL_TEXELS);
@@ -186,9 +185,9 @@ export class LabelMeshGroup {
   }
 
   update(
-    toAdd: LabelInstance[],
+    toAdd: Label[],
     toRemove: string[],
-    toUpdate: LabelInstance[],
+    toUpdate: Label[],
     atlas?: SDFAtlas,
   ) {    
     this._labelDataBuffer.update(
@@ -240,21 +239,23 @@ export class LabelMeshGroup {
   /**
    * Rewrite the draw list to only the glyphs of visible labels.
    */
-  cullByFrustum(labels: Iterable<Label>, frustum: Frustum) {
+  cull(labels: Iterable<Label>) {
     let pos = 0;
     let hasHalo = false;
 
     for (const label of labels) {
-      if (!frustum.containsPoint(label.position)) continue;
-
-      if (!label.visible) {
+      if (!label.shouldRender) {
+        label.hasRendered = false;
         continue;
       }
 
       const glyphIndices = this._glyphDataBuffer.getTexelIndicesOf(label.id);
       if (!glyphIndices) {
+        label.hasRendered = false;
         continue;
       }
+
+      label.hasRendered = true;
 
       for (let i = 0; i < glyphIndices.length; i++) {
         this._glyphIndex[pos++] = glyphIndices[i];

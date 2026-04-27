@@ -5,6 +5,7 @@ import {
   toVector2,
   toVector3,
 } from "../Utils/LabelUtils";
+import { GlyphInstance } from "../Layout/GlyphRun";
 
 export enum TextAnchorX {
   Left = 0,
@@ -57,6 +58,11 @@ export enum LabelChangeType {
   Dispose = 1 << 6,
 }
 
+export interface LabelBounds {
+  width: number;
+  height: number;
+}
+
 export type LabelChangeListener = (changes: LabelChangeType) => void;
 
 export interface LabelOptions {
@@ -99,6 +105,15 @@ export interface LabelOptions {
 
   // Transform
   textTransform?: TextTransform;
+
+  // Bounds in label-local space
+  bounds?: LabelBounds;
+
+  // Glyph-derived occupancy bitmap in label-local space
+  // collisionBitmap?: LabelCollisionBitmap;
+
+  // GLyphs
+  glyphs?: GlyphInstance[];
 }
 
 export class Label {
@@ -146,6 +161,17 @@ export class Label {
 
   // Visibility
   private _visible: boolean;
+  private _shouldRender: boolean = false;
+  private _hasRendered: boolean = false;
+
+  // Bounds
+  private _bounds?: LabelBounds;
+
+  // Glyph-derived collision bitmap
+  // private _collisionBitmap?: LabelCollisionBitmap;
+
+  // Glyphs
+  private _glyphs: GlyphInstance[] = [];
 
   get id() {
     return this._id;
@@ -317,6 +343,7 @@ export class Label {
   get haloOpacity() {
     return this._haloOpacity;
   }
+
   set haloOpacity(value: number) {
     this._haloOpacity = value;
     this._emit(LabelChangeType.Style);
@@ -344,6 +371,47 @@ export class Label {
   set visible(value: boolean) {
     this._visible = value;
     this._emit(LabelChangeType.Visibility);
+  }
+
+  get hasRendered() {
+    return this._hasRendered;
+  }
+  set hasRendered(value: boolean) {
+    this._hasRendered = value;
+    // No emit, managed during rendering phase
+  }
+
+  get shouldRender() {
+    return this._shouldRender;
+  }
+  set shouldRender(value: boolean) {
+    this._shouldRender = value;
+    // No emit, managed during rendering phase
+  }
+
+  get bounds() {
+    return this._bounds;
+  }
+
+  set bounds(value: LabelBounds | undefined) {
+    this._bounds = value;
+    // No emit, managed during layout phase
+  }
+
+  // get collisionBitmap() {
+  //   return this._collisionBitmap;
+  // }
+  // set collisionBitmap(value: LabelCollisionBitmap | undefined) {
+  //   this._collisionBitmap = value;
+  //   // No emit, managed during layout phase
+  // }
+
+  get glyphs() {
+    return this._glyphs;
+  }
+  set glyphs(value: GlyphInstance[]) {
+    this._glyphs = value;
+    // No emit, managed during layout phase
   }
 
   constructor(options: LabelOptions) {
@@ -389,6 +457,11 @@ export class Label {
     this._visible = options.visible !== undefined ? options.visible : true;
 
     this._textTransform = options.textTransform ?? TextTransform.None;
+
+    this._bounds = options.bounds;
+    // this._collisionBitmap = options.collisionBitmap;
+
+    this._glyphs = options.glyphs ?? [];
   }
 
   _clampHaloWidth(value: number): number {
@@ -425,9 +498,19 @@ export class Label {
     }
   }
 
+  // isVisible() {
+  //   return this.visible && this.getDisplayText().length > 0 && this._fontSize > 0 && this._opacity > 0;
+  // }
+
   /** Check if halo should be rendered */
   hasHalo(): boolean {
     return this._haloWidth > 0 && this._haloOpacity > 0;
+  }
+
+  /** Get displayed halo opacity, affected by entire label opacity */
+  getDisplayedHaloOpacity(): number {
+    if (!this.hasHalo()) return 0;
+    return this._haloOpacity * this._opacity;
   }
 
   /** Update multiple properties at once */
@@ -542,6 +625,21 @@ export class Label {
       changes |= LabelChangeType.Visibility;
     }
 
+    if (options.bounds !== undefined) {
+      this._bounds = options.bounds;
+      changes |= LabelChangeType.Style;
+    }
+
+    // if (options.collisionBitmap !== undefined) {
+    //   this._collisionBitmap = options.collisionBitmap;
+    //   changes |= LabelChangeType.Style;
+    // }
+
+    if (options.glyphs !== undefined) {
+      this._glyphs = options.glyphs;
+      changes |= LabelChangeType.Style;
+    }
+
     this._emit(changes);
     return this;
   }
@@ -572,6 +670,19 @@ export class Label {
       symbolPlacement: this._symbolPlacement,
       visible: this._visible,
       textTransform: this._textTransform,
+      bounds: this._bounds ? { ...this._bounds } : undefined,
+      // collisionBitmap: this._collisionBitmap
+      //   ? {
+      //       ...this._collisionBitmap,
+      //       bits: new Uint32Array(this._collisionBitmap.bits),
+      //       occupiedIndices: new Uint32Array(this._collisionBitmap.occupiedIndices),
+      //     }
+      //   : undefined,
+      glyphs: this._glyphs.map((g) => ({
+        glyph: { ...g.glyph },
+        offset: g.offset.clone(),
+        rotation: g.rotation ? g.rotation.clone() : undefined,
+      })),
     });
   }
 

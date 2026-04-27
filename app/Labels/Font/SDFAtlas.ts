@@ -3,9 +3,6 @@ import { DataTexture, LinearFilter, RedFormat, UnsignedByteType } from "three";
 import { FontKey } from "./FontKey";
 import { GlyphInfo } from "../Layout/GlyphRun";
 
-const SCALE = 2;
-const CAPACITY_MULTIPLIER = 1.5;
-
 export class SDFAtlas {
   texture: DataTexture;
   readonly glyphs: Map<string, GlyphInfo> = new Map();
@@ -20,13 +17,16 @@ export class SDFAtlas {
   private _capacity: number;
   private _slotCount = 0;
 
+  static SCALE = 2;
+  static CAPACITY_MULTIPLIER = 1.5;
+
   constructor(chars: string[], fontKey: FontKey) {
     const buffer = fontKey.size * 2;
     this.radius = buffer;
     this.cutoff = 0.5;
 
     this._sdf = new TinySDF({
-      fontSize: fontKey.size * SCALE,
+      fontSize: fontKey.size * SDFAtlas.SCALE,
       fontFamily: fontKey.font,
       fontWeight: fontKey.weight,
       buffer,
@@ -34,8 +34,8 @@ export class SDFAtlas {
       cutoff: this.cutoff,
     });
 
-    this._cellSize = fontKey.size * SCALE + buffer * 2;
-    this._capacity = Math.max(8, Math.ceil(chars.length * CAPACITY_MULTIPLIER));
+    this._cellSize = fontKey.size * SDFAtlas.SCALE + buffer * 2;
+    this._capacity = Math.max(8, Math.ceil(chars.length * SDFAtlas.CAPACITY_MULTIPLIER));
     this._cols = Math.ceil(Math.sqrt(this._capacity));
     const rows = Math.ceil(this._capacity / this._cols);
 
@@ -107,10 +107,10 @@ export class SDFAtlas {
         py: y,
         pw: g.width,
         ph: g.height,
-        w: g.width / SCALE || 1,
-        h: g.height / SCALE || 1,
-        advance: g.glyphAdvance / SCALE || 1,
-        top: g.glyphTop / SCALE || 0,
+        w: g.width / SDFAtlas.SCALE || 1,
+        h: g.height / SDFAtlas.SCALE || 1,
+        advance: g.glyphAdvance / SDFAtlas.SCALE || 1,
+        top: g.glyphTop / SDFAtlas.SCALE || 0,
       });
 
     }
@@ -126,7 +126,7 @@ export class SDFAtlas {
   }
 
   private _resize(minChars: number) {
-    this._capacity = Math.ceil(minChars * CAPACITY_MULTIPLIER);
+    this._capacity = Math.ceil(minChars * SDFAtlas.CAPACITY_MULTIPLIER);
     this._cols = Math.ceil(Math.sqrt(this._capacity));
     const rows = Math.ceil(this._capacity / this._cols);
 

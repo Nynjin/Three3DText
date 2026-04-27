@@ -1,5 +1,4 @@
-import { Vector2, Vector3, Quaternion } from "three";
-import { RotationAlignment, SymbolPlacement } from "../Core/Label";
+import { Vector2, Quaternion } from "three";
 
 export interface GlyphInfo {
   px: number;
@@ -11,33 +10,6 @@ export interface GlyphInfo {
   h: number;
   advance: number;
   top: number;
-}
-
-export interface LabelInstance {
-  // Unique identifier linked to the source Label
-  id: string;
-
-  // world anchor
-  position: Vector3;
-
-  // visual style
-  color: Vector3;
-  haloColor: Vector3;
-  opacity: number;
-  haloOpacity: number;
-  haloWidth: number;
-  haloBlur: number;
-  
-  // orientation
-  rotation: Quaternion;
-  rotationAlignment: RotationAlignment;
-  symbolPlacement: SymbolPlacement;
-  
-  // visibility
-  visible: 0 | 1;
-
-  // glyphs belonging to this label
-  glyphs: GlyphInstance[];
 }
 
 export interface GlyphInstance {

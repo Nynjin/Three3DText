@@ -61,7 +61,7 @@ vec4 computeViewportAlignedPosition(vec3 localPos, vec3 labelPos) {
 // Calculate scale factor based on distance to camera
 float getDistanceScale(vec3 labelPos) {
   vec4 viewPos = modelViewMatrix * vec4(labelPos, 1.0);
-  return length(viewPos.xyz) / 10.0;
+  return length(viewPos.xyz);
 }
 
 void main() {

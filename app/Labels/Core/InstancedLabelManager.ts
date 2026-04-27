@@ -1,11 +1,11 @@
+import { Camera, Matrix4, Vector3, WebGLRenderer } from "three";
 import { fontKeyOf, fontKeyString } from "../Font/FontKey";
 import layoutText from "../Layout/TextLayout";
 import { LabelFontGroup, DirtyLevel } from "./LabelFontGroup";
 import { Label } from "./Label";
 import { LabelMeshGroup } from "../Render/Meshes/LabelMeshGroup";
 import type { LabelMesh } from "../Render/Meshes/LabelMeshGroup";
-import { Camera, Frustum, Matrix4 } from "three";
-import { toLabelInstance } from "../Utils/LabelUtils";
+import { CollisionDebugSegment, LabelCollisionEngine } from "./LabelCollisionEngine";
 
 interface LabelGroup {
   fontGroup: LabelFontGroup;
@@ -21,34 +21,33 @@ export class InstancedLabelManager {
   autoUpdate = true;
   cullingRate = 0.1; // seconds
 
-  private groups = new Map<string, LabelGroup>();
-  private pxPerUnit: number;
+  private readonly groups = new Map<string, LabelGroup>();
+  private readonly vp = new Matrix4();
+  private readonly lastVp = new Matrix4();
+  private readonly viewPos = new Vector3();
+  private readonly labels: Label[] = [];
 
-  private readonly _frustum = new Frustum();
-  private readonly _mat4 = new Matrix4();
-  private readonly _lastVP = new Matrix4();
-  private _vpChanged = true;
+  private pxPerUnit: number;
 
   readonly meshes: LabelMeshPair[] = [];
 
-  constructor(pxPerUnit = 48) {
+  private collision: LabelCollisionEngine;
+
+  constructor(pxPerUnit = 48, canvas: HTMLCanvasElement, renderer: WebGLRenderer) {
     this.pxPerUnit = pxPerUnit;
+    this.collision = new LabelCollisionEngine(canvas, renderer, pxPerUnit);
   }
 
   addLabel(label: Label) {
     this.addLabels([label]);
   }
 
-  /** Add labels then groups them by font key and delegates to font groups. */
   addLabels(labels: Label[]) {
     const byKey = new Map<string, Label[]>();
     for (const label of labels) {
       const key = fontKeyString(fontKeyOf(label));
-      let bucket = byKey.get(key);
-      if (!bucket) {
-        bucket = [];
-        byKey.set(key, bucket);
-      }
+      const bucket = byKey.get(key) ?? [];
+      if (!byKey.has(key)) byKey.set(key, bucket);
       bucket.push(label);
     }
 
@@ -57,63 +56,69 @@ export class InstancedLabelManager {
       group.fontGroup.addLabels(bucket);
     }
 
-    this._vpChanged = true;
+    this.labels.push(...labels);
   }
 
   removeLabel(label: Label) {
     this.removeLabels([label]);
   }
 
-  /** Remove labels from their font group and mesh group. */
   removeLabels(labels: Label[]) {
     const byKey = new Map<string, Label[]>();
     for (const label of labels) {
       const key = fontKeyString(fontKeyOf(label));
-      if (!key) {
-        console.warn(`InstancedLabelManager.removeLabels - Label ${label.id} not found in manager`);
-        continue;
-      }
-      let bucket = byKey.get(key);
-      if (!bucket) {
-        bucket = [];
-        byKey.set(key, bucket);
-      }
+      if (!key) continue;
+      const bucket = byKey.get(key) ?? [];
+      if (!byKey.has(key)) byKey.set(key, bucket);
       bucket.push(label);
     }
 
     for (const [key, bucket] of byKey) {
-      const group = this.groups.get(key);
-      if (!group) continue;
-      group.fontGroup.removeLabels(bucket);
+      this.groups.get(key)?.fontGroup.removeLabels(bucket);
     }
   }
 
-  /** Manually flush all dirty groups (use when autoUpdate = false). */
   update() {
     for (const group of this.groups.values()) {
       let hasDirty = false;
       for (const s of group.fontGroup.dirtyLabelsMap.values()) {
-        if (s.size > 0) { hasDirty = true; break; }
+        if (s.size > 0) {
+          hasDirty = true;
+          break;
+        }
       }
       if (hasDirty) this._syncGroup(group);
     }
-    this._vpChanged = true;
   }
 
-  // todo : use listeners to avoid looping every frame ?
   cull(camera: Camera) {
-    this._mat4.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-    if (!this._vpChanged && this._mat4.equals(this._lastVP)) return;
-    this._lastVP.copy(this._mat4);
-    this._vpChanged = false;
-    this._frustum.setFromProjectionMatrix(this._mat4);
+    this.vp.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    if (!this.vp.equals(this.lastVp)) {
+      this.lastVp.copy(this.vp);
+    }
+
+    this.collision.setLabels(this.labels);
+    this.collision.evaluate(camera);
+
+    // this.sortedLabels.sort((a, b) => {
+    //     // 1. Temporal Coherence: Absolute priority goes to labels visible in the previous frame
+    //     if (a.hasRendered &&!b.hasRendered) return -1;
+    //     if (!a.hasRendered && b.hasRendered) return 1;
+        
+    //     // 2. Depth/Proximity: If both share the exact same render state, sort by distance to camera
+    //     return this._depthOf(a, camera) - this._depthOf(b, camera);
+    // });
+
 
     for (const group of this.groups.values()) {
-      group.meshGroup.cullByFrustum(group.fontGroup.labels, this._frustum);
+      group.meshGroup.cull(group.fontGroup.labels);
     }
   }
 
-  /** Release all font groups, mesh groups, and GPU resources. */
+  getCollisionDebugSegments(camera: Camera, maxSegments = 50000): CollisionDebugSegment[] {
+    return this.collision.getDebugSegments(camera, maxSegments);
+  }
+
   dispose() {
     for (const group of this.groups.values()) {
       group.fontGroup.dispose();
@@ -124,18 +129,17 @@ export class InstancedLabelManager {
   }
 
   private _getOrCreate(key: string, sample: Label): LabelGroup {
-    let group = this.groups.get(key);
-    if (group) return group;
+    const existing = this.groups.get(key);
+    if (existing) return existing;
 
     const meshGroup = new LabelMeshGroup();
     const fontGroup = new LabelFontGroup(fontKeyOf(sample));
-    group = { fontGroup, meshGroup };
+    const group = { fontGroup, meshGroup };
 
     fontGroup.onChange(() => {
       if (!this.autoUpdate) return;
       queueMicrotask(() => {
         this._syncGroup(group);
-        this._vpChanged = true;
       });
     });
 
@@ -147,9 +151,8 @@ export class InstancedLabelManager {
   private _syncGroup(group: LabelGroup) {
     const { fontGroup, meshGroup } = group;
     const { atlas, dirty } = fontGroup.getAtlas();
-    
     const dirtyMap = fontGroup.dirtyLabelsMap;
-    
+
     const changeGroup = [...(dirtyMap.get(DirtyLevel.ChangeGroup) ?? [])];
     const disposeLabels = [...(dirtyMap.get(DirtyLevel.Dispose) ?? [])];
     const updateLabels = [...(dirtyMap.get(DirtyLevel.Update) ?? [])];
@@ -160,20 +163,21 @@ export class InstancedLabelManager {
       this.addLabels(changeGroup);
     }
 
-    // TODO: currently atlas resize marks all labels as update to force glyph sync. 
-    // But only glyph uvs change, not the layout. Shouldn't need to relayout.
-    // Current method forces relayout even of other labels that only had style updates.
     const addSet = new Set(addLabels);
-    const filteredUpdateLabels = updateLabels.filter(l => !addSet.has(l));
-
+    const filteredUpdateLabels = updateLabels.filter((label) => !addSet.has(label));
 
     meshGroup.update(
-      addLabels.map(l => layoutText(l, atlas.glyphs, this.pxPerUnit)),
-      disposeLabels.map(l => l.id),
-      filteredUpdateLabels.map(l => dirty ? layoutText(l, atlas.glyphs, this.pxPerUnit) : toLabelInstance(l)),
-      dirty ? atlas : undefined
+      addLabels.map((label) => layoutText(label, atlas.glyphs, this.pxPerUnit)),
+      disposeLabels.map((label) => label.id),
+      filteredUpdateLabels.map((label) => dirty ? layoutText(label, atlas.glyphs, this.pxPerUnit) : label),
+      dirty ? atlas : undefined,
     );
 
     fontGroup.flushDirty();
+  }
+
+  private _depthOf(label: Label, camera: Camera): number {
+    this.viewPos.copy(label.position).applyMatrix4(camera.matrixWorldInverse);
+    return -this.viewPos.z;
   }
 }
