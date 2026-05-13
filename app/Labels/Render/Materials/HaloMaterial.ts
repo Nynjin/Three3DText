@@ -25,7 +25,7 @@ export function createHaloMaterial(
         transparent: true,
 
         // TODO : either set to false and handle label collision or keep to true and handle glyph collision
-        depthWrite: true,
+        depthWrite: false,
         depthTest: true,
 
         // prevent overlap with glyph fill

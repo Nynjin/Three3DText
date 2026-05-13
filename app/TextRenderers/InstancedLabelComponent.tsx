@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Group } from "three";
+import { BufferGeometry, Group, Mesh } from "three";
 import {
   Label,
   RotationAlignment,
@@ -17,6 +17,7 @@ export interface InstancedLabelsProps {
   viewportPredicate: (item: Item) => boolean;
   fontSize?: number;
   pxPerUnit?: number;
+  debugCollisions?: boolean;
 }
 
 function makeLabel(
@@ -37,11 +38,11 @@ function makeLabel(
     font: "Arial",
     fontSize,
     maxWidth: 5,
-    textAlign: TextAlign.Justify,
+    textAlign: TextAlign.Left,
     lineHeight: 1.2,
     offset: [0, 0],
-    anchorX: TextAnchorX.Center,
-    anchorY: TextAnchorY.Middle,
+    anchorX: TextAnchorX.Left,
+    anchorY: TextAnchorY.Top,
   });
 }
 
@@ -50,22 +51,44 @@ export function InstancedLabelComponent({
   halo,
   viewportPredicate,
   fontSize = 20,
-  pxPerUnit = 96,
+  pxPerUnit = 1024,
+  debugCollisions = false,
 }: InstancedLabelsProps) {
   const groupRef = useRef<Group>(null);
+  const debugMeshRef = useRef<Mesh<BufferGeometry>>(null);
   const camera = useThree((state) => state.camera);
+  const renderer = useThree((state) => state.gl);
 
   // Map of item.key to Label
   const labelMapRef = useRef<Map<number, Label>>(new Map());
   // How many mesh pairs are already attached to the group
   const attachedMeshCountRef = useRef(0);
 
+  const managerRef = useRef<InstancedLabelManager | null>(null);
+
+  if (!managerRef.current) {
+    managerRef.current = new InstancedLabelManager(pxPerUnit, renderer);
+    managerRef.current.autoUpdate = false;
+  }
+  const manager = managerRef.current;
+
+  useEffect(() => {
+    return () => {
+      managerRef.current?.dispose();
+      managerRef.current = null;
+    };
+  }, []); // dispose only on real unmount
+
   // Manager created once per pxPerUnit change only
-  const manager = useMemo(() => {
-    const m = new InstancedLabelManager(pxPerUnit);
-    m.autoUpdate = false;
-    return m;
-  }, [pxPerUnit]);
+  // const manager = useMemo(() => {
+  //   const m = new InstancedLabelManager(
+  //     pxPerUnit,
+  //     renderer
+  //   );
+
+  //   m.autoUpdate = false;
+  //   return m;
+  // }, [pxPerUnit, renderer]);
 
   useEffect(() => {
     const group = groupRef.current;
@@ -97,6 +120,17 @@ export function InstancedLabelComponent({
     }
     if (toAdd.length > 0) {
       manager.addLabels(toAdd);
+
+      // const mesh = new Mesh(
+      //   new SphereGeometry(0.1, 8, 8),
+      //   new MeshBasicMaterial({ color: "red" }),
+      // );
+
+      // for (const label of toAdd) {
+      //   const cpy = mesh.clone();
+      //   cpy.position.copy(label.position);
+      //   group.add(cpy);
+      // }
     }
 
     // Always flush dirty state so removes + adds are both committed.
@@ -110,8 +144,12 @@ export function InstancedLabelComponent({
       group.add(haloMesh, fill);
     }
     attachedMeshCountRef.current = manager.meshes.length;
+
+    // if (debugCollisions && debugMeshRef.current) {
+    //   debugMeshRef.current = manager.getCollisionMesh();
+    // }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, manager, fontSize]);
+  }, [items, manager, fontSize, debugCollisions]);
 
   // Halo toggle — mutate labels in-place, no rebuild, no re-layout
   useEffect(() => {
@@ -121,9 +159,38 @@ export function InstancedLabelComponent({
     manager.update();
   }, [halo, manager]);
 
+  // useEffect(() => {
+  //   const onKey = (e: KeyboardEvent) => {
+  //     if (e.key.toLowerCase() === "d" && e.shiftKey) {
+  //       // Call directly on the engine via the manager
+  //       manager.collision?.debugDump?.();
+  //     }
+  //   };
+  //   window.addEventListener("keydown", onKey);
+  //   return () => window.removeEventListener("keydown", onKey);
+  // }, [manager]);
+
   useFrame(() => {
     manager.cull(camera);
+    
+    // if (debugCollisions && debugMeshRef.current) {
+    //   debugMeshRef.current = manager.getCollisionMesh();
+    //   debugMeshRef.current.visible = true;
+    // }
+
   });
 
-  return <group ref={groupRef} />;
+  return (
+    <group ref={groupRef}>
+      {debugCollisions && (
+        <mesh
+          ref={debugMeshRef}
+          geometry={debugMeshRef.current?.geometry}
+          material={debugMeshRef.current?.material}
+          renderOrder={9999}
+          frustumCulled={false}
+        />
+      )}
+    </group>
+  );
 }

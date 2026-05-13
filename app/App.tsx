@@ -34,7 +34,7 @@ function App() {
   }
 
   const [halo, setHalo] = useState(false);
-  const [count, setCount] = useState(0);
+  const [count, setCount] = useState(100);
 
   const seed = 12345;
   const items = useMemo(() => makeItems(count, seed), [count, seed]);

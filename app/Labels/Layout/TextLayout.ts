@@ -1,16 +1,16 @@
 import { Vector2 } from "three";
 import { Label } from "../Core/Label";
-import { GlyphInfo, GlyphInstance, LabelInstance } from "./GlyphRun";
+import { GlyphInfo, GlyphInstance } from "./GlyphRun";
 import lineBreak from "./LineBreak";
 import textAlign from "./TextAlign";
-import textAnchors from "./TextAnchors";
-import { toLabelInstance, applyShaping, reorderParagraph, isParagraphRTL } from "../Utils/LabelUtils";
+import { applyShaping, reorderParagraph, isParagraphRTL } from "../Utils/LabelUtils";
+import anchorText from "./TextAnchors";
 
 export default function layoutText(
   label: Label,
   glyphs: Map<string, GlyphInfo>,
   pxPerUnit: number
-): LabelInstance {
+): Label {
   const fallback = glyphs.get("?")!;
   const chars: GlyphInstance[] = [];
 
@@ -46,14 +46,6 @@ export default function layoutText(
   });
 
   const maxLineWidth = lineWidths.length > 0 ? Math.max(...lineWidths) : 0;
-  const totalHeight  = visualLines.length * lineHeight;
-
-  const { anchorOffsetX, anchorOffsetY } = textAnchors(
-    label,
-    maxLineWidth,
-    totalHeight,
-    lineHeight
-  );
 
   // Layout each character
   for (let lineIdx = 0; lineIdx < visualLines.length; lineIdx++) {
@@ -70,8 +62,8 @@ export default function layoutText(
       paragraphIsRTL,
     );
 
-    let cursor = anchorOffsetX + alignOffsetX;
-    const y = anchorOffsetY - lineIdx * lineHeight;
+    let cursor = alignOffsetX;
+    const y = -lineIdx * lineHeight;
 
     for (let i = 0; i < last; i++) {
       const g = {
@@ -88,8 +80,8 @@ export default function layoutText(
       chars.push({
         glyph: g,
         offset: new Vector2(
-          cursor / pxPerUnit + g.w / 2 + offsetX / pxPerUnit,
-          (g.top + y) / pxPerUnit - g.h / 2 - offsetY / pxPerUnit,
+          cursor / pxPerUnit + g.w / 2,
+          (g.top + y) / pxPerUnit - g.h / 2,
         ),
       });
 
@@ -116,11 +108,56 @@ export default function layoutText(
         top: g.top,
       },
       offset: new Vector2(
-        cursor / pxPerUnit + gW / 2 + offsetX / pxPerUnit,
-        (g.top + y) / pxPerUnit - gH / 2 - offsetY / pxPerUnit,
+        cursor / pxPerUnit + gW / 2,
+        (g.top + y) / pxPerUnit - gH / 2,
       ),
     });
   }
 
-  return toLabelInstance(label, chars);
+  if (chars.length > 0) {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+
+    for (const ch of chars) {
+      const halfW = ch.glyph.w / 4; // TODO : glyphs are scaled x2 so /4 instead of /2
+      const halfH = ch.glyph.h / 4;
+      const x0 = ch.offset.x - halfW;
+      const x1 = ch.offset.x + halfW;
+      const y0 = ch.offset.y - halfH;
+      const y1 = ch.offset.y + halfH;
+
+      minX = Math.min(minX, x0);
+      maxX = Math.max(maxX, x1);
+      minY = Math.min(minY, y0);
+      maxY = Math.max(maxY, y1);
+    }
+
+    const { shiftX, shiftY } = anchorText(
+      label,
+      { minX, maxX, minY, maxY },
+      offsetX / pxPerUnit,
+      offsetY / pxPerUnit,
+    );
+
+    for (const ch of chars) {
+      ch.offset.x += shiftX;
+      ch.offset.y += shiftY;
+    }
+
+    label.bounds = {
+      width: maxX - minX,
+      height: maxY - minY,
+    };
+  } else {
+    label.bounds = {
+      width: maxLineWidth / pxPerUnit,
+      height: (visualLines.length * lineHeight) / pxPerUnit,
+    };
+  }
+
+  label.glyphs = chars;
+
+  return label;
 }

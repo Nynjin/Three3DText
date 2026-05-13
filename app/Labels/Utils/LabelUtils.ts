@@ -1,6 +1,4 @@
 import { Color, Euler, Quaternion, Vector2, Vector3 } from "three";
-import { GlyphInstance, LabelInstance } from "../Layout/GlyphRun";
-import { Label } from "../Core/Label";
 // @ts-expect-error - no types available
 import rtlText from '@mapbox/mapbox-gl-rtl-text';
 
@@ -73,25 +71,4 @@ export function isParagraphRTL(text: string): boolean {
     ) return false;
   }
   return false;
-}
-
-export function toLabelInstance(
-  label: Label,
-  glyphs?: GlyphInstance[],
-): LabelInstance {
-  return {
-    id: label.id,
-    position: label.position.clone(),
-    rotation: label.rotation.clone(),
-    color: toVector3(label.color),
-    haloColor: toVector3(label.haloColor),
-    opacity: label.opacity,
-    haloOpacity: label.hasHalo() ? label.haloOpacity : 0,
-    haloWidth: label.haloWidth,
-    haloBlur: label.haloBlur,
-    rotationAlignment: label.rotationAlignment,
-    symbolPlacement: label.symbolPlacement,
-    visible: label.visible ? 1 : 0,
-    glyphs: glyphs ?? [],
-  };
 }
