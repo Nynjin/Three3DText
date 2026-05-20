@@ -5,20 +5,20 @@ import {
   PlaneGeometry,
   ShaderMaterial,
 } from "three";
-import { SDFAtlas } from "../../Font/SDFAtlas";
+import { SDFAtlas } from "../Shaping/SDFAtlas";
 import {
   createFillMaterial,
   updateFillAtlas,
   updateFillUniforms,
-} from "../Materials/FillMaterial";
+} from "./Materials/FillMaterial";
 import {
   createHaloMaterial,
   updateHaloAtlas,
   updateHaloUniforms,
-} from "../Materials/HaloMaterial";
-import { GlyphInstance } from "../../Layout/GlyphRun";
-import { Label } from "../../Core/Label";
-import { InstancedDataTexture, Texel } from "../Textures/InstancedDataTexture";
+} from "./Materials/HaloMaterial";
+import { GlyphInstance } from "../Shaping/GlyphRun";
+import { Label } from "../Label";
+import { InstancedDataTexture, Texel } from "./Textures/InstancedDataTexture";
 
 /**
  * T0: label position + opacity (x, y, z, -)

@@ -1,4 +1,4 @@
-import { Label } from "../Core/Label";
+import { Label } from "../Label";
 import { GlyphInfo } from "./GlyphRun";
 
 export interface LineBreaks {

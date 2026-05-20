@@ -1,9 +1,9 @@
 import { Vector2 } from "three";
-import { Label } from "../Core/Label";
+import { Label } from "../Label";
 import { GlyphInfo, GlyphInstance } from "./GlyphRun";
 import lineBreak from "./LineBreak";
 import textAlign from "./TextAlign";
-import { applyShaping, reorderParagraph, isParagraphRTL } from "../Utils/LabelUtils";
+import { applyShaping, reorderParagraph, isParagraphRTL } from "./RTL";
 import anchorText from "./TextAnchors";
 
 export default function layoutText(

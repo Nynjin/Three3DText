@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { BufferGeometry, Group, Mesh } from "three";
 import {
   Label,
@@ -6,8 +6,8 @@ import {
   TextAlign,
   TextAnchorX,
   TextAnchorY,
-} from "../Labels/Core/Label";
-import { InstancedLabelManager } from "../Labels/Core/InstancedLabelManager";
+} from "../Core/Label";
+import { InstancedLabelManager } from "../Core/InstancedLabelManager";
 import { Item } from "../Types/Item";
 import { useFrame, useThree } from "@react-three/fiber";
 
@@ -17,7 +17,6 @@ export interface InstancedLabelsProps {
   viewportPredicate: (item: Item) => boolean;
   fontSize?: number;
   pxPerUnit?: number;
-  debugCollisions?: boolean;
 }
 
 function makeLabel(
@@ -52,7 +51,6 @@ export function InstancedLabelComponent({
   viewportPredicate,
   fontSize = 20,
   pxPerUnit = 1024,
-  debugCollisions = false,
 }: InstancedLabelsProps) {
   const groupRef = useRef<Group>(null);
   const debugMeshRef = useRef<Mesh<BufferGeometry>>(null);
@@ -120,17 +118,6 @@ export function InstancedLabelComponent({
     }
     if (toAdd.length > 0) {
       manager.addLabels(toAdd);
-
-      // const mesh = new Mesh(
-      //   new SphereGeometry(0.1, 8, 8),
-      //   new MeshBasicMaterial({ color: "red" }),
-      // );
-
-      // for (const label of toAdd) {
-      //   const cpy = mesh.clone();
-      //   cpy.position.copy(label.position);
-      //   group.add(cpy);
-      // }
     }
 
     // Always flush dirty state so removes + adds are both committed.
@@ -145,11 +132,8 @@ export function InstancedLabelComponent({
     }
     attachedMeshCountRef.current = manager.meshes.length;
 
-    // if (debugCollisions && debugMeshRef.current) {
-    //   debugMeshRef.current = manager.getCollisionMesh();
-    // }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, manager, fontSize, debugCollisions]);
+  }, [items, manager, fontSize]);
 
   // Halo toggle — mutate labels in-place, no rebuild, no re-layout
   useEffect(() => {
@@ -159,30 +143,13 @@ export function InstancedLabelComponent({
     manager.update();
   }, [halo, manager]);
 
-  // useEffect(() => {
-  //   const onKey = (e: KeyboardEvent) => {
-  //     if (e.key.toLowerCase() === "d" && e.shiftKey) {
-  //       // Call directly on the engine via the manager
-  //       manager.collision?.debugDump?.();
-  //     }
-  //   };
-  //   window.addEventListener("keydown", onKey);
-  //   return () => window.removeEventListener("keydown", onKey);
-  // }, [manager]);
-
   useFrame(() => {
     manager.cull(camera);
-    
-    // if (debugCollisions && debugMeshRef.current) {
-    //   debugMeshRef.current = manager.getCollisionMesh();
-    //   debugMeshRef.current.visible = true;
-    // }
-
   });
 
   return (
     <group ref={groupRef}>
-      {debugCollisions && (
+      {
         <mesh
           ref={debugMeshRef}
           geometry={debugMeshRef.current?.geometry}
@@ -190,7 +157,7 @@ export function InstancedLabelComponent({
           renderOrder={9999}
           frustumCulled={false}
         />
-      )}
+      }
     </group>
   );
 }

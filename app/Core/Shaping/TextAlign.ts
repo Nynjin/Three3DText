@@ -1,4 +1,4 @@
-import { Label, TextAlign } from "../Core/Label";
+import { Label, TextAlign } from "../Label";
 
 interface Line {
     idx: number;

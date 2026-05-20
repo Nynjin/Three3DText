@@ -1,7 +1,7 @@
 import TinySDF from "@mapbox/tiny-sdf";
 import { DataTexture, LinearFilter, RedFormat, UnsignedByteType } from "three";
 import { FontKey } from "./FontKey";
-import { GlyphInfo } from "../Layout/GlyphRun";
+import { GlyphInfo } from "../Shaping/GlyphRun";
 
 export class SDFAtlas {
   texture: DataTexture;
@@ -39,7 +39,7 @@ export class SDFAtlas {
     this._cols = Math.ceil(Math.sqrt(this._capacity));
     const rows = Math.ceil(this._capacity / this._cols);
 
-    this._width = this._nextPow2(Math.max(
+    this._width = nextPow2(Math.max(
       this._cols * this._cellSize,
       rows * this._cellSize,
     ));
@@ -130,7 +130,7 @@ export class SDFAtlas {
     this._cols = Math.ceil(Math.sqrt(this._capacity));
     const rows = Math.ceil(this._capacity / this._cols);
 
-    const newSize  = this._nextPow2(Math.max(
+    const newSize  = nextPow2(Math.max(
       this._cols * this._cellSize,
       rows * this._cellSize,
     ));
@@ -165,10 +165,10 @@ export class SDFAtlas {
     this.texture.magFilter = LinearFilter;
     this.texture.needsUpdate = true;
   }
+}
 
-  private _nextPow2(n: number): number {
-    let p = 1;
-    while (p < n) p <<= 1;
-    return p;
-  }
+function nextPow2(n: number): number {
+  let p = 1;
+  while (p < n) p <<= 1;
+  return p;
 }

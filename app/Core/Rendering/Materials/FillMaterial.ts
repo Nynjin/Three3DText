@@ -1,7 +1,7 @@
 import { DataTexture, GLSL3, ShaderMaterial } from "three";
 import { GLYPH_VERT } from "../Shaders/Glyph.vert.glsl";
 import { FILL_FRAG } from "../Shaders/Fill.frag.glsl";
-import { SDFAtlas } from "../../Font/SDFAtlas";
+import { SDFAtlas } from "../../Shaping/SDFAtlas";
 
 export function createFillMaterial(
     atlas: SDFAtlas,

@@ -1,4 +1,4 @@
-import { Label, TextAnchorX, TextAnchorY } from "../Core/Label";
+import { Label, TextAnchorX, TextAnchorY } from "../Label";
 
 export interface TextBounds {
   minX: number;

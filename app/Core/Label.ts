@@ -1,11 +1,5 @@
 import { Color, Euler, Quaternion, Vector2, Vector3 } from "three";
-import {
-  toColor,
-  toQuaternion,
-  toVector2,
-  toVector3,
-} from "../Utils/LabelUtils";
-import { GlyphInstance } from "../Layout/GlyphRun";
+import { GlyphInstance } from "./Shaping/GlyphRun";
 
 export enum TextAnchorX {
   Left = 0,
@@ -109,9 +103,6 @@ export interface LabelOptions {
   // Bounds in label-local space
   bounds?: LabelBounds;
 
-  // Glyph-derived occupancy bitmap in label-local space
-  // collisionBitmap?: LabelCollisionBitmap;
-
   // GLyphs
   glyphs?: GlyphInstance[];
 }
@@ -123,52 +114,49 @@ export class Label {
   private _id: string;
 
   // Content
-  private _text: string;
-  private _textTransform: TextTransform;
+  private _text: string = "";
+  private _textTransform: TextTransform = TextTransform.None;
 
   // Position & Transform
-  private _position: Vector3;
-  private _rotation: Quaternion;
-  private _offset: Vector2;
+  private _position: Vector3 = new Vector3();
+  private _rotation: Quaternion = new Quaternion();
+  private _offset: Vector2 = new Vector2();
 
   // Font
-  private _font: string;
-  private _fontSize: number;
-  private _fontWeight: string;
-  private _letterSpacing: number;
-  private _lineHeight: number;
+  private _font: string = "Arial";
+  private _fontSize: number = 20;
+  private _fontWeight: string = "normal";
+  private _letterSpacing: number = 0;
+  private _lineHeight: number = 1.2;
 
   // Layout
-  private _maxWidth: number;
-  private _textAlign: TextAlign;
-  private _anchorX: TextAnchorX;
-  private _anchorY: TextAnchorY;
-  private _padding: [number, number, number, number];
+  private _maxWidth: number = Infinity;
+  private _textAlign: TextAlign = TextAlign.Auto;
+  private _anchorX: TextAnchorX = TextAnchorX.Left;
+  private _anchorY: TextAnchorY = TextAnchorY.Top;
+  private _padding: [number, number, number, number] = [0, 0, 0, 0];
 
   // Fill
-  private _color: Color;
-  private _opacity: number;
+  private _color: Color = new Color();
+  private _opacity: number = 1;
 
   // Halo
-  private _haloColor: Color;
-  private _haloWidth: number;
-  private _haloBlur: number;
-  private _haloOpacity: number;
+  private _haloColor: Color = new Color();
+  private _haloWidth: number = 0;
+  private _haloBlur: number = 0;
+  private _haloOpacity: number = 1;
 
   // Rendering
-  private _rotationAlignment: RotationAlignment;
-  private _symbolPlacement: SymbolPlacement;
+  private _rotationAlignment: RotationAlignment = RotationAlignment.Map;
+  private _symbolPlacement: SymbolPlacement = SymbolPlacement.Point;
 
   // Visibility
-  private _visible: boolean;
+  private _visible: boolean = true;
   private _shouldRender: boolean = false;
   private _hasRendered: boolean = false;
 
   // Bounds
   private _bounds?: LabelBounds;
-
-  // Glyph-derived collision bitmap
-  // private _collisionBitmap?: LabelCollisionBitmap;
 
   // Glyphs
   private _glyphs: GlyphInstance[] = [];
@@ -398,14 +386,6 @@ export class Label {
     // No emit, managed during layout phase
   }
 
-  // get collisionBitmap() {
-  //   return this._collisionBitmap;
-  // }
-  // set collisionBitmap(value: LabelCollisionBitmap | undefined) {
-  //   this._collisionBitmap = value;
-  //   // No emit, managed during layout phase
-  // }
-
   get glyphs() {
     return this._glyphs;
   }
@@ -416,52 +396,7 @@ export class Label {
 
   constructor(options: LabelOptions) {
     this._id = crypto.randomUUID();
-
-    this._text = options.text;
-
-    this._position = options.position
-      ? toVector3(options.position)
-      : new Vector3();
-    this._rotation = options.rotation
-      ? toQuaternion(options.rotation)
-      : new Quaternion();
-    this._offset = options.offset ? toVector2(options.offset) : new Vector2();
-
-    this._font = options.font ?? "sans-serif";
-    this._fontSize = options.fontSize ?? 16;
-    this._fontWeight = options.fontWeight ?? "normal";
-    this._letterSpacing = options.letterSpacing ?? 0;
-    this._lineHeight = options.lineHeight ?? 0.5;
-
-    this._maxWidth = options.maxWidth ?? 10;
-    this._textAlign = options.textAlign ?? TextAlign.Center;
-    this._anchorX = options.anchorX ?? TextAnchorX.Center;
-    this._anchorY = options.anchorY ?? TextAnchorY.Middle;
-    this._padding = options.padding ?? [0, 0, 0, 0];
-
-    this._color =
-      options.color !== undefined ? toColor(options.color) : new Color(0, 0, 0);
-    this._opacity = options.opacity ?? 1;
-
-    this._haloColor =
-      options.haloColor !== undefined
-        ? toColor(options.haloColor)
-        : new Color(1, 1, 1);
-    this._haloWidth = this._clampHaloWidth(options.haloWidth ?? 0);
-    this._haloBlur = this._clampHaloBlur(options.haloBlur ?? 0);
-    this._haloOpacity = options.haloOpacity ?? 1;
-
-    this._rotationAlignment =
-      options.rotationAlignment ?? RotationAlignment.Map;
-    this._symbolPlacement = options.symbolPlacement ?? SymbolPlacement.Point;
-    this._visible = options.visible !== undefined ? options.visible : true;
-
-    this._textTransform = options.textTransform ?? TextTransform.None;
-
-    this._bounds = options.bounds;
-    // this._collisionBitmap = options.collisionBitmap;
-
-    this._glyphs = options.glyphs ?? [];
+    this.set(options, true);
   }
 
   _clampHaloWidth(value: number): number {
@@ -514,7 +449,7 @@ export class Label {
   }
 
   /** Update multiple properties at once */
-  set(options: Partial<LabelOptions>): this {
+  set(options: Partial<LabelOptions>, silent = false): this {
     let changes = LabelChangeType.None;
 
     // Transform properties
@@ -630,17 +565,15 @@ export class Label {
       changes |= LabelChangeType.Style;
     }
 
-    // if (options.collisionBitmap !== undefined) {
-    //   this._collisionBitmap = options.collisionBitmap;
-    //   changes |= LabelChangeType.Style;
-    // }
-
     if (options.glyphs !== undefined) {
       this._glyphs = options.glyphs;
       changes |= LabelChangeType.Style;
     }
 
-    this._emit(changes);
+    if (!silent) {
+      this._emit(changes);
+    }
+
     return this;
   }
 
@@ -671,13 +604,6 @@ export class Label {
       visible: this._visible,
       textTransform: this._textTransform,
       bounds: this._bounds ? { ...this._bounds } : undefined,
-      // collisionBitmap: this._collisionBitmap
-      //   ? {
-      //       ...this._collisionBitmap,
-      //       bits: new Uint32Array(this._collisionBitmap.bits),
-      //       occupiedIndices: new Uint32Array(this._collisionBitmap.occupiedIndices),
-      //     }
-      //   : undefined,
       glyphs: this._glyphs.map((g) => ({
         glyph: { ...g.glyph },
         offset: g.offset.clone(),
@@ -702,4 +628,33 @@ export class Label {
       listener(changes);
     }
   }
+}
+
+// Utils
+
+function toColor(value: string | number | Color | Vector3): Color {
+  if (value instanceof Color) return value.clone();
+  if (value instanceof Vector3) return new Color(value.x, value.y, value.z);
+  return new Color(value);
+}
+
+function toVector2(value: [number, number] | Vector2): Vector2 {
+  if (value instanceof Vector2) return value.clone();
+  return new Vector2(...value);
+}
+
+function toVector3(
+  value: [number, number, number] | Vector3 | Color,
+): Vector3 {
+  if (value instanceof Vector3) return value.clone();
+  if (value instanceof Color) return new Vector3(value.r, value.g, value.b);
+  return new Vector3(...value);
+}
+
+function toQuaternion(
+  value: [number, number, number] | Euler | Quaternion,
+): Quaternion {
+  if (value instanceof Quaternion) return value.clone();
+  if (value instanceof Euler) return new Quaternion().setFromEuler(value);
+  return new Quaternion().setFromEuler(new Euler(...value, "XYZ"));
 }

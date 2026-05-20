@@ -1,11 +1,11 @@
-import { Camera, Matrix4, WebGLRenderer } from "three";
-import { fontKeyOf, fontKeyString } from "../Font/FontKey";
-import layoutText from "../Layout/TextLayout";
+import { Camera, WebGLRenderer } from "three";
+import { fontKeyOf, fontKeyString } from "./Shaping/FontKey";
+import layoutText from "./Shaping/TextLayout";
 import { LabelFontGroup, DirtyLevel } from "./LabelFontGroup";
 import { Label } from "./Label";
-import { LabelMeshGroup } from "../Render/Meshes/LabelMeshGroup";
-import type { LabelMesh } from "../Render/Meshes/LabelMeshGroup";
-import { LabelCollisionEngine } from "./LabelCollisionEngine";
+import { LabelMeshGroup } from "./Rendering/LabelMeshGroup";
+import type { LabelMesh } from "./Rendering/LabelMeshGroup";
+import { LabelCollisionEngine } from "./Collision/LabelCollisionEngine";
 
 interface LabelGroup {
   fontGroup: LabelFontGroup;
@@ -23,8 +23,6 @@ export class InstancedLabelManager {
   private lastCull = 0;
 
   private readonly groups = new Map<string, LabelGroup>();
-  private readonly vp = new Matrix4();
-  private readonly lastVp = new Matrix4();
   private readonly labels: Label[] = [];
 
   private pxPerUnit: number;

@@ -1,8 +1,8 @@
 
 import { Label, LabelChangeType } from "./Label";
-import { FontKey, fontKeyString } from "../Font/FontKey";
-import { SDFAtlas } from "../Font/SDFAtlas";
-import { applyShaping } from "../Utils/LabelUtils";
+import { FontKey, fontKeyString } from "./Shaping/FontKey";
+import { SDFAtlas } from "./Shaping/SDFAtlas";
+import { applyShaping } from "./Shaping/RTL";
 
 // TODO : prevent case where one label is added to multiple dirty levels (added then updated then deleted should do nothing)
 export const enum DirtyLevel {
