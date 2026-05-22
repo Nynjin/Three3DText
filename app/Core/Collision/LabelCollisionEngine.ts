@@ -4,7 +4,8 @@ import { HierarchicalBitmap } from "./HierarchicalBitmap";
 import { LabelProjector, ScreenAABB } from "./LabelProjector";
 import { DistanceSort } from "./DistanceSort";
 
-const PLACEMENT_THRESHOLD = 0.75;
+const MIN_OCCLUSION = 0;
+const MAX_OCCLUSION = 0.2;
 const CAMERA_RESORT_THRESHOLD_SQ = 1.0;
 
 function log2OfPow2(n: number, name: string): number {
@@ -12,7 +13,7 @@ function log2OfPow2(n: number, name: string): number {
     throw new Error(`${name} must be a power of 2, got ${n}`);
   }
   let s = 0;
-  while ((1 << s) < n) s++;
+  while (1 << s < n) s++;
   return s;
 }
 
@@ -50,8 +51,14 @@ export class LabelCollisionEngine {
     this.labels = labels;
     this.dirty = true;
   }
-  addLabels(labels: Label[]) { this.labels.push(...labels); this.dirty = true; }
-  clear()                    { this.labels = [];            this.dirty = true; }
+  addLabels(labels: Label[]) {
+    this.labels.push(...labels);
+    this.dirty = true;
+  }
+  clear() {
+    this.labels = [];
+    this.dirty = true;
+  }
   removeLabels(ids: string[]) {
     if (ids.length === 0) return;
     const s = new Set(ids);
@@ -93,17 +100,23 @@ export class LabelCollisionEngine {
       if (this.bitmap.isCoarseEmpty(x0, y0, x1, y1)) {
         this.bitmap.setRegion(x0, y0, x1, y1);
         label.shouldRender = true;
+        label.occludedOpacity = 1;
         continue;
       }
 
       // Slow path: precise count.
       const area = (x1 - x0 + 1) * (y1 - y0 + 1);
       const claimed = this.bitmap.countFine(x0, y0, x1, y1);
-      if ((area - claimed) / area >= PLACEMENT_THRESHOLD) {
+      const occlusion = claimed / area;
+      if (occlusion <= MAX_OCCLUSION) {
         this.bitmap.setRegion(x0, y0, x1, y1);
         label.shouldRender = true;
+        label.occludedOpacity = occlusion <= MIN_OCCLUSION
+          ? 1
+          : 1 - (occlusion - MIN_OCCLUSION) / (MAX_OCCLUSION - MIN_OCCLUSION);
       } else {
         label.shouldRender = false;
+        label.occludedOpacity = 0;
       }
     }
   }

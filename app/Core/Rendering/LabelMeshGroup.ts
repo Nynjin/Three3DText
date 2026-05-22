@@ -119,7 +119,9 @@ export class LabelMeshGroup {
   // todo : make value public and either calculate absolute max or allow resize with geometry rebuild
   // todo : consider moving glyphIndex to textureUniform for dynamic indexing ?
   private _glyphIndex: Int32Array = new Int32Array(1000000);
+  private _occlusionFade: Float32Array = new Float32Array(1000000);
   private _glyphIndexAttr: InstancedBufferAttribute = new InstancedBufferAttribute(this._glyphIndex, 1);
+  private _occlusionFadeAttr: InstancedBufferAttribute = new InstancedBufferAttribute(this._occlusionFade, 1);
 
   private _labelDataBuffer = new InstancedDataTexture(LABEL_TEXELS);
   private _glyphDataBuffer = new InstancedDataTexture(GLYPH_TEXELS);
@@ -139,6 +141,7 @@ export class LabelMeshGroup {
     this.haloMesh.matrixAutoUpdate = false;
 
     this.geom.setAttribute("glyphIndex", this._glyphIndexAttr);
+    this.geom.setAttribute("occlusionFade", this._occlusionFadeAttr);
   }
 
   private _syncUniforms() {
@@ -261,6 +264,8 @@ export class LabelMeshGroup {
         this._glyphIndex[pos++] = glyphIndices[i];
       }
 
+      this._occlusionFade.fill(label.occludedOpacity, pos - glyphIndices.length, pos);
+
       if (label.hasHalo()) {
         hasHalo = true;
       }
@@ -269,6 +274,9 @@ export class LabelMeshGroup {
     this.geom.instanceCount = pos;
     if (this._glyphIndexAttr) {
       this._glyphIndexAttr.needsUpdate = true;
+    }
+    if (this._occlusionFadeAttr) {
+      this._occlusionFadeAttr.needsUpdate = true;
     }
     this.fillMesh.visible = pos > 0;
     this.haloMesh.visible = hasHalo;

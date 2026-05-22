@@ -21,11 +21,13 @@ uniform int uGlyphTexWidth;
 
 // Indirect draw index: points into glyphTex, set by culling
 attribute int glyphIndex;
+attribute float occlusionFade; // 0-1
 
 // Varyings for fragment shader
 out vec2 vUv;
 flat out int vLabelId;
 flat out int vGlyphId;
+flat out float vOcclusionFade;
 
 vec4 labelFetch(int instanceId, int texel) {
   int li = instanceId + texel;
@@ -70,6 +72,9 @@ void main() {
   // glyphIndex is the texture slot for this glyph set by culling
   int gId = glyphIndex;
   vGlyphId = gId;
+
+  // occlusionFade is set by culling based on label visibility
+  vOcclusionFade = occlusionFade;
 
   // Read glyph data first to get the label index
   vec4 g0 = glyphFetch(gId, 0);

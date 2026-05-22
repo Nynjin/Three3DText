@@ -139,6 +139,7 @@ export class Label {
   // Fill
   private _color: Color = new Color();
   private _opacity: number = 1;
+  private _occludedOpacity: number = 1;
 
   // Halo
   private _haloColor: Color = new Color();
@@ -302,6 +303,14 @@ export class Label {
   set opacity(value: number) {
     this._opacity = value;
     this._emit(LabelChangeType.Style);
+  }
+
+  get occludedOpacity() {
+    return this._occludedOpacity;
+  }
+  set occludedOpacity(value: number) {
+    this._occludedOpacity = value;
+    // No emit, managed during collision evaluation
   }
 
   get haloColor(): Color {

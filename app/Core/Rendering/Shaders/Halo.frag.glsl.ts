@@ -13,6 +13,7 @@ uniform int uGlyphTexWidth;
 in vec2 vUv;
 flat in int vLabelId;
 flat in int vGlyphId;
+flat in float vOcclusionFade;
 
 out vec4 outColor;
 
@@ -61,6 +62,6 @@ void main() {
     discard;
   }
 
-  outColor = vec4(haloColor, alpha * haloOpacity);
+  outColor = vec4(haloColor, alpha * haloOpacity * vOcclusionFade);
 }
 `;
