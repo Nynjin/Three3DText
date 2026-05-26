@@ -1,21 +1,14 @@
-import { Camera, Vector2, Vector3, WebGLRenderer } from "three";
+import { Camera, Matrix4, Vector2, WebGLRenderer } from "three";
 import { Label } from "../Label";
 import { HierarchicalBitmap } from "./HierarchicalBitmap";
 import { LabelProjector, ScreenAABB } from "./LabelProjector";
 import { DistanceSort } from "./DistanceSort";
 
-const MIN_OCCLUSION = 0;
-const MAX_OCCLUSION = 0.2;
-const CAMERA_RESORT_THRESHOLD_SQ = 1.0;
+const ACCEPTABLE_OCCLUSION = 0.2;
+const MAX_OCCLUSION = 0.3;
 
-function log2OfPow2(n: number, name: string): number {
-  if (n < 1 || (n & (n - 1)) !== 0) {
-    throw new Error(`${name} must be a power of 2, got ${n}`);
-  }
-  let s = 0;
-  while (1 << s < n) s++;
-  return s;
-}
+const VIEW_PROJ_THRESHOLD = 0.05; 
+const RESORT_THRESHOLD = 0.15;
 
 export class LabelCollisionEngine {
   private labels: Label[] = [];
@@ -27,10 +20,15 @@ export class LabelCollisionEngine {
   private readonly projector: LabelProjector;
   private readonly sorter = new DistanceSort();
 
-  private readonly _lastCamPos = new Vector3(Infinity, Infinity, Infinity);
-  private readonly _tmpVec2 = new Vector2();
+  private readonly _lastVP = new Matrix4();
+  private readonly _lastVPSort = new Matrix4();
+  
   private readonly _scratchAABB: ScreenAABB = { x0: 0, y0: 0, x1: 0, y1: 0 };
 
+  private readonly _frustumMatrix = new Matrix4();
+
+  private readonly _tmpVec2 = new Vector2();
+  
   constructor(
     renderer: WebGLRenderer,
     pxPerUnit = 1024,
@@ -52,8 +50,12 @@ export class LabelCollisionEngine {
     this.dirty = true;
   }
   addLabels(labels: Label[]) {
-    this.labels.push(...labels);
-    this.dirty = true;
+    for (const label of labels) {
+      if (!this.labels.includes(label)) {
+        this.labels.push(label);
+        this.dirty = true;
+      }
+    }
   }
   clear() {
     this.labels = [];
@@ -68,15 +70,16 @@ export class LabelCollisionEngine {
 
   evaluate(camera: Camera) {
     if (this.labels.length === 0) return;
+    const viewportChanged = this.syncToViewport();
 
-    this.syncToViewport();
+    this._frustumMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    const viewDiff = matrixMaxDiff(this._frustumMatrix, this._lastVP);
 
-    const moved = camera.position.distanceToSquared(this._lastCamPos);
-    if (this.dirty || moved > CAMERA_RESORT_THRESHOLD_SQ) {
-      this.sorter.sort(this.labels, camera.position);
-      this._lastCamPos.copy(camera.position);
-      this.dirty = false;
+    if (!this.dirty && viewDiff <= VIEW_PROJ_THRESHOLD && !viewportChanged) {
+      return false; 
     }
+
+    this._lastVP.copy(this._frustumMatrix);
 
     this.projector.setFrame(
       camera.matrixWorldInverse,
@@ -86,9 +89,41 @@ export class LabelCollisionEngine {
     );
     this.bitmap.clear();
 
+    const visibleLabels = this.labels.filter(label => {
+      if (!label.visible) {
+        label.shouldRender = false;
+        return false;
+      }
+      if (label.opacity === 0) {
+        label.shouldRender = false;
+        return false;
+      }
+      if (label.glyphs.length === 0) {
+        label.shouldRender = false;
+        return false;
+      }
+      if (label.bounds.width === 0 || label.bounds.height === 0) {
+        label.shouldRender = false;
+        return false;
+      }
+      if (!this.projector.checkVisible(label)) {
+        label.shouldRender = false;
+        return false;
+      }
+
+      return true;
+    });
+
+    const sortDiff = matrixMaxDiff(this._frustumMatrix, this._lastVPSort);
+    if (this.dirty || sortDiff > RESORT_THRESHOLD) {
+      this.sorter.sort(visibleLabels, camera.position);
+      this._lastVPSort.copy(this._frustumMatrix);
+      this.dirty = false;
+    }
+
     const aabb = this._scratchAABB;
-    for (let i = 0; i < this.labels.length; i++) {
-      const label = this.labels[i];
+    for (let i = 0; i < visibleLabels.length; i++) {
+      const label = visibleLabels[i];
 
       if (!this.projector.project(label, aabb)) {
         label.shouldRender = false;
@@ -96,11 +131,10 @@ export class LabelCollisionEngine {
       }
       const { x0, y0, x1, y1 } = aabb;
 
-      // Fast-pass: coarse-empty → guaranteed clear.
+      // Fast-pass: coarse-empty -> guaranteed clear.
       if (this.bitmap.isCoarseEmpty(x0, y0, x1, y1)) {
         this.bitmap.setRegion(x0, y0, x1, y1);
         label.shouldRender = true;
-        label.occludedOpacity = 1;
         continue;
       }
 
@@ -108,17 +142,23 @@ export class LabelCollisionEngine {
       const area = (x1 - x0 + 1) * (y1 - y0 + 1);
       const claimed = this.bitmap.countFine(x0, y0, x1, y1);
       const occlusion = claimed / area;
-      if (occlusion <= MAX_OCCLUSION) {
+
+      let isVisible: boolean;
+      if (label.hasRendered) {
+        isVisible = occlusion <= MAX_OCCLUSION;
+      } else {
+        isVisible = occlusion <= ACCEPTABLE_OCCLUSION;
+      }
+
+      if (isVisible) {
         this.bitmap.setRegion(x0, y0, x1, y1);
         label.shouldRender = true;
-        label.occludedOpacity = occlusion <= MIN_OCCLUSION
-          ? 1
-          : 1 - (occlusion - MIN_OCCLUSION) / (MAX_OCCLUSION - MIN_OCCLUSION);
       } else {
         label.shouldRender = false;
-        label.occludedOpacity = 0;
       }
     }
+
+    return true;
   }
 
   dispose() {}
@@ -131,6 +171,29 @@ export class LabelCollisionEngine {
     const h = Math.max(1, size.y >> this.downscaleShift);
     if (w !== this.bitmap.width || h !== this.bitmap.height) {
       this.bitmap.resize(w, h);
+      return true;
     }
+
+    return false;
   }
+}
+
+
+// Helper functions
+
+function log2OfPow2(n: number, name: string): number {
+  if (n < 1 || (n & (n - 1)) !== 0) {
+    throw new Error(`${name} must be a power of 2, got ${n}`);
+  }
+  let s = 0;
+  while (1 << s < n) s++;
+  return s;
+}
+
+function matrixMaxDiff(a: Matrix4, b: Matrix4): number {
+  let max = 0;
+  for (let i = 0; i < 16; i++) {
+    max = Math.max(max, Math.abs(a.elements[i] - b.elements[i]));
+  }
+  return max;
 }

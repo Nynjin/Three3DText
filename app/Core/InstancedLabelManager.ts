@@ -19,8 +19,9 @@ export interface LabelMeshPair {
 
 export class InstancedLabelManager {
   autoUpdate = true;
-  cullingRate = 0.05; // seconds
-  private lastCull = 0;
+  cullingRate = 0.1; // seconds
+  private _lastCullTime = 0;
+  private _lastFrameTime = 0;
 
   private readonly groups = new Map<string, LabelGroup>();
   private readonly labels: Label[] = [];
@@ -61,7 +62,7 @@ export class InstancedLabelManager {
       }
     }
 
-    this.lastCull = 0;
+    this._lastCullTime = 0;
   }
 
   removeLabel(label: Label) {
@@ -92,7 +93,7 @@ export class InstancedLabelManager {
       this.labels.push(...nextLabels);
     }
 
-    this.lastCull = 0;
+    this._lastCullTime = 0;
   }
 
   update() {
@@ -112,23 +113,48 @@ export class InstancedLabelManager {
     }
 
     if (anyDirty) {
-      this.lastCull = 0;
+      this._lastCullTime = 0;
     }
   }
 
   cull(camera: Camera) {
-    if (performance.now() - this.lastCull < this.cullingRate * 1000) {
-      return;
+    const now = performance.now();
+    const frameDelta = now - this._lastFrameTime;
+    this._lastFrameTime = now;
+
+    let visualNeedUpdate = false;
+
+    const cullDelta = now - this._lastCullTime;
+    if (cullDelta >= this.cullingRate * 1000) {
+      if (this.collision.evaluate(camera)) {
+        visualNeedUpdate = true;
+      }
+      this._lastCullTime = now;
     }
 
-    this.collision.setLabels(this.labels);
-    this.collision.evaluate(camera);
+    const LERP_SPEED = Math.min(frameDelta * 0.008, 1.0);
+  
+    for (const label of this.labels) {
+      const target = label.shouldRender ? 1.0 : 0.0;
+      
+      // Lerp the fade state directly on the label object
+      if (label.occlusionFade == target) continue;
+
+      visualNeedUpdate = true;
+
+      if (Math.abs(target - label.occlusionFade) > 0.005) {
+        label.occlusionFade += (target - label.occlusionFade) * LERP_SPEED;
+        continue;
+      } 
+        
+      label.occlusionFade = target;
+    }
+
+    if (!visualNeedUpdate) return;
 
     for (const group of this.groups.values()) {
-      group.meshGroup.cull(group.fontGroup.labels);
+      group.meshGroup.cull(group.fontGroup.labels); 
     }
-
-    this.lastCull = performance.now();
   }
 
   dispose() {
@@ -176,6 +202,9 @@ export class InstancedLabelManager {
       disposeLabels.push(...changeGroup);
       this.addLabels(changeGroup);
     }
+
+    this.collision.addLabels(addLabels);
+    this.collision.removeLabels(disposeLabels.map(l => l.id));
 
     const addSet = new Set(addLabels);
     const filteredUpdateLabels = updateLabels.filter((label) => !addSet.has(label));

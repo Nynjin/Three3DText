@@ -52,6 +52,13 @@ export enum LabelChangeType {
   Dispose = 1 << 6,
 }
 
+export interface TextPadding {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
 export interface LabelBounds {
   width: number;
   height: number;
@@ -80,7 +87,7 @@ export interface LabelOptions {
   textAlign?: TextAlign;
   anchorX?: TextAnchorX;
   anchorY?: TextAnchorY;
-  padding?: [number, number, number, number]; // top, right, bottom, left
+  padding?: TextPadding | [number, number, number, number]; // top, right, bottom, left
 
   // Fill
   color?: string | number | Color | Vector3;
@@ -134,12 +141,12 @@ export class Label {
   private _textAlign: TextAlign = TextAlign.Auto;
   private _anchorX: TextAnchorX = TextAnchorX.Left;
   private _anchorY: TextAnchorY = TextAnchorY.Top;
-  private _padding: [number, number, number, number] = [0, 0, 0, 0];
+  private _padding: TextPadding = { top: 0, right: 0, bottom: 0, left: 0 };
 
   // Fill
   private _color: Color = new Color();
   private _opacity: number = 1;
-  private _occludedOpacity: number = 1;
+  private _occlusionFade: number = 0;
 
   // Halo
   private _haloColor: Color = new Color();
@@ -157,7 +164,7 @@ export class Label {
   private _hasRendered: boolean = false;
 
   // Bounds
-  private _bounds?: LabelBounds;
+  private _bounds: LabelBounds = { width: 0, height: 0 };
 
   // Glyphs
   private _glyphs: GlyphInstance[] = [];
@@ -281,11 +288,15 @@ export class Label {
     this._emit(LabelChangeType.Layout);
   }
 
-  get padding() {
+  get padding(): TextPadding {
     return this._padding;
   }
-  set padding(value: [number, number, number, number]) {
-    this._padding = value;
+  set padding(value: TextPadding | [number, number, number, number]) {
+    if (Array.isArray(value)) {
+      this._padding = { top: value[0], right: value[1], bottom: value[2], left: value[3] };
+    } else {
+      this._padding = value;
+    }
     this._emit(LabelChangeType.Layout);
   }
 
@@ -305,11 +316,11 @@ export class Label {
     this._emit(LabelChangeType.Style);
   }
 
-  get occludedOpacity() {
-    return this._occludedOpacity;
+  get occlusionFade() {
+    return this._occlusionFade;
   }
-  set occludedOpacity(value: number) {
-    this._occludedOpacity = value;
+  set occlusionFade(value: number) {
+    this._occlusionFade = value;
     // No emit, managed during collision evaluation
   }
 
@@ -390,7 +401,7 @@ export class Label {
     return this._bounds;
   }
 
-  set bounds(value: LabelBounds | undefined) {
+  set bounds(value: LabelBounds) {
     this._bounds = value;
     // No emit, managed during layout phase
   }
@@ -525,7 +536,9 @@ export class Label {
       changes |= LabelChangeType.Layout;
     }
     if (options.padding !== undefined) {
-      this._padding = options.padding;
+      this._padding = Array.isArray(options.padding)
+        ? { top: options.padding[0], right: options.padding[1], bottom: options.padding[2], left: options.padding[3] }
+        : options.padding;
       changes |= LabelChangeType.Layout;
     }
 
@@ -601,7 +614,7 @@ export class Label {
       textAlign: this._textAlign,
       anchorX: this._anchorX,
       anchorY: this._anchorY,
-      padding: [...this._padding],
+      padding: { ...this._padding },
       color: this._color.clone(),
       opacity: this._opacity,
       haloColor: this._haloColor.clone(),

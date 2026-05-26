@@ -30,8 +30,10 @@ export class HierarchicalBitmap {
     this.fineWPR = (this.fineW + 31) >> 5;
     this.fine = new Uint32Array(this.fineWPR * this.fineH);
 
-    this.coarseW = Math.max(1, this.fineW >> this.coarseShift);
-    this.coarseH = Math.max(1, this.fineH >> this.coarseShift);
+    const ceilMask = (1 << this.coarseShift) - 1; 
+
+    this.coarseW = Math.max(1, this.fineW + ceilMask >> this.coarseShift);
+    this.coarseH = Math.max(1, this.fineH + ceilMask >> this.coarseShift);
     this.coarseWPR = (this.coarseW + 31) >> 5;
     this.coarse = new Uint32Array(this.coarseWPR * this.coarseH);
   }

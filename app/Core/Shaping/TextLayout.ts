@@ -134,6 +134,11 @@ export default function layoutText(
       maxY = Math.max(maxY, y1);
     }
 
+    maxX += label.padding.right / pxPerUnit;
+    minX -= label.padding.left / pxPerUnit;
+    maxY += label.padding.top / pxPerUnit;
+    minY -= label.padding.bottom / pxPerUnit;
+
     const { shiftX, shiftY } = anchorText(
       label,
       { minX, maxX, minY, maxY },

@@ -247,7 +247,7 @@ export class LabelMeshGroup {
     let hasHalo = false;
 
     for (const label of labels) {
-      if (!label.shouldRender) {
+      if (!label.shouldRender && label.occlusionFade === 0) {
         label.hasRendered = false;
         continue;
       }
@@ -261,10 +261,10 @@ export class LabelMeshGroup {
       label.hasRendered = true;
 
       for (let i = 0; i < glyphIndices.length; i++) {
-        this._glyphIndex[pos++] = glyphIndices[i];
+        this._glyphIndex[pos] = glyphIndices[i];
+        this._occlusionFade[pos] = label.occlusionFade;
+        pos++;
       }
-
-      this._occlusionFade.fill(label.occludedOpacity, pos - glyphIndices.length, pos);
 
       if (label.hasHalo()) {
         hasHalo = true;
@@ -272,12 +272,9 @@ export class LabelMeshGroup {
     }
     
     this.geom.instanceCount = pos;
-    if (this._glyphIndexAttr) {
-      this._glyphIndexAttr.needsUpdate = true;
-    }
-    if (this._occlusionFadeAttr) {
-      this._occlusionFadeAttr.needsUpdate = true;
-    }
+    this._glyphIndexAttr.needsUpdate = true;
+    this._occlusionFadeAttr.needsUpdate = true;
+
     this.fillMesh.visible = pos > 0;
     this.haloMesh.visible = hasHalo;
   }

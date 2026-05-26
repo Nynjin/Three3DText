@@ -42,6 +42,7 @@ function makeLabel(
     offset: [0, 0],
     anchorX: TextAnchorX.Left,
     anchorY: TextAnchorY.Top,
+    padding: [20, 20, 20, 20],
   });
 }
 

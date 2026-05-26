@@ -35,10 +35,9 @@ export class LabelProjector {
     this.targetH = targetH;
   }
 
-  /** Project label to screen-space AABB. Returns null if culled. */
-  project(label: Label, out: ScreenAABB): boolean {
-    const bw = label.bounds?.width  ?? 0;
-    const bh = label.bounds?.height ?? 0;
+  checkVisible(label: Label): boolean {
+    const bw = label.bounds.width;
+    const bh = label.bounds.height;
     if (bw === 0 || bh === 0) return false;
 
     const ve = this.view.elements;
@@ -50,15 +49,35 @@ export class LabelProjector {
     const cvz = ve[2]*p.x + ve[6]*p.y + ve[10]*p.z + ve[14];
     if (cvz >= 0) return false;
 
-    // Off-screen center cull
+    // Off-screen center cull with generous text margins
     const ccx = pe[0]*cvx + pe[4]*cvy + pe[8]*cvz  + pe[12];
     const ccy = pe[1]*cvx + pe[5]*cvy + pe[9]*cvz  + pe[13];
     const ccw = pe[3]*cvx + pe[7]*cvy + pe[11]*cvz + pe[15];
     if (ccw <= 0) return false;
+    
     const ndcCx = ccx / ccw, ndcCy = ccy / ccw;
     const maxBound = Math.max(bw, bh);
-    const marginNDC = (maxBound * pe[0]) / ccw + NDC_CULL_MARGIN;
+    const marginNDC = (maxBound * pe[0]) / ccw + NDC_CULL_MARGIN; // usually gives ~20% breathing room
+    
     if (Math.abs(ndcCx) > 1 + marginNDC || Math.abs(ndcCy) > 1 + marginNDC) return false;
+    
+    return true;
+  }
+
+  /** Project label to screen-space AABB. Returns null if culled. */
+  project(label: Label, out: ScreenAABB): boolean {
+    if (!this.checkVisible(label)) return false;
+
+    const bw = label.bounds.width;
+    const bh = label.bounds.height;
+    if (bw === 0 || bh === 0) return false;
+
+    const ve = this.view.elements;
+    const pe = this.proj.elements;
+    const p = label.position;
+    const cvx = ve[0]*p.x + ve[4]*p.y + ve[8]*p.z  + ve[12];
+    const cvy = ve[1]*p.x + ve[5]*p.y + ve[9]*p.z  + ve[13];
+    const cvz = ve[2]*p.x + ve[6]*p.y + ve[10]*p.z + ve[14];
 
     const offsetX = (label.offset.x * label.fontSize) / this.pxPerUnit;
     const offsetY = (label.offset.y * label.fontSize) / this.pxPerUnit;
