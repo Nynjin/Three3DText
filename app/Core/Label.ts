@@ -146,7 +146,7 @@ export class Label {
   // Fill
   private _color: Color = new Color();
   private _opacity: number = 1;
-  private _occlusionFade: number = 0;
+  private _occlusionFade: number = 1;
 
   // Halo
   private _haloColor: Color = new Color();
@@ -161,7 +161,8 @@ export class Label {
   // Visibility
   private _visible: boolean = true;
   private _shouldRender: boolean = false;
-  private _hasRendered: boolean = false;
+  private _isCandidate: boolean = false;
+  private _isRendered: boolean = false;
 
   // Bounds
   private _bounds: LabelBounds = { width: 0, height: 0 };
@@ -381,19 +382,27 @@ export class Label {
     this._emit(LabelChangeType.Visibility);
   }
 
-  get hasRendered() {
-    return this._hasRendered;
-  }
-  set hasRendered(value: boolean) {
-    this._hasRendered = value;
-    // No emit, managed during rendering phase
-  }
-
   get shouldRender() {
     return this._shouldRender;
   }
   set shouldRender(value: boolean) {
     this._shouldRender = value;
+    // No emit, managed during rendering phase
+  }
+
+  get isCandidate() {
+    return this._isCandidate;
+  }
+  set isCandidate(value: boolean) {
+    this._isCandidate = value;
+    // No emit, managed during collision evaluation phase
+  }
+
+  get isRendered() {
+    return this._isRendered;
+  }
+  set isRendered(value: boolean) {
+    this._isRendered = value;
     // No emit, managed during rendering phase
   }
 

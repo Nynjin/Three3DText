@@ -247,18 +247,18 @@ export class LabelMeshGroup {
     let hasHalo = false;
 
     for (const label of labels) {
-      if (!label.shouldRender && label.occlusionFade === 0) {
-        label.hasRendered = false;
+      if (!label.shouldRender && label.occlusionFade === 1) {
+        label.isRendered = false;
         continue;
       }
 
       const glyphIndices = this._glyphDataBuffer.getTexelIndicesOf(label.id);
       if (!glyphIndices) {
-        label.hasRendered = false;
+        label.isRendered = false;
         continue;
       }
 
-      label.hasRendered = true;
+      label.isRendered = true;
 
       for (let i = 0; i < glyphIndices.length; i++) {
         this._glyphIndex[pos] = glyphIndices[i];

@@ -66,8 +66,6 @@ export class LabelProjector {
 
   /** Project label to screen-space AABB. Returns null if culled. */
   project(label: Label, out: ScreenAABB): boolean {
-    if (!this.checkVisible(label)) return false;
-
     const bw = label.bounds.width;
     const bh = label.bounds.height;
     if (bw === 0 || bh === 0) return false;

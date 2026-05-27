@@ -4,14 +4,14 @@ import { HierarchicalBitmap } from "./HierarchicalBitmap";
 import { LabelProjector, ScreenAABB } from "./LabelProjector";
 import { DistanceSort } from "./DistanceSort";
 
-const ACCEPTABLE_OCCLUSION = 0.2;
-const MAX_OCCLUSION = 0.3;
+const ACCEPTABLE_OCCLUSION = 0.1;
+const MAX_OCCLUSION = 0.2;
 
 const VIEW_PROJ_THRESHOLD = 0.05; 
-const RESORT_THRESHOLD = 0.15;
 
 export class LabelCollisionEngine {
   private labels: Label[] = [];
+  private candidates: Label[] = [];
   private dirty = true;
 
   private readonly renderer: WebGLRenderer;
@@ -47,6 +47,7 @@ export class LabelCollisionEngine {
   setLabels(labels: Label[]) {
     if (labels === this.labels) return;
     this.labels = labels;
+    this.candidates = [];
     this.dirty = true;
   }
   addLabels(labels: Label[]) {
@@ -59,12 +60,14 @@ export class LabelCollisionEngine {
   }
   clear() {
     this.labels = [];
+    this.candidates = [];
     this.dirty = true;
   }
   removeLabels(ids: string[]) {
     if (ids.length === 0) return;
     const s = new Set(ids);
     this.labels = this.labels.filter(l => !s.has(l.id));
+    this.candidates = this.candidates.filter(l => !s.has(l.id));
     this.dirty = true;
   }
 
@@ -89,41 +92,32 @@ export class LabelCollisionEngine {
     );
     this.bitmap.clear();
 
-    const visibleLabels = this.labels.filter(label => {
-      if (!label.visible) {
-        label.shouldRender = false;
-        return false;
-      }
-      if (label.opacity === 0) {
-        label.shouldRender = false;
-        return false;
-      }
-      if (label.glyphs.length === 0) {
-        label.shouldRender = false;
-        return false;
-      }
-      if (label.bounds.width === 0 || label.bounds.height === 0) {
-        label.shouldRender = false;
-        return false;
-      }
-      if (!this.projector.checkVisible(label)) {
-        label.shouldRender = false;
-        return false;
-      }
+    // Trim dead items off the end without reallocating
+    this.candidates = [];
 
-      return true;
-    });
+    // 2. Scan for NEW items to append
+    for (let i = 0; i < this.labels.length; i++) {
+        const label = this.labels[i];
 
-    const sortDiff = matrixMaxDiff(this._frustumMatrix, this._lastVPSort);
-    if (this.dirty || sortDiff > RESORT_THRESHOLD) {
-      this.sorter.sort(visibleLabels, camera.position);
-      this._lastVPSort.copy(this._frustumMatrix);
-      this.dirty = false;
+        const isValid = label.visible && label.opacity > 0 && 
+                        label.glyphs.length > 0 && label.bounds.width > 0 && 
+                        this.projector.checkVisible(label);
+
+        if (isValid) {
+            label.isCandidate = true;
+            this.candidates.push(label);
+        }
     }
 
+    // 3. Only sort when array changed or camera moved!
+    this.sorter.sort(this.candidates, camera.position);
+    this._lastVPSort.copy(this._frustumMatrix);
+    this.dirty = false;
+    
+
     const aabb = this._scratchAABB;
-    for (let i = 0; i < visibleLabels.length; i++) {
-      const label = visibleLabels[i];
+    for (let i = 0; i < this.candidates.length; i++) {
+      const label = this.candidates[i];
 
       if (!this.projector.project(label, aabb)) {
         label.shouldRender = false;
@@ -144,7 +138,7 @@ export class LabelCollisionEngine {
       const occlusion = claimed / area;
 
       let isVisible: boolean;
-      if (label.hasRendered) {
+      if (label.shouldRender) {
         isVisible = occlusion <= MAX_OCCLUSION;
       } else {
         isVisible = occlusion <= ACCEPTABLE_OCCLUSION;

@@ -1,7 +1,7 @@
 import { Vector3 } from "three";
 import { Label } from "../Label";
 
-const RENDER_PENALTY = 1e12; 
+const RENDER_PENALTY_MULTIPLIER = 1.5; 
 
 export class DistanceSort {
   private distBuffer = new Float32Array(1024);
@@ -29,7 +29,7 @@ export class DistanceSort {
       let dist = dx*dx + dy*dy + dz*dz;
 
       if (!label.shouldRender) {
-        dist += RENDER_PENALTY;
+        dist *= RENDER_PENALTY_MULTIPLIER;
       }
 
       d[i] = dist;
@@ -40,7 +40,9 @@ export class DistanceSort {
 
     activeIndices.sort((a, b) => {
       const diff = d[a] - d[b];
-      if (diff === 0) return a - b;
+      if (Math.abs(diff) < 1e-6) {
+        return a - b;
+      }
       return diff;
     });
 

@@ -47,6 +47,6 @@ void main() {
   if (alpha <= 0.0) {
     discard;
   }
-  outColor = vec4(color, opacity * alpha * vOcclusionFade);
+  outColor = vec4(color, opacity * alpha * (1.0 - vOcclusionFade));
 }
 `;

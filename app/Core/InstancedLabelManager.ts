@@ -19,7 +19,7 @@ export interface LabelMeshPair {
 
 export class InstancedLabelManager {
   autoUpdate = true;
-  cullingRate = 0.1; // seconds
+  cullingRate = 0.5; // seconds
   private _lastCullTime = 0;
   private _lastFrameTime = 0;
 
@@ -125,29 +125,36 @@ export class InstancedLabelManager {
     let visualNeedUpdate = false;
 
     const cullDelta = now - this._lastCullTime;
+
+    // Evaluate normally at the culling rate...
+    let evaluated = false;
     if (cullDelta >= this.cullingRate * 1000) {
-      if (this.collision.evaluate(camera)) {
-        visualNeedUpdate = true;
-      }
+      if (this.collision.evaluate(camera)) visualNeedUpdate = true;
       this._lastCullTime = now;
+      evaluated = true;
     }
 
-    const LERP_SPEED = Math.min(frameDelta * 0.008, 1.0);
+    // keep evaluating on label fading out/in
+    const anyMidFade = this.labels.some(l => !l.shouldRender && l.occlusionFade > 0);
+    if (!evaluated && anyMidFade) {
+      if (this.collision.evaluate(camera)) visualNeedUpdate = true;
+    }
+
+    const fadeDelta = frameDelta / 300.0; 
   
     for (const label of this.labels) {
-      const target = label.shouldRender ? 1.0 : 0.0;
+      const target = label.shouldRender ? 0.0 : 1.0;
       
       // Lerp the fade state directly on the label object
       if (label.occlusionFade == target) continue;
 
       visualNeedUpdate = true;
 
-      if (Math.abs(target - label.occlusionFade) > 0.005) {
-        label.occlusionFade += (target - label.occlusionFade) * LERP_SPEED;
-        continue;
-      } 
-        
-      label.occlusionFade = target;
+      if (label.occlusionFade < target) {
+        label.occlusionFade = Math.min(target, label.occlusionFade + fadeDelta);
+      } else {
+        label.occlusionFade = Math.max(target, label.occlusionFade - fadeDelta);
+      }
     }
 
     if (!visualNeedUpdate) return;
