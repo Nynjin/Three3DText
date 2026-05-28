@@ -17,9 +17,9 @@ export const TextOptions = [
   "こんにちは世界", // some characters are very thin and may require cutoff adjustments
   "안녕하세요 세계",
   // "😀😃😄😁😆😅😂🤣☺️😊", // most emojis do not work
-  "Hello بالعالم 你好 мир", // mixed RTL and LTR 
+  "Hello بالعالم 你好 мир", // mixed RTL and LTR
   "Azلعاo世m界", // mixed RTL and CJK with no spaces
-  "AVAVAVA" // Kerning
+  "AVAVAVA", // Kerning
 ];
 
-export const FrustrumCullRate = 0.01;
+export const FrustumCullRate = 0.01;

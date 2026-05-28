@@ -7,7 +7,7 @@ import {
   BatchedText as BatchedTroikaText,
   // @ts-expect-error no troika types
 } from "troika-three-text";
-import { FrustrumCullRate } from "../Commons/Constants";
+import { FrustumCullRate } from "../Commons/Constants";
 
 function createTroikaText({
   text,
@@ -82,7 +82,7 @@ export function TroikaCloud({ items, halo }: { items: Item[]; halo: boolean }) {
     setRenderList(
       items.map((item) => ({ key: item.key, mesh: map.get(item.key)! })),
     );
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
 
   // Halo: update existing meshes in-place
@@ -197,7 +197,9 @@ export function BatchedTroikaCloudOpt({
   }, [items, batchedText]);
 
   useEffect(() => {
-    for (const mesh of mapRef.current.values()) {applyHaloProps(mesh, halo);}
+    for (const mesh of mapRef.current.values()) {
+      applyHaloProps(mesh, halo);
+    }
   }, [halo]);
 
   useEffect(
@@ -220,7 +222,7 @@ export function BatchedTroikaCloudOpt({
   const last = useRef(0);
 
   useFrame(({ clock }) => {
-    if (clock.elapsedTime - last.current < FrustrumCullRate) return;
+    if (clock.elapsedTime - last.current < FrustumCullRate) return;
     last.current = clock.elapsedTime;
 
     camera.updateMatrixWorld(true);

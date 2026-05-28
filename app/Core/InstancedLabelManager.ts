@@ -6,6 +6,7 @@ import { Label } from "./Label";
 import { LabelMeshGroup } from "./Rendering/LabelMeshGroup";
 import type { LabelMesh } from "./Rendering/LabelMeshGroup";
 import { LabelCollisionEngine } from "./Collision/LabelCollisionEngine";
+import { LabelManagerConfig, DefaultLabelConfig } from "./Types/LabelConfig";
 
 interface LabelGroup {
   fontGroup: LabelFontGroup;
@@ -18,24 +19,21 @@ export interface LabelMeshPair {
 }
 
 export class InstancedLabelManager {
-  autoUpdate = true;
-  cullingRate = 0.5; // seconds
+  readonly config: LabelManagerConfig;
   private _lastCullTime = 0;
   private _lastFrameTime = 0;
 
   private readonly groups = new Map<string, LabelGroup>();
   private readonly labels: Label[] = [];
 
-  private pxPerUnit: number;
-
   readonly meshes: LabelMeshPair[] = [];
 
   collision: LabelCollisionEngine;
 
-  constructor(pxPerUnit = 48, renderer: WebGLRenderer) {
+  constructor(renderer: WebGLRenderer, options?: Partial<LabelManagerConfig>) {
     console.log("[label manager] created");
-    this.pxPerUnit = pxPerUnit;
-    this.collision = new LabelCollisionEngine(renderer, pxPerUnit);
+    this.config = { ...DefaultLabelConfig, ...options };
+    this.collision = new LabelCollisionEngine(renderer, this.config);
   }
 
   addLabel(label: Label) {
@@ -128,23 +126,25 @@ export class InstancedLabelManager {
 
     // Evaluate normally at the culling rate...
     let evaluated = false;
-    if (cullDelta >= this.cullingRate * 1000) {
+    if (cullDelta >= this.config.cullingRate * 1000) {
       if (this.collision.evaluate(camera)) visualNeedUpdate = true;
       this._lastCullTime = now;
       evaluated = true;
     }
 
     // keep evaluating on label fading out/in
-    const anyMidFade = this.labels.some(l => !l.shouldRender && l.occlusionFade > 0);
+    const anyMidFade = this.labels.some(
+      (l) => !l.shouldRender && l.occlusionFade > 0,
+    );
     if (!evaluated && anyMidFade) {
       if (this.collision.evaluate(camera)) visualNeedUpdate = true;
     }
 
-    const fadeDelta = frameDelta / 300.0; 
-  
+    const fadeDelta = frameDelta / this.config.fadeDurationMs;
+
     for (const label of this.labels) {
       const target = label.shouldRender ? 0.0 : 1.0;
-      
+
       // Lerp the fade state directly on the label object
       if (label.occlusionFade == target) continue;
 
@@ -160,7 +160,7 @@ export class InstancedLabelManager {
     if (!visualNeedUpdate) return;
 
     for (const group of this.groups.values()) {
-      group.meshGroup.cull(group.fontGroup.labels); 
+      group.meshGroup.cull(group.fontGroup.labels);
     }
   }
 
@@ -184,7 +184,7 @@ export class InstancedLabelManager {
     const group = { fontGroup, meshGroup };
 
     fontGroup.onChange(() => {
-      if (!this.autoUpdate) return;
+      if (!this.config.autoUpdate) return;
       queueMicrotask(() => {
         this._syncGroup(group);
       });
@@ -210,18 +210,26 @@ export class InstancedLabelManager {
       this.addLabels(changeGroup);
     }
 
+    this.collision.removeLabels(disposeLabels.map((l) => l.id));
     this.collision.addLabels(addLabels);
-    this.collision.removeLabels(disposeLabels.map(l => l.id));
 
     const addSet = new Set(addLabels);
-    const filteredUpdateLabels = updateLabels.filter((label) => !addSet.has(label));
+    const filteredUpdateLabels = updateLabels.filter(
+      (label) => !addSet.has(label),
+    );
 
     meshGroup.update(
-      addLabels.map((label) => layoutText(label, atlas.glyphs, this.pxPerUnit)),
+      addLabels.map((label) =>
+        layoutText(label, atlas.glyphs, this.config.pxPerUnit),
+      ),
       disposeLabels.map((label) => label.id),
-      filteredUpdateLabels.map((label) => dirty ? layoutText(label, atlas.glyphs, this.pxPerUnit) : label),
+      filteredUpdateLabels.map((label) =>
+        dirty ? layoutText(label, atlas.glyphs, this.config.pxPerUnit) : label,
+      ),
       dirty ? atlas : undefined,
     );
+
+    meshGroup.cull(fontGroup.labels);
 
     fontGroup.flushDirty();
   }

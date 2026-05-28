@@ -66,8 +66,10 @@ export function InstancedLabelComponent({
   const managerRef = useRef<InstancedLabelManager | null>(null);
 
   if (!managerRef.current) {
-    managerRef.current = new InstancedLabelManager(pxPerUnit, renderer);
-    managerRef.current.autoUpdate = false;
+    managerRef.current = new InstancedLabelManager(renderer, {
+      pxPerUnit,
+      autoUpdate: false,
+    });
   }
   const manager = managerRef.current;
 
@@ -133,7 +135,7 @@ export function InstancedLabelComponent({
     }
     attachedMeshCountRef.current = manager.meshes.length;
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, manager, fontSize]);
 
   // Halo toggle — mutate labels in-place, no rebuild, no re-layout

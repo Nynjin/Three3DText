@@ -3,11 +3,7 @@ import { Label } from "../Label";
 import { HierarchicalBitmap } from "./HierarchicalBitmap";
 import { LabelProjector, ScreenAABB } from "./LabelProjector";
 import { DistanceSort } from "./DistanceSort";
-
-const ACCEPTABLE_OCCLUSION = 0.1;
-const MAX_OCCLUSION = 0.2;
-
-const VIEW_PROJ_THRESHOLD = 0.05; 
+import { LabelManagerConfig } from "../Types/LabelConfig";
 
 export class LabelCollisionEngine {
   private labels: Label[] = [];
@@ -18,27 +14,26 @@ export class LabelCollisionEngine {
   private readonly downscaleShift: number;
   private readonly bitmap: HierarchicalBitmap;
   private readonly projector: LabelProjector;
-  private readonly sorter = new DistanceSort();
+  private readonly sorter: DistanceSort;
 
   private readonly _lastVP = new Matrix4();
   private readonly _lastVPSort = new Matrix4();
-  
+
   private readonly _scratchAABB: ScreenAABB = { x0: 0, y0: 0, x1: 0, y1: 0 };
 
   private readonly _frustumMatrix = new Matrix4();
 
   private readonly _tmpVec2 = new Vector2();
-  
-  constructor(
-    renderer: WebGLRenderer,
-    pxPerUnit = 1024,
-    downscale = 4,
-    coarseScale = 32,
-  ) {
+
+  private readonly config: LabelManagerConfig;
+
+  constructor(renderer: WebGLRenderer, config: LabelManagerConfig) {
     this.renderer = renderer;
-    this.downscaleShift = log2OfPow2(downscale, "downscale");
-    this.bitmap = new HierarchicalBitmap(coarseScale);
-    this.projector = new LabelProjector(pxPerUnit);
+    this.config = config;
+    this.downscaleShift = log2OfPow2(config.downscale, "downscale");
+    this.bitmap = new HierarchicalBitmap(config.coarseScale);
+    this.projector = new LabelProjector(config);
+    this.sorter = new DistanceSort(config);
     this.syncToViewport();
   }
 
@@ -66,8 +61,8 @@ export class LabelCollisionEngine {
   removeLabels(ids: string[]) {
     if (ids.length === 0) return;
     const s = new Set(ids);
-    this.labels = this.labels.filter(l => !s.has(l.id));
-    this.candidates = this.candidates.filter(l => !s.has(l.id));
+    this.labels = this.labels.filter((l) => !s.has(l.id));
+    this.candidates = this.candidates.filter((l) => !s.has(l.id));
     this.dirty = true;
   }
 
@@ -75,11 +70,18 @@ export class LabelCollisionEngine {
     if (this.labels.length === 0) return;
     const viewportChanged = this.syncToViewport();
 
-    this._frustumMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this._frustumMatrix.multiplyMatrices(
+      camera.projectionMatrix,
+      camera.matrixWorldInverse,
+    );
     const viewDiff = matrixMaxDiff(this._frustumMatrix, this._lastVP);
 
-    if (!this.dirty && viewDiff <= VIEW_PROJ_THRESHOLD && !viewportChanged) {
-      return false; 
+    if (
+      !this.dirty &&
+      viewDiff <= this.config.viewProjThreshold &&
+      !viewportChanged
+    ) {
+      return false;
     }
 
     this._lastVP.copy(this._frustumMatrix);
@@ -97,23 +99,25 @@ export class LabelCollisionEngine {
 
     // 2. Scan for NEW items to append
     for (let i = 0; i < this.labels.length; i++) {
-        const label = this.labels[i];
+      const label = this.labels[i];
 
-        const isValid = label.visible && label.opacity > 0 && 
-                        label.glyphs.length > 0 && label.bounds.width > 0 && 
-                        this.projector.checkVisible(label);
+      const isValid =
+        label.visible &&
+        label.opacity > 0 &&
+        label.glyphs.length > 0 &&
+        label.bounds.width > 0 &&
+        this.projector.checkVisible(label);
 
-        if (isValid) {
-            label.isCandidate = true;
-            this.candidates.push(label);
-        }
+      if (isValid) {
+        label.isCandidate = true;
+        this.candidates.push(label);
+      }
     }
 
     // 3. Only sort when array changed or camera moved!
     this.sorter.sort(this.candidates, camera.position);
     this._lastVPSort.copy(this._frustumMatrix);
     this.dirty = false;
-    
 
     const aabb = this._scratchAABB;
     for (let i = 0; i < this.candidates.length; i++) {
@@ -139,9 +143,9 @@ export class LabelCollisionEngine {
 
       let isVisible: boolean;
       if (label.shouldRender) {
-        isVisible = occlusion <= MAX_OCCLUSION;
+        isVisible = occlusion <= this.config.maxOcclusion;
       } else {
-        isVisible = occlusion <= ACCEPTABLE_OCCLUSION;
+        isVisible = occlusion <= this.config.acceptableOcclusion;
       }
 
       if (isVisible) {
@@ -171,7 +175,6 @@ export class LabelCollisionEngine {
     return false;
   }
 }
-
 
 // Helper functions
 
