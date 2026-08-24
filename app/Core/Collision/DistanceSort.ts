@@ -1,6 +1,6 @@
-import { Vector3 } from "three";
-import { Label } from "../Label";
-import { LabelManagerConfig } from "../Types/LabelConfig";
+import type { Vector3 } from 'three';
+import type { Label } from '../Label';
+import type { LabelManagerConfig } from '../Types/LabelConfig';
 
 export class DistanceSort {
   private distBuffer = new Float32Array(1024);
@@ -20,7 +20,7 @@ export class DistanceSort {
         Math.max(n, this.distBuffer.length * 2),
       );
       this.indices = new Uint32Array(this.distBuffer.length);
-      this.tempLabels = new Array(this.distBuffer.length);
+      this.tempLabels = new Array<Label>(this.distBuffer.length);
     }
 
     const px = point.x,

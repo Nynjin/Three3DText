@@ -9,9 +9,9 @@
  * "is this region completely empty?" check.
  */
 export class HierarchicalBitmap {
-  private fine   = new Uint32Array(1);
+  private fine = new Uint32Array(1);
   private coarse = new Uint32Array(1);
-  private fineW = 0;   private fineH = 0;   private fineWPR = 0;
+  private fineW = 0; private fineH = 0; private fineWPR = 0;
   private coarseW = 0; private coarseH = 0; private coarseWPR = 0;
 
   private readonly coarseShift: number;
@@ -20,7 +20,7 @@ export class HierarchicalBitmap {
    * @param coarseScale Fine cells per coarse cell. Must be a power of 2.
    */
   constructor(coarseScale = 32) {
-    this.coarseShift = log2OfPow2(coarseScale, "coarseScale");
+    this.coarseShift = log2OfPow2(coarseScale, 'coarseScale');
   }
 
   /** Resize and clear both layers. */
@@ -30,7 +30,7 @@ export class HierarchicalBitmap {
     this.fineWPR = (this.fineW + 31) >> 5;
     this.fine = new Uint32Array(this.fineWPR * this.fineH);
 
-    const ceilMask = (1 << this.coarseShift) - 1; 
+    const ceilMask = (1 << this.coarseShift) - 1;
 
     this.coarseW = Math.max(1, this.fineW + ceilMask >> this.coarseShift);
     this.coarseH = Math.max(1, this.fineH + ceilMask >> this.coarseShift);
@@ -44,7 +44,7 @@ export class HierarchicalBitmap {
     this.coarse.fill(0);
   }
 
-  get width():  number { return this.fineW; }
+  get width(): number { return this.fineW; }
   get height(): number { return this.fineH; }
 
   /** True if no bit is set anywhere in [x0,y0]-[x1,y1] (checks coarse only). */

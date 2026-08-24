@@ -1,7 +1,7 @@
-import TinySDF from "@mapbox/tiny-sdf";
-import { DataTexture, LinearFilter, RedFormat, UnsignedByteType } from "three";
-import { FontKey } from "./FontKey";
-import { GlyphInfo } from "../Shaping/GlyphRun";
+import TinySDF from '@mapbox/tiny-sdf';
+import { DataTexture, LinearFilter, RedFormat, UnsignedByteType } from 'three';
+import type { FontKey } from './FontKey';
+import type { GlyphInfo } from '../Shaping/GlyphRun';
 
 export class SDFAtlas {
   texture: DataTexture;
@@ -49,7 +49,7 @@ export class SDFAtlas {
       this._data, this._width, this._width,
       RedFormat, UnsignedByteType,
     );
-    this.texture.flipY  = false;
+    this.texture.flipY = false;
     this.texture.generateMipmaps = false;
     this.texture.minFilter = LinearFilter;
     this.texture.magFilter = LinearFilter;
@@ -76,7 +76,7 @@ export class SDFAtlas {
     if (this._slotCount + newChars.length > this._capacity) {
       this._resize(this._slotCount + newChars.length);
       resize = true;
-    }    
+    }
 
     this._drawChars(newChars);
     this.texture.needsUpdate = true;
@@ -112,7 +112,6 @@ export class SDFAtlas {
         advance: g.glyphAdvance / SDFAtlas.SCALE || 1,
         top: g.glyphTop / SDFAtlas.SCALE || 0,
       });
-
     }
   }
 
@@ -130,14 +129,14 @@ export class SDFAtlas {
     this._cols = Math.ceil(Math.sqrt(this._capacity));
     const rows = Math.ceil(this._capacity / this._cols);
 
-    const newSize  = nextPow2(Math.max(
+    const newSize = nextPow2(Math.max(
       this._cols * this._cellSize,
       rows * this._cellSize,
     ));
 
-    const oldData  = this._data;
+    const oldData = this._data;
     const oldWidth = this._width;
-    const newData  = new Uint8Array(newSize * newSize);
+    const newData = new Uint8Array(newSize * newSize);
 
     let slot = 0;
     for (const [, g] of this.glyphs) {
@@ -156,7 +155,7 @@ export class SDFAtlas {
 
     this._data = newData;
     this._width = newSize;
-    
+
     this.texture.dispose();
     this.texture = new DataTexture(newData, newSize, newSize, RedFormat, UnsignedByteType);
     this.texture.flipY = false;

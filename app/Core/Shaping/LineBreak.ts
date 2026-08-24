@@ -1,5 +1,5 @@
-import { Label } from "../Label";
-import { GlyphInfo } from "./GlyphRun";
+import type { Label } from '../Label';
+import type { GlyphInfo } from './GlyphRun';
 
 export interface LineBreaks {
   lines: string[];
@@ -11,10 +11,13 @@ export default function lineBreak(
   glyphs: Map<string, GlyphInfo>,
   text = label.getDisplayText(),
 ): LineBreaks {
-  const fallback = glyphs.get("?")!;
+  const fallback = glyphs.get('?');
+  if (!fallback) {
+    throw new Error('Fallback glyph "?" not found in glyphs map');
+  }
 
   if (!text) {
-    return { lines: [""], breakIndices: [0] };
+    return { lines: [''], breakIndices: [0] };
   }
 
   if (label.maxWidth >= Infinity) {
@@ -29,15 +32,15 @@ export default function lineBreak(
   let i = 0;
   while (i < text.length) {
     // Skip leading spaces at the start of each line
-    while (i < text.length && text[i] === " ") i++;
+    while (i < text.length && text[i] === ' ') i++;
     if (i >= text.length) break;
 
-    let lineStr = "";
+    let lineStr = '';
     let lineWidth = 0;
 
     // Track the last space position so we can break at a word boundary
-    let lastSpaceI = -1;       // index in `text` of the last space that fit
-    let lastSpaceLineLen = 0;  // length of lineStr when that space was recorded
+    let lastSpaceI = -1; // index in `text` of the last space that fit
+    let lastSpaceLineLen = 0; // length of lineStr when that space was recorded
 
     while (i < text.length) {
       const c = text[i];
@@ -57,11 +60,11 @@ export default function lineBreak(
           lines.push(lineStr);
           breakIndices.push(i);
         }
-        lineStr = "";
+        lineStr = '';
         break;
       }
 
-      if (c === " ") {
+      if (c === ' ') {
         lastSpaceI = i;
         lastSpaceLineLen = lineStr.length;
       }
@@ -78,7 +81,7 @@ export default function lineBreak(
   }
 
   if (lines.length === 0) {
-    lines.push("");
+    lines.push('');
     breakIndices.push(text.length);
   }
 

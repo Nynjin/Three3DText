@@ -1,9 +1,9 @@
-import { Camera, Matrix4, Vector2, WebGLRenderer } from "three";
-import { Label } from "../Label";
-import { HierarchicalBitmap } from "./HierarchicalBitmap";
-import { LabelProjector, ScreenAABB } from "./LabelProjector";
-import { DistanceSort } from "./DistanceSort";
-import { LabelManagerConfig } from "../Types/LabelConfig";
+import { type Camera, Matrix4, Vector2, type WebGLRenderer } from 'three';
+import type { Label } from '../Label';
+import { HierarchicalBitmap } from './HierarchicalBitmap';
+import { LabelProjector, type ScreenAABB } from './LabelProjector';
+import { DistanceSort } from './DistanceSort';
+import type { LabelManagerConfig } from '../Types/LabelConfig';
 
 export class LabelCollisionEngine {
   private labels: Label[] = [];
@@ -30,7 +30,7 @@ export class LabelCollisionEngine {
   constructor(renderer: WebGLRenderer, config: LabelManagerConfig) {
     this.renderer = renderer;
     this.config = config;
-    this.downscaleShift = log2OfPow2(config.downscale, "downscale");
+    this.downscaleShift = log2OfPow2(config.downscale, 'downscale');
     this.bitmap = new HierarchicalBitmap(config.coarseScale);
     this.projector = new LabelProjector(config);
     this.sorter = new DistanceSort(config);
@@ -45,6 +45,7 @@ export class LabelCollisionEngine {
     this.candidates = [];
     this.dirty = true;
   }
+
   addLabels(labels: Label[]) {
     for (const label of labels) {
       if (!this.labels.includes(label)) {
@@ -53,16 +54,18 @@ export class LabelCollisionEngine {
       }
     }
   }
+
   clear() {
     this.labels = [];
     this.candidates = [];
     this.dirty = true;
   }
+
   removeLabels(ids: string[]) {
     if (ids.length === 0) return;
     const s = new Set(ids);
-    this.labels = this.labels.filter((l) => !s.has(l.id));
-    this.candidates = this.candidates.filter((l) => !s.has(l.id));
+    this.labels = this.labels.filter(l => !s.has(l.id));
+    this.candidates = this.candidates.filter(l => !s.has(l.id));
     this.dirty = true;
   }
 
@@ -77,9 +80,9 @@ export class LabelCollisionEngine {
     const viewDiff = matrixMaxDiff(this._frustumMatrix, this._lastVP);
 
     if (
-      !this.dirty &&
-      viewDiff <= this.config.viewProjThreshold &&
-      !viewportChanged
+      !this.dirty
+      && viewDiff <= this.config.viewProjThreshold
+      && !viewportChanged
     ) {
       return false;
     }
@@ -101,12 +104,12 @@ export class LabelCollisionEngine {
     for (let i = 0; i < this.labels.length; i++) {
       const label = this.labels[i];
 
-      const isValid =
-        label.visible &&
-        label.opacity > 0 &&
-        label.glyphs.length > 0 &&
-        label.bounds.width > 0 &&
-        this.projector.checkVisible(label);
+      const isValid
+        = label.visible
+          && label.opacity > 0
+          && label.glyphs.length > 0
+          && label.bounds.width > 0
+          && this.projector.checkVisible(label);
 
       if (isValid) {
         label.isCandidate = true;

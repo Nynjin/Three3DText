@@ -1,6 +1,6 @@
-import { Matrix4, Quaternion, Vector3 } from "three";
-import { Label, RotationAlignment, TextAnchorX, TextAnchorY } from "../Label";
-import { LabelManagerConfig } from "../Types/LabelConfig";
+import { Matrix4, Quaternion, Vector3 } from 'three';
+import { type Label, RotationAlignment, TextAnchorX, TextAnchorY } from '../Label';
+import type { LabelManagerConfig } from '../Types/LabelConfig';
 
 export interface ScreenAABB {
   x0: number;
@@ -120,7 +120,8 @@ export class LabelProjector {
         vy = cvy + localY;
         vz = cvz;
       } else {
-        this._v3.set(localX, localY, 0).applyQuaternion(q!);
+        if (!q) throw new Error('Quaternion is null for non-viewport label');
+        this._v3.set(localX, localY, 0).applyQuaternion(q);
         const wx = p.x + this._v3.x;
         const wy = p.y + this._v3.y;
         const wz = p.z + this._v3.z;

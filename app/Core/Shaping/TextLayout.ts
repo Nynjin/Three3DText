@@ -1,17 +1,20 @@
-import { Vector2 } from "three";
-import { Label } from "../Label";
-import { GlyphInfo, GlyphInstance } from "./GlyphRun";
-import lineBreak from "./LineBreak";
-import textAlign from "./TextAlign";
-import { applyShaping, reorderParagraph, isParagraphRTL } from "./RTL";
-import anchorText from "./TextAnchors";
+import { Vector2 } from 'three';
+import type { Label } from '../Label';
+import type { GlyphInfo, GlyphInstance } from './GlyphRun';
+import lineBreak from './LineBreak';
+import textAlign from './TextAlign';
+import { applyShaping, reorderParagraph, isParagraphRTL } from './RTL';
+import anchorText from './TextAnchors';
 
 export default function layoutText(
   label: Label,
   glyphs: Map<string, GlyphInfo>,
-  pxPerUnit: number
+  pxPerUnit: number,
 ): Label {
-  const fallback = glyphs.get("?")!;
+  const fallback = glyphs.get('?');
+  if (!fallback) {
+    throw new Error('Fallback glyph "?" not found in glyphs map');
+  }
   const chars: GlyphInstance[] = [];
 
   const shapedText = applyShaping(label.getDisplayText());
@@ -20,13 +23,13 @@ export default function layoutText(
   const visualLines = reorderParagraph(shapedText, breakIndices);
 
   const letterSpacing = label.letterSpacing * label.fontSize;
-  const lineHeight  = label.lineHeight * label.fontSize;
+  const lineHeight = label.lineHeight * label.fontSize;
   const offsetX = label.offset.x * label.fontSize;
   const offsetY = label.offset.y * label.fontSize;
 
   // Resolve each visual line's glyphs
-  const resolvedLines: GlyphInfo[][] = visualLines.map(line => {
-    const resolved: GlyphInfo[] = new Array(line.length);
+  const resolvedLines: GlyphInfo[][] = visualLines.map((line) => {
+    const resolved: GlyphInfo[] = new Array<GlyphInfo>(line.length);
     for (let i = 0; i < line.length; i++) {
       resolved[i] = glyphs.get(line[i]) ?? fallback;
     }
@@ -49,7 +52,7 @@ export default function layoutText(
 
   // Layout each character
   for (let lineIdx = 0; lineIdx < visualLines.length; lineIdx++) {
-    const line     = visualLines[lineIdx];
+    const line = visualLines[lineIdx];
     const resolved = resolvedLines[lineIdx];
     if (resolved.length === 0) continue;
     const last = resolved.length - 1;
@@ -87,7 +90,7 @@ export default function layoutText(
 
       cursor += g.advance + letterSpacing;
 
-      if (line[i] === " ") {
+      if (line[i] === ' ') {
         cursor += extraSpacePerWordGap;
       }
     }

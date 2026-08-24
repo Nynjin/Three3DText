@@ -1,4 +1,4 @@
-import { Label } from "../Label";
+import type { Label } from '../Label';
 
 export type FontKey = {
   font: string;

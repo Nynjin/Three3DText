@@ -1,13 +1,13 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useFrame, useThree } from "@react-three/fiber";
-import { Color, Frustum, Matrix4, Sphere, Vector3 } from "three";
-import type { Item } from "../Types/Item";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useFrame, useThree } from '@react-three/fiber';
+import { Color, Frustum, Matrix4, Sphere, Vector3 } from 'three';
+import type { Item } from '../Types/Item';
 import {
   Text as TroikaText,
   BatchedText as BatchedTroikaText,
   // @ts-expect-error no troika types
-} from "troika-three-text";
-import { FrustumCullRate } from "../Commons/Constants";
+} from 'troika-three-text';
+import { FrustumCullRate } from '../Commons/Constants';
 
 function createTroikaText({
   text,
@@ -20,12 +20,12 @@ function createTroikaText({
 }) {
   const mesh = new TroikaText();
   mesh.text = text;
-  mesh.color = "#000000";
+  mesh.color = '#000000';
   mesh.fontSize = 1;
   mesh.position.set(...position);
   mesh.rotation.set(...rotation);
-  mesh.anchorX = "center";
-  mesh.anchorY = "center";
+  mesh.anchorX = 'center';
+  mesh.anchorY = 'center';
   // mesh.maxWidth = 1;
   // mesh.overflowWrap = "break-word";
   return mesh;
@@ -33,7 +33,7 @@ function createTroikaText({
 
 function applyHaloProps(mesh: TroikaText, halo: boolean) {
   if (halo) {
-    mesh.outlineColor = new Color("#bbbbbb");
+    mesh.outlineColor = new Color('#bbbbbb');
     mesh.outlineWidth = 0.35;
     mesh.outlineBlur = 0.5;
     if (mesh.material) mesh.material.opacity = 1;
@@ -45,11 +45,11 @@ function applyHaloProps(mesh: TroikaText, halo: boolean) {
 
 (function patchTroikaCustomMaterials() {
   for (const key of [
-    "customDepthMaterial",
-    "customDistanceMaterial",
+    'customDepthMaterial',
+    'customDistanceMaterial',
   ] as const) {
     const d = Object.getOwnPropertyDescriptor(TroikaText.prototype, key);
-    if (d?.get && !d?.set) {
+    if (d?.get && !d.set) {
       Object.defineProperty(TroikaText.prototype, key, {
         value: null,
         writable: true,
@@ -67,7 +67,7 @@ export function TroikaCloud({ items, halo }: { items: Item[]; halo: boolean }) {
 
   useLayoutEffect(() => {
     const map = mapRef.current;
-    const nextKeys = new Set(items.map((i) => i.key));
+    const nextKeys = new Set(items.map(i => i.key));
     for (const [key, mesh] of map) {
       if (!nextKeys.has(key)) {
         mesh.dispose();
@@ -80,7 +80,12 @@ export function TroikaCloud({ items, halo }: { items: Item[]; halo: boolean }) {
       if (!map.has(key)) map.set(key, mesh);
     }
     setRenderList(
-      items.map((item) => ({ key: item.key, mesh: map.get(item.key)! })),
+      items.map((item) => {
+        const mesh = map.get(item.key);
+        if (!mesh)
+          throw new Error('Mesh not found for item: ' + item.key.toString());
+        return { key: item.key, mesh };
+      }),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
@@ -124,7 +129,7 @@ export function BatchedTroikaCloud({
 
   useLayoutEffect(() => {
     const map = mapRef.current;
-    const nextKeys = new Set(items.map((i) => i.key));
+    const nextKeys = new Set(items.map(i => i.key));
     for (const [key, mesh] of map) {
       if (!nextKeys.has(key)) {
         batchedText.removeText(mesh);
@@ -175,7 +180,7 @@ export function BatchedTroikaCloudOpt({
 
   useLayoutEffect(() => {
     const map = mapRef.current;
-    const nextKeys = new Set(items.map((i) => i.key));
+    const nextKeys = new Set(items.map(i => i.key));
     for (const [key, mesh] of map) {
       if (!nextKeys.has(key)) {
         if (inBatch.current.has(mesh)) {

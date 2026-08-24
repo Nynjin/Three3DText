@@ -1,12 +1,12 @@
-import { Camera, WebGLRenderer } from "three";
-import { fontKeyOf, fontKeyString } from "./Shaping/FontKey";
-import layoutText from "./Shaping/TextLayout";
-import { LabelFontGroup, DirtyLevel } from "./LabelFontGroup";
-import { Label } from "./Label";
-import { LabelMeshGroup } from "./Rendering/LabelMeshGroup";
-import type { LabelMesh } from "./Rendering/LabelMeshGroup";
-import { LabelCollisionEngine } from "./Collision/LabelCollisionEngine";
-import { LabelManagerConfig, DefaultLabelConfig } from "./Types/LabelConfig";
+import type { Camera, WebGLRenderer } from 'three';
+import { fontKeyOf, fontKeyString } from './Shaping/FontKey';
+import layoutText from './Shaping/TextLayout';
+import { LabelFontGroup, DirtyLevel } from './LabelFontGroup';
+import type { Label } from './Label';
+import { LabelMeshGroup } from './Rendering/LabelMeshGroup';
+import type { LabelMesh } from './Rendering/LabelMeshGroup';
+import { LabelCollisionEngine } from './Collision/LabelCollisionEngine';
+import { type LabelManagerConfig, DefaultLabelConfig } from './Types/LabelConfig';
 
 interface LabelGroup {
   fontGroup: LabelFontGroup;
@@ -31,7 +31,6 @@ export class InstancedLabelManager {
   collision: LabelCollisionEngine;
 
   constructor(renderer: WebGLRenderer, options?: Partial<LabelManagerConfig>) {
-    console.log("[label manager] created");
     this.config = { ...DefaultLabelConfig, ...options };
     this.collision = new LabelCollisionEngine(renderer, this.config);
   }
@@ -82,7 +81,7 @@ export class InstancedLabelManager {
     }
 
     if (labels.length > 0) {
-      const idSet = new Set(labels.map((label) => label.id));
+      const idSet = new Set(labels.map(label => label.id));
       const nextLabels: Label[] = [];
       for (const label of this.labels) {
         if (!idSet.has(label.id)) nextLabels.push(label);
@@ -134,7 +133,7 @@ export class InstancedLabelManager {
 
     // keep evaluating on label fading out/in
     const anyMidFade = this.labels.some(
-      (l) => !l.shouldRender && l.occlusionFade > 0,
+      l => !l.shouldRender && l.occlusionFade > 0,
     );
     if (!evaluated && anyMidFade) {
       if (this.collision.evaluate(camera)) visualNeedUpdate = true;
@@ -146,7 +145,7 @@ export class InstancedLabelManager {
       const target = label.shouldRender ? 0.0 : 1.0;
 
       // Lerp the fade state directly on the label object
-      if (label.occlusionFade == target) continue;
+      if (label.occlusionFade === target) continue;
 
       visualNeedUpdate = true;
 
@@ -165,7 +164,6 @@ export class InstancedLabelManager {
   }
 
   dispose() {
-    console.log("[label manager] disposing");
     for (const group of this.groups.values()) {
       group.fontGroup.dispose();
       group.meshGroup.dispose();
@@ -210,20 +208,20 @@ export class InstancedLabelManager {
       this.addLabels(changeGroup);
     }
 
-    this.collision.removeLabels(disposeLabels.map((l) => l.id));
+    this.collision.removeLabels(disposeLabels.map(l => l.id));
     this.collision.addLabels(addLabels);
 
     const addSet = new Set(addLabels);
     const filteredUpdateLabels = updateLabels.filter(
-      (label) => !addSet.has(label),
+      label => !addSet.has(label),
     );
 
     meshGroup.update(
-      addLabels.map((label) =>
+      addLabels.map(label =>
         layoutText(label, atlas.glyphs, this.config.pxPerUnit),
       ),
-      disposeLabels.map((label) => label.id),
-      filteredUpdateLabels.map((label) =>
+      disposeLabels.map(label => label.id),
+      filteredUpdateLabels.map(label =>
         dirty ? layoutText(label, atlas.glyphs, this.config.pxPerUnit) : label,
       ),
       dirty ? atlas : undefined,

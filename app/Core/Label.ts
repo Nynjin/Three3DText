@@ -1,5 +1,5 @@
-import { Color, Euler, Quaternion, Vector2, Vector3 } from "three";
-import { GlyphInstance } from "./Shaping/GlyphRun";
+import { Color, Euler, Quaternion, Vector2, Vector3 } from 'three';
+import type { GlyphInstance } from './Shaping/GlyphRun';
 
 export enum TextAnchorX {
   Left = 0,
@@ -37,7 +37,7 @@ export enum RotationAlignment {
 export enum SymbolPlacement {
   Point = 0,
   Line = 1,
-  "Line-Center" = 2,
+  'Line-Center' = 2,
 }
 
 // TODO : there aren't cases that require masking yet
@@ -121,7 +121,7 @@ export class Label {
   private _id: string;
 
   // Content
-  private _text: string = "";
+  private _text: string = '';
   private _textTransform: TextTransform = TextTransform.None;
 
   // Position & Transform
@@ -130,9 +130,9 @@ export class Label {
   private _offset: Vector2 = new Vector2();
 
   // Font
-  private _font: string = "Arial";
+  private _font: string = 'Arial';
   private _fontSize: number = 20;
-  private _fontWeight: string = "normal";
+  private _fontWeight: string = 'normal';
   private _letterSpacing: number = 0;
   private _lineHeight: number = 1.2;
 
@@ -173,13 +173,15 @@ export class Label {
   get id() {
     return this._id;
   }
+
   set id(_) {
-    console.warn("Label.id is read-only.");
+    console.warn('Label.id is read-only.');
   }
 
   get text() {
     return this._text;
   }
+
   set text(value: string) {
     this._text = value;
     this._emit(LabelChangeType.Text);
@@ -188,6 +190,7 @@ export class Label {
   get textTransform() {
     return this._textTransform;
   }
+
   set textTransform(value: TextTransform) {
     this._textTransform = value;
     this._emit(LabelChangeType.Text);
@@ -196,6 +199,7 @@ export class Label {
   get position(): Vector3 {
     return this._position;
   }
+
   set position(value: Vector3 | [number, number, number]) {
     this._position = toVector3(value);
     this._emit(LabelChangeType.Transform);
@@ -204,6 +208,7 @@ export class Label {
   get rotation(): Quaternion {
     return this._rotation;
   }
+
   set rotation(value: [number, number, number] | Euler | Quaternion) {
     this._rotation = toQuaternion(value);
     this._emit(LabelChangeType.Transform);
@@ -212,6 +217,7 @@ export class Label {
   get offset(): Vector2 {
     return this._offset;
   }
+
   set offset(value: Vector2 | [number, number]) {
     this._offset = toVector2(value);
     this._emit(LabelChangeType.Layout);
@@ -220,6 +226,7 @@ export class Label {
   get font() {
     return this._font;
   }
+
   set font(value: string) {
     this._font = value;
     this._emit(LabelChangeType.Font);
@@ -228,6 +235,7 @@ export class Label {
   get fontSize() {
     return this._fontSize;
   }
+
   set fontSize(value: number) {
     this._fontSize = value;
     this._emit(LabelChangeType.Font);
@@ -236,6 +244,7 @@ export class Label {
   get fontWeight() {
     return this._fontWeight;
   }
+
   set fontWeight(value: string) {
     this._fontWeight = value;
     this._emit(LabelChangeType.Font);
@@ -244,6 +253,7 @@ export class Label {
   get letterSpacing() {
     return this._letterSpacing;
   }
+
   set letterSpacing(value: number) {
     this._letterSpacing = value;
     this._emit(LabelChangeType.Layout);
@@ -252,6 +262,7 @@ export class Label {
   get lineHeight() {
     return this._lineHeight;
   }
+
   set lineHeight(value: number) {
     this._lineHeight = value;
     this._emit(LabelChangeType.Layout);
@@ -260,6 +271,7 @@ export class Label {
   get maxWidth() {
     return this._maxWidth;
   }
+
   set maxWidth(value: number) {
     this._maxWidth = value;
     this._emit(LabelChangeType.Layout);
@@ -268,6 +280,7 @@ export class Label {
   get textAlign() {
     return this._textAlign;
   }
+
   set textAlign(value: TextAlign) {
     this._textAlign = value;
     this._emit(LabelChangeType.Layout);
@@ -276,6 +289,7 @@ export class Label {
   get anchorX() {
     return this._anchorX;
   }
+
   set anchorX(value: TextAnchorX) {
     this._anchorX = value;
     this._emit(LabelChangeType.Layout);
@@ -284,6 +298,7 @@ export class Label {
   get anchorY() {
     return this._anchorY;
   }
+
   set anchorY(value: TextAnchorY) {
     this._anchorY = value;
     this._emit(LabelChangeType.Layout);
@@ -292,6 +307,7 @@ export class Label {
   get padding(): TextPadding {
     return this._padding;
   }
+
   set padding(value: TextPadding | [number, number, number, number]) {
     if (Array.isArray(value)) {
       this._padding = { top: value[0], right: value[1], bottom: value[2], left: value[3] };
@@ -304,6 +320,7 @@ export class Label {
   get color(): Color {
     return this._color;
   }
+
   set color(value: string | number | Color | Vector3) {
     this._color = toColor(value);
     this._emit(LabelChangeType.Style);
@@ -312,6 +329,7 @@ export class Label {
   get opacity() {
     return this._opacity;
   }
+
   set opacity(value: number) {
     this._opacity = value;
     this._emit(LabelChangeType.Style);
@@ -320,6 +338,7 @@ export class Label {
   get occlusionFade() {
     return this._occlusionFade;
   }
+
   set occlusionFade(value: number) {
     this._occlusionFade = value;
     // No emit, managed during collision evaluation
@@ -328,6 +347,7 @@ export class Label {
   get haloColor(): Color {
     return this._haloColor;
   }
+
   set haloColor(value: string | number | Color | Vector3) {
     this._haloColor = toColor(value);
     this._emit(LabelChangeType.Style);
@@ -336,6 +356,7 @@ export class Label {
   get haloWidth() {
     return this._haloWidth;
   }
+
   set haloWidth(value: number) {
     this._haloWidth = this._clampHaloWidth(value);
     this._emit(LabelChangeType.Style);
@@ -344,6 +365,7 @@ export class Label {
   get haloBlur() {
     return this._haloBlur;
   }
+
   set haloBlur(value: number) {
     this._haloBlur = this._clampHaloBlur(value);
     this._emit(LabelChangeType.Style);
@@ -361,6 +383,7 @@ export class Label {
   get rotationAlignment() {
     return this._rotationAlignment;
   }
+
   set rotationAlignment(value: RotationAlignment) {
     this._rotationAlignment = value;
     this._emit(LabelChangeType.Style);
@@ -369,6 +392,7 @@ export class Label {
   get symbolPlacement() {
     return this._symbolPlacement;
   }
+
   set symbolPlacement(value: SymbolPlacement) {
     this._symbolPlacement = value;
     this._emit(LabelChangeType.Style);
@@ -377,6 +401,7 @@ export class Label {
   get visible() {
     return this._visible && this._opacity > 0;
   }
+
   set visible(value: boolean) {
     this._visible = value;
     this._emit(LabelChangeType.Visibility);
@@ -385,6 +410,7 @@ export class Label {
   get shouldRender() {
     return this._shouldRender;
   }
+
   set shouldRender(value: boolean) {
     this._shouldRender = value;
     // No emit, managed during rendering phase
@@ -393,6 +419,7 @@ export class Label {
   get isCandidate() {
     return this._isCandidate;
   }
+
   set isCandidate(value: boolean) {
     this._isCandidate = value;
     // No emit, managed during collision evaluation phase
@@ -401,6 +428,7 @@ export class Label {
   get isRendered() {
     return this._isRendered;
   }
+
   set isRendered(value: boolean) {
     this._isRendered = value;
     // No emit, managed during rendering phase
@@ -418,6 +446,7 @@ export class Label {
   get glyphs() {
     return this._glyphs;
   }
+
   set glyphs(value: GlyphInstance[]) {
     this._glyphs = value;
     // No emit, managed during layout phase
@@ -456,7 +485,7 @@ export class Label {
       case TextTransform.Lowercase:
         return this._text.toLowerCase();
       case TextTransform.Capitalize:
-        return this._text.replace(/\b\w/g, (c) => c.toUpperCase());
+        return this._text.replace(/\b\w/g, c => c.toUpperCase());
       default:
         return this._text;
     }
@@ -634,8 +663,8 @@ export class Label {
       symbolPlacement: this._symbolPlacement,
       visible: this._visible,
       textTransform: this._textTransform,
-      bounds: this._bounds ? { ...this._bounds } : undefined,
-      glyphs: this._glyphs.map((g) => ({
+      bounds: { ...this._bounds },
+      glyphs: this._glyphs.map(g => ({
         glyph: { ...g.glyph },
         offset: g.offset.clone(),
         rotation: g.rotation ? g.rotation.clone() : undefined,
@@ -687,5 +716,5 @@ function toQuaternion(
 ): Quaternion {
   if (value instanceof Quaternion) return value.clone();
   if (value instanceof Euler) return new Quaternion().setFromEuler(value);
-  return new Quaternion().setFromEuler(new Euler(...value, "XYZ"));
+  return new Quaternion().setFromEuler(new Euler(...value, 'XYZ'));
 }

@@ -1,8 +1,7 @@
-
-import { Label, LabelChangeType } from "./Label";
-import { FontKey, fontKeyString } from "./Shaping/FontKey";
-import { SDFAtlas } from "./Shaping/SDFAtlas";
-import { applyShaping } from "./Shaping/RTL";
+import { type Label, LabelChangeType } from './Label';
+import { type FontKey, fontKeyString } from './Shaping/FontKey';
+import { SDFAtlas } from './Shaping/SDFAtlas';
+import { applyShaping } from './Shaping/RTL';
 
 // TODO : prevent case where one label is added to multiple dirty levels (added then updated then deleted should do nothing)
 export const enum DirtyLevel {
@@ -32,17 +31,22 @@ export class LabelFontGroup {
   constructor(key: FontKey) {
     this.key = key;
     // Fallback char and space should always be present
-    this.uniqueChars.add("?").add(" ");
+    this.uniqueChars.add('?').add(' ');
   }
 
   private _recomputeUniqueChars(): boolean {
-    const next = new Set<string>().add("?").add(" ");
+    const next = new Set<string>().add('?').add(' ');
     for (const label of this.labels) {
       for (const c of applyShaping(label.getDisplayText())) next.add(c);
     }
     if (next.size === this.uniqueChars.size) {
       let changed = false;
-      for (const c of next) if (!this.uniqueChars.has(c)) { changed = true; break; }
+      for (const c of next) {
+        if (!this.uniqueChars.has(c)) {
+          changed = true;
+          break;
+        }
+      }
       if (!changed) return false;
     }
     this.uniqueChars = next;
@@ -52,7 +56,10 @@ export class LabelFontGroup {
   private _addChars(label: Label): boolean {
     let newChars = false;
     for (const c of applyShaping(label.getDisplayText())) {
-      if (!this.uniqueChars.has(c)) { this.uniqueChars.add(c); newChars = true; }
+      if (!this.uniqueChars.has(c)) {
+        this.uniqueChars.add(c);
+        newChars = true;
+      }
     }
     return newChars;
   }
@@ -80,7 +87,7 @@ export class LabelFontGroup {
           this._emit();
           return;
         }
-        
+
         if (changes & LabelChangeType.Dispose) {
           this.removeLabel(label);
           this._markDirty([label], DirtyLevel.Dispose);
@@ -109,8 +116,8 @@ export class LabelFontGroup {
     }
   }
 
-  removeLabel(label: Label) { 
-    this.removeLabels([label]); 
+  removeLabel(label: Label) {
+    this.removeLabels([label]);
   }
 
   removeLabels(labels: Label[]) {
@@ -174,7 +181,10 @@ export class LabelFontGroup {
   }
 
   private _markDirty(labels: Label[], level: DirtyLevel) {
-    const set = this.dirtyLabelsMap.get(level)!;
+    const set = this.dirtyLabelsMap.get(level);
+    if (!set) {
+      throw new Error(`No dirty label set found for level: ${level}`);
+    }
     for (const label of labels) set.add(label);
   }
 

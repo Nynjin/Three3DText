@@ -3,22 +3,20 @@ import {
   InstancedBufferGeometry,
   Mesh,
   PlaneGeometry,
-  ShaderMaterial,
-} from "three";
-import { SDFAtlas } from "../Shaping/SDFAtlas";
+  type ShaderMaterial,
+} from 'three';
+import type { SDFAtlas } from '../Shaping/SDFAtlas';
 import {
   createFillMaterial,
-  updateFillAtlas,
   updateFillUniforms,
-} from "./Materials/FillMaterial";
+} from './Materials/FillMaterial';
 import {
   createHaloMaterial,
-  updateHaloAtlas,
   updateHaloUniforms,
-} from "./Materials/HaloMaterial";
-import { GlyphInstance } from "../Shaping/GlyphRun";
-import { Label } from "../Label";
-import { InstancedDataTexture, Texel } from "./Textures/InstancedDataTexture";
+} from './Materials/HaloMaterial';
+import type { GlyphInstance } from '../Shaping/GlyphRun';
+import type { Label } from '../Label';
+import { InstancedDataTexture, type Texel } from './Textures/InstancedDataTexture';
 
 /**
  * T0: label position + opacity (x, y, z, -)
@@ -54,11 +52,11 @@ function makeLabelTexels(label: Label): Texel[] {
       z: label.rotation.z,
       w: label.rotation.w,
     },
-    { 
-      x: label.color.r, 
+    {
+      x: label.color.r,
       y: label.color.g,
-      z: label.color.b, 
-      w: label.opacity 
+      z: label.color.b,
+      w: label.opacity,
     },
     {
       x: label.haloColor.r,
@@ -72,11 +70,11 @@ function makeLabelTexels(label: Label): Texel[] {
       z: 0,
       w: 0,
     },
-    { 
-      x: label.rotationAlignment, 
-      y: label.symbolPlacement, 
-      z: 0, 
-      w: 0 
+    {
+      x: label.rotationAlignment,
+      y: label.symbolPlacement,
+      z: 0,
+      w: 0,
     },
   ];
 }
@@ -140,15 +138,11 @@ export class LabelMeshGroup {
     this.fillMesh.matrixAutoUpdate = false;
     this.haloMesh.matrixAutoUpdate = false;
 
-    this.geom.setAttribute("glyphIndex", this._glyphIndexAttr);
-    this.geom.setAttribute("occlusionFade", this._occlusionFadeAttr);
+    this.geom.setAttribute('glyphIndex', this._glyphIndexAttr);
+    this.geom.setAttribute('occlusionFade', this._occlusionFadeAttr);
   }
 
   private _syncUniforms() {
-    if (!this.fillMesh.material?.uniforms) {
-      return;
-    }
-
     updateFillUniforms(
       this.fillMesh.material,
       this._labelDataBuffer.texture,
@@ -167,24 +161,18 @@ export class LabelMeshGroup {
    * Create or update the fill/halo materials with the given SDF atlas
    */
   syncAtlas(atlas: SDFAtlas) {
-    if (!this.fillMesh.material?.uniforms) {
-      this.fillMesh.material = createFillMaterial(
-        atlas,
-        this._labelDataBuffer.texture,
-        this._glyphDataBuffer.texture,
-      );
-      this.haloMesh.material = createHaloMaterial(
-        atlas,
-        this._labelDataBuffer.texture,
-        this._glyphDataBuffer.texture,
-      );
-      this.fillMesh.material.uniformsNeedUpdate = true;
-      this.haloMesh.material.uniformsNeedUpdate = true;
-    } else {
-      updateFillAtlas(this.fillMesh.material, atlas);
-      updateHaloAtlas(this.haloMesh.material, atlas);
-      this._syncUniforms();
-    }
+    this.fillMesh.material = createFillMaterial(
+      atlas,
+      this._labelDataBuffer.texture,
+      this._glyphDataBuffer.texture,
+    );
+    this.haloMesh.material = createHaloMaterial(
+      atlas,
+      this._labelDataBuffer.texture,
+      this._glyphDataBuffer.texture,
+    );
+    this.fillMesh.material.uniformsNeedUpdate = true;
+    this.haloMesh.material.uniformsNeedUpdate = true;
   }
 
   update(
@@ -192,7 +180,7 @@ export class LabelMeshGroup {
     toRemove: string[],
     toUpdate: Label[],
     atlas?: SDFAtlas,
-  ) {    
+  ) {
     this._labelDataBuffer.update(
       toAdd.map(l => ({
         key: l.id,
@@ -207,18 +195,30 @@ export class LabelMeshGroup {
     this._glyphDataBuffer.update(
       toAdd
         .filter(l => l.glyphs.length > 0)
-        .map(l => ({
-          key: l.id,
-          flatItems: makeGlyphTexels(this._labelDataBuffer.getFirstTexelIdxOf(l.id)!, l.glyphs),
-        })),
+        .map((l) => {
+          const labelIdx = this._labelDataBuffer.getFirstTexelIdxOf(l.id);
+          if (labelIdx === undefined) {
+            throw new Error(`Missing label data for ${l.id}`);
+          }
+          return {
+            key: l.id,
+            flatItems: makeGlyphTexels(labelIdx, l.glyphs),
+          };
+        }),
       toRemove,
       // style-only updates have glyphs: [] - skip to avoid freeing existing glyph slots
       toUpdate
         .filter(l => l.glyphs.length > 0)
-        .map(l => ({
-          key: l.id,
-          flatItems: makeGlyphTexels(this._labelDataBuffer.getFirstTexelIdxOf(l.id)!, l.glyphs),
-        })),
+        .map((l) => {
+          const labelIdx = this._labelDataBuffer.getFirstTexelIdxOf(l.id);
+          if (labelIdx === undefined) {
+            throw new Error(`Missing label data for ${l.id}`);
+          }
+          return {
+            key: l.id,
+            flatItems: makeGlyphTexels(labelIdx, l.glyphs),
+          };
+        }),
     );
 
     if (atlas) {
@@ -270,7 +270,7 @@ export class LabelMeshGroup {
         hasHalo = true;
       }
     }
-    
+
     this.geom.instanceCount = pos;
     this._glyphIndexAttr.needsUpdate = true;
     this._occlusionFadeAttr.needsUpdate = true;

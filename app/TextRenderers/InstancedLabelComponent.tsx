@@ -1,15 +1,15 @@
-import { useEffect, useRef } from "react";
-import { BufferGeometry, Group, Mesh } from "three";
+import { useEffect, useRef } from 'react';
+import type { Group, Mesh } from 'three';
 import {
   Label,
   RotationAlignment,
   TextAlign,
   TextAnchorX,
   TextAnchorY,
-} from "../Core/Label";
-import { InstancedLabelManager } from "../Core/InstancedLabelManager";
-import { Item } from "../Types/Item";
-import { useFrame, useThree } from "@react-three/fiber";
+} from '../Core/Label';
+import { InstancedLabelManager } from '../Core/InstancedLabelManager';
+import type { Item } from '../Types/Item';
+import { useFrame, useThree } from '@react-three/fiber';
 
 export interface InstancedLabelsProps {
   items: Item[];
@@ -30,11 +30,11 @@ function makeLabel(
     position: item.position,
     rotation: item.rotation,
     rotationAlignment: RotationAlignment.Map,
-    color: "#000000",
-    haloColor: viewportPredicate(item) ? "#ffcccc" : "#cce5ff",
+    color: '#000000',
+    haloColor: viewportPredicate(item) ? '#ffcccc' : '#cce5ff',
     haloWidth: halo ? 1 : 0,
     haloBlur: halo ? 10 : 0,
-    font: "Arial",
+    font: 'Arial',
     fontSize,
     maxWidth: 5,
     textAlign: TextAlign.Left,
@@ -54,9 +54,9 @@ export function InstancedLabelComponent({
   pxPerUnit = 1024,
 }: InstancedLabelsProps) {
   const groupRef = useRef<Group>(null);
-  const debugMeshRef = useRef<Mesh<BufferGeometry>>(null);
-  const camera = useThree((state) => state.camera);
-  const renderer = useThree((state) => state.gl);
+  const debugMeshRef = useRef<Mesh>(null);
+  const camera = useThree(state => state.camera);
+  const renderer = useThree(state => state.gl);
 
   // Map of item.key to Label
   const labelMapRef = useRef<Map<number, Label>>(new Map());
@@ -65,12 +65,10 @@ export function InstancedLabelComponent({
 
   const managerRef = useRef<InstancedLabelManager | null>(null);
 
-  if (!managerRef.current) {
-    managerRef.current = new InstancedLabelManager(renderer, {
-      pxPerUnit,
-      autoUpdate: false,
-    });
-  }
+  managerRef.current ??= new InstancedLabelManager(renderer, {
+    pxPerUnit,
+    autoUpdate: false,
+  });
   const manager = managerRef.current;
 
   useEffect(() => {
@@ -96,7 +94,7 @@ export function InstancedLabelComponent({
     if (!group) return;
 
     const labelMap = labelMapRef.current;
-    const currentKeys = new Set(items.map((i) => i.key));
+    const currentKeys = new Set(items.map(i => i.key));
 
     // Remove labels whose items are gone
     const toRemove: Label[] = [];
@@ -152,15 +150,13 @@ export function InstancedLabelComponent({
 
   return (
     <group ref={groupRef}>
-      {
-        <mesh
-          ref={debugMeshRef}
-          geometry={debugMeshRef.current?.geometry}
-          material={debugMeshRef.current?.material}
-          renderOrder={9999}
-          frustumCulled={false}
-        />
-      }
+      <mesh
+        ref={debugMeshRef}
+        geometry={debugMeshRef.current?.geometry}
+        material={debugMeshRef.current?.material}
+        renderOrder={9999}
+        frustumCulled={false}
+      />
     </group>
   );
 }

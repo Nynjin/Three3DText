@@ -1,4 +1,4 @@
-import { Vector2, Quaternion } from "three";
+import type { Vector2, Quaternion } from 'three';
 
 export interface GlyphInfo {
   px: number;
