@@ -8,9 +8,7 @@ export interface LabelManagerConfig {
 
   // Collision Grid settings
   downscale: number;
-  coarseScale: number;
-  acceptableOcclusion: number;
-  maxOcclusion: number;
+  occlusionTolerance: number;
   viewProjThreshold: number;
 
   // Projector settings
@@ -28,9 +26,7 @@ export const DefaultLabelConfig: LabelManagerConfig = {
   fadeDurationMs: 300.0,
 
   downscale: 4,
-  coarseScale: 32,
-  acceptableOcclusion: 0.1,
-  maxOcclusion: 0.2,
+  occlusionTolerance: 0.2,
   viewProjThreshold: 0.05,
 
   ndcCullMargin: 0.2,

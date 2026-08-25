@@ -1,35 +1,61 @@
 import { type Camera, Matrix4, Vector2, type WebGLRenderer } from 'three';
 import type { Label } from '../Label';
-import { HierarchicalBitmap } from './HierarchicalBitmap';
+import { BitmapOccupancy } from './BitmapOccupancy';
 import { LabelProjector, type ScreenAABB } from './LabelProjector';
 import { RadixSorter } from '../Utils/Sort';
 import type { LabelManagerConfig } from '../Types/LabelConfig';
 
+/**
+ * @description Greedy nearest-first label culling.
+ *
+ * Each evaluation projects every candidate label to a screen-space AABB with
+ * {@link LabelProjector} and tries to claim that region in a
+ * {@link BitmapOccupancy}. Labels are visited in ascending camera distance —
+ * the order comes from {@link RadixSorter} — so a near label claims its region
+ * before anything behind it can contest it, and a label whose region is
+ * already too crowded is dropped.
+ *
+ * Everything downstream of the projector works in screen pixels; the bitmap
+ * owns the conversion to its coarser cell grid.
+ *
+ * Decisions must be stable between frames or labels visibly flicker, so two
+ * mechanisms favour the status quo: a label culled last frame sorts as if it
+ * were further away, and one already on screen may hold a region that is up to
+ * `config.occlusionTolerance` taken, where a label appearing for the first time
+ * needs a completely free one. Ties in camera distance fall back to label order.
+ *
+ * The pass is skipped entirely while the view-projection matrix and the
+ * viewport both hold still.
+ *
+ * @see {@link LabelCollisionEngine.evaluate} for the per-frame entry point.
+ */
 export class LabelCollisionEngine {
-  private labels: Label[] = [];
+  private _labels: Label[] = [];
 
   /**
    * Labels that passed the validity and frustum gates this frame, in `labels`
-   * order. Refilled in place by
-   * {@link LabelCollisionEngine["collectCandidates"]}; `length` is the live count.
+   * order. Refilled in place by `collectCandidates`; `length` is the live count.
    */
-  private candidates: Label[] = [];
+  private _candidates: Label[] = [];
 
   /**
    * Sort keys parallel to `candidates`: squared camera distance scaled by
    * `config.renderPenaltyMultiplier`. Capacity tracks `labels.length`, so only
    * the first `candidates.length` entries are meaningful.
    */
-  private sortKeys = new Float32Array(0);
+  private _sortKeys = new Float32Array(0);
 
   /** Set by any label-set mutation to force the next evaluation to run. */
-  private dirty = true;
+  private _dirty = true;
 
-  private readonly renderer: WebGLRenderer;
-  private readonly downscaleShift: number;
-  private readonly bitmap: HierarchicalBitmap;
-  private readonly projector: LabelProjector;
-  private readonly sorter: RadixSorter;
+  private readonly _renderer: WebGLRenderer;
+  private readonly _bitmap: BitmapOccupancy;
+  private readonly _projector: LabelProjector;
+  private readonly _sorter: RadixSorter;
+
+  /** Viewport size in pixels, refreshed by `syncToViewport`. */
+  private _screenW = 1;
+  private _screenH = 1;
 
   private readonly _lastVP = new Matrix4();
   private readonly _lastVPSort = new Matrix4();
@@ -40,7 +66,7 @@ export class LabelCollisionEngine {
 
   private readonly _tmpVec2 = new Vector2();
 
-  private readonly config: LabelManagerConfig;
+  private readonly _config: LabelManagerConfig;
 
   /**
    * @param renderer - Renderer whose drawing-buffer size drives the bitmap
@@ -48,17 +74,15 @@ export class LabelCollisionEngine {
    * @param config - Shared label-manager settings, held by reference so later
    * edits take effect on the next evaluation.
    *
-   * @throws {Error} If `config.downscale` or `config.coarseScale` is not a
-   * power of two.
+   * @throws {Error} If `config.downscale` is not a power of two.
    */
   constructor(renderer: WebGLRenderer, config: LabelManagerConfig) {
-    this.renderer = renderer;
-    this.config = config;
-    this.downscaleShift = log2OfPow2(config.downscale, 'downscale');
-    this.bitmap = new HierarchicalBitmap(config.coarseScale);
-    this.projector = new LabelProjector(config);
-    this.sorter = new RadixSorter(20, 10);
-    this.syncToViewport();
+    this._renderer = renderer;
+    this._config = config;
+    this._bitmap = new BitmapOccupancy(config.downscale);
+    this._projector = new LabelProjector(config);
+    this._sorter = new RadixSorter(20, 10);
+    this._syncToViewport();
   }
 
   /**
@@ -70,12 +94,12 @@ export class LabelCollisionEngine {
    * {@link LabelCollisionEngine.addLabels} to append in that case.
    */
   setLabels(labels: Label[]) {
-    if (labels === this.labels) return;
-    this.labels = labels;
+    if (labels === this._labels) return;
+    this._labels = labels;
     // `dirty` forces a refill before `candidates` is read again, so dropping
     // the stale references is all that is needed here.
-    this.candidates.length = 0;
-    this.dirty = true;
+    this._candidates.length = 0;
+    this._dirty = true;
   }
 
   /**
@@ -87,21 +111,18 @@ export class LabelCollisionEngine {
    */
   addLabels(labels: Label[]) {
     for (const label of labels) {
-      if (!this.labels.includes(label)) {
-        this.labels.push(label);
-        this.dirty = true;
+      if (!this._labels.includes(label)) {
+        this._labels.push(label);
+        this._dirty = true;
       }
     }
   }
 
-  /**
-   * Drop every tracked label. Their `shouldRender` keeps whatever value the
-   * last evaluation left, since nothing is evaluated after this.
-   */
+  /** Drop every tracked label. Their `shouldRender` is left as it stands. */
   clear() {
-    this.labels = [];
-    this.candidates.length = 0;
-    this.dirty = true;
+    this._labels = [];
+    this._candidates.length = 0;
+    this._dirty = true;
   }
 
   /**
@@ -113,9 +134,9 @@ export class LabelCollisionEngine {
   removeLabels(ids: string[]) {
     if (ids.length === 0) return;
     const s = new Set(ids);
-    this.labels = this.labels.filter(l => !s.has(l.id));
-    this.candidates.length = 0;
-    this.dirty = true;
+    this._labels = this._labels.filter(l => !s.has(l.id));
+    this._candidates.length = 0;
+    this._dirty = true;
   }
 
   /**
@@ -135,8 +156,8 @@ export class LabelCollisionEngine {
    * changed, `false` if it was skipped.
    */
   evaluate(camera: Camera): boolean {
-    if (this.labels.length === 0) return false;
-    const viewportChanged = this.syncToViewport();
+    if (this._labels.length === 0) return false;
+    const viewportChanged = this._syncToViewport();
 
     this._frustumMatrix.multiplyMatrices(
       camera.projectionMatrix,
@@ -145,8 +166,8 @@ export class LabelCollisionEngine {
     const viewDiff = matrixMaxDiff(this._frustumMatrix, this._lastVP);
 
     if (
-      !this.dirty
-      && viewDiff <= this.config.viewProjThreshold
+      !this._dirty
+      && viewDiff <= this._config.viewProjThreshold
       && !viewportChanged
     ) {
       return false;
@@ -154,65 +175,44 @@ export class LabelCollisionEngine {
 
     this._lastVP.copy(this._frustumMatrix);
 
-    this.projector.setFrame(
+    this._projector.setFrame(
       camera.matrixWorldInverse,
       camera.projectionMatrix,
-      this.bitmap.width,
-      this.bitmap.height,
+      this._screenW,
+      this._screenH,
     );
-    this.bitmap.clear();
+    this._bitmap.clear();
 
-    const count = this.collectCandidates(camera);
-    const order = this.sorter.sort(this.sortKeys, count);
+    const count = this._collectCandidates(camera);
+    const order = this._sorter.sort(this._sortKeys, count);
 
     this._lastVPSort.copy(this._frustumMatrix);
-    this.dirty = false;
+    this._dirty = false;
+
+    const occlusionTolerance = this._config.occlusionTolerance;
 
     const aabb = this._scratchAABB;
     for (let i = 0; i < count; i++) {
-      const label = this.candidates[order[i]];
+      const label = this._candidates[order[i]];
 
-      if (!this.projector.project(label, aabb)) {
+      if (!this._projector.project(label, aabb)) {
         label.shouldRender = false;
         continue;
       }
-      const { x0, y0, x1, y1 } = aabb;
 
-      // Fast-pass: coarse-empty -> guaranteed clear.
-      if (this.bitmap.isCoarseEmpty(x0, y0, x1, y1)) {
-        this.bitmap.setRegion(x0, y0, x1, y1);
-        label.shouldRender = true;
-        continue;
-      }
-
-      // Slow path: precise count.
-      const area = (x1 - x0 + 1) * (y1 - y0 + 1);
-      const claimed = this.bitmap.countFine(x0, y0, x1, y1);
-      const occlusion = claimed / area;
-
-      let isVisible: boolean;
-      if (label.shouldRender) {
-        isVisible = occlusion <= this.config.maxOcclusion;
-      } else {
-        isVisible = occlusion <= this.config.acceptableOcclusion;
-      }
-
-      if (isVisible) {
-        this.bitmap.setRegion(x0, y0, x1, y1);
-        label.shouldRender = true;
-      } else {
-        label.shouldRender = false;
-      }
+      label.shouldRender = this._bitmap.tryClaim(
+        aabb.x0,
+        aabb.y0,
+        aabb.x1,
+        aabb.y1,
+        label.shouldRender ? occlusionTolerance : 0,
+      );
     }
 
     return true;
   }
 
-  /**
-   * No-op. Everything this engine owns is plain JS or typed-array memory with
-   * no GPU resource behind it, and the renderer is borrowed. Kept for symmetry
-   * with the disposable parts of the label pipeline.
-   */
+  /** No-op: this engine holds no GPU resources, and the renderer is borrowed. */
   dispose() {}
 
   // ─── Internals ────────────────────────────────────────────────────────────
@@ -220,35 +220,33 @@ export class LabelCollisionEngine {
   /**
    * Refill `candidates` and `sortKeys` from `labels` for the current frame.
    *
-   * Distances stay squared: {@link RadixSorter} only ever compares keys and
-   * squaring is monotonic, so `config.renderPenaltyMultiplier` keeps the exact
-   * meaning it had under the previous comparison sort. The cost is that
-   * quantisation buckets are uniform in *squared* distance, making the order
-   * coarser near the camera than far from it — immaterial at 20 bits over any
-   * plausible scene depth.
+   * Keys are squared distances, left unrooted because the sort only compares
+   * them. `config.renderPenaltyMultiplier` therefore scales squared distance,
+   * and the sort's buckets are uniform in squared distance too, which makes the
+   * order slightly coarser near the camera than far from it.
    *
    * @param camera - Camera whose position the distances are measured from.
    *
    * @returns Number of candidates written, always `candidates.length`.
    */
-  private collectCandidates(camera: Camera): number {
-    const labels = this.labels;
+  private _collectCandidates(camera: Camera): number {
+    const labels = this._labels;
     const n = labels.length;
 
-    if (this.sortKeys.length < n) {
-      this.sortKeys = new Float32Array(Math.max(n, this.sortKeys.length * 2));
+    if (this._sortKeys.length < n) {
+      this._sortKeys = new Float32Array(Math.max(n, this._sortKeys.length * 2));
     }
-    const keys = this.sortKeys;
+    const keys = this._sortKeys;
 
     // Refill in place; a fresh array here would churn the GC every frame.
-    const candidates = this.candidates;
+    const candidates = this._candidates;
     candidates.length = 0;
 
     const camPos = camera.position;
     const cx = camPos.x,
       cy = camPos.y,
       cz = camPos.z;
-    const penalty = this.config.renderPenaltyMultiplier;
+    const penalty = this._config.renderPenaltyMultiplier;
 
     let count = 0;
     for (let i = 0; i < n; i++) {
@@ -259,8 +257,6 @@ export class LabelCollisionEngine {
         dz = p.z - cz;
 
       let key = dx * dx + dy * dy + dz * dz;
-      // Labels culled last frame sort as if further away, so a label already on
-      // screen keeps its region instead of trading it back and forth.
       if (!label.shouldRender) key *= penalty;
 
       const isValid
@@ -271,7 +267,7 @@ export class LabelCollisionEngine {
           // A NaN position slips past checkVisible, since every comparison
           // against NaN is false, and would make the sorter throw.
           && Number.isFinite(key)
-          && this.projector.checkVisible(label);
+          && this._projector.checkVisible(label);
 
       label.isCandidate = isValid;
       if (!isValid) continue;
@@ -285,45 +281,21 @@ export class LabelCollisionEngine {
   }
 
   /**
-   * Resize the bitmap to the renderer's current drawing buffer, scaled down by
-   * `config.downscale`.
+   * Re-read the viewport size and match the bitmap to it.
    *
-   * @returns `true` if the bitmap was resized, which has to force a
-   * re-evaluation because every region claimed at the old resolution is stale.
+   * @returns `true` if the bitmap's cell grid changed, which has to force a
+   * re-evaluation because every region claimed at the old size is gone. A
+   * pixel-level resize too small to change the cell grid returns `false`.
    */
-  private syncToViewport() {
-    const size = this.renderer.getSize(this._tmpVec2);
-    const w = Math.max(1, size.x >> this.downscaleShift);
-    const h = Math.max(1, size.y >> this.downscaleShift);
-    if (w !== this.bitmap.width || h !== this.bitmap.height) {
-      this.bitmap.resize(w, h);
-      return true;
-    }
-
-    return false;
+  private _syncToViewport() {
+    const size = this._renderer.getSize(this._tmpVec2);
+    this._screenW = Math.max(1, size.x);
+    this._screenH = Math.max(1, size.y);
+    return this._bitmap.resize(this._screenW, this._screenH);
   }
 }
 
 // Helper functions
-
-/**
- * Convert a power-of-two factor into the shift amount that applies it.
- *
- * @param n - Value expected to be a power of two.
- * @param name - Argument name, used in the error message.
- *
- * @returns `log2(n)`.
- *
- * @throws {Error} If `n` is below 1 or not a power of two.
- */
-function log2OfPow2(n: number, name: string): number {
-  if (n < 1 || (n & (n - 1)) !== 0) {
-    throw new Error(`${name} must be a power of 2, got ${n}`);
-  }
-  let s = 0;
-  while (1 << s < n) s++;
-  return s;
-}
 
 /**
  * Cheap "has the view moved?" metric, compared against
