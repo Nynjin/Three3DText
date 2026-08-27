@@ -1,118 +1,159 @@
 import TinySDF from '@mapbox/tiny-sdf';
 import { DataTexture, LinearFilter, RedFormat, UnsignedByteType } from 'three';
-import type { FontKey } from './FontKey';
-import type { GlyphInfo } from '../Shaping/GlyphRun';
+import { fontKeyStr, glyphKey, glyphKeyPrefix, type FontKey } from './FontKey';
+import type { AtlasMetrics, GlyphInfo, GlyphResolver } from '../Shaping/GlyphRun';
+
+/** Character every font is rasterized with, used when a lookup misses. */
+export const FALLBACK_CHAR = '?';
+
+export interface SDFAtlasOptions {
+  /** Font size (px) at which glyphs are rasterized. */
+  fontSize: number;
+  /** SDF oversampling multiplier. */
+  scale: number;
+  /** Slot pre-allocation growth factor. */
+  capacityMultiplier: number;
+}
+
+export interface FontChars {
+  fontKey: FontKey;
+  chars: Iterable<string>;
+}
 
 export class SDFAtlas {
-  texture: DataTexture;
-  readonly glyphs: Map<string, GlyphInfo> = new Map();
+  private _texture: DataTexture = new DataTexture(new Uint8Array(1), 1, 1, RedFormat, UnsignedByteType);
+  readonly glyphs = new Map<string, GlyphInfo>();
+
+  get texture(): DataTexture {
+    return this._texture;
+  }
+
+  readonly fontSize: number;
+  readonly buffer: number;
   readonly cutoff: number;
   readonly radius: number;
 
-  private _data: Uint8Array;
-  private _width: number;
-  private _sdf: TinySDF;
+  /**
+   * What layout needs to read {@link glyphs}. Held as one object so it can be
+   * passed per label without allocating.
+   */
+  readonly metrics: AtlasMetrics;
+
+  private _data: Uint8Array = new Uint8Array(1);
+  private _width = 1;
   private _cellSize: number;
-  private _cols: number;
-  private _capacity: number;
+  private _cols = 0;
+  private _capacity = 0;
   private _slotCount = 0;
 
-  static SCALE = 2;
-  static CAPACITY_MULTIPLIER = 1.5;
+  private readonly _scale: number;
+  private readonly _capacityMultiplier: number;
 
-  constructor(chars: string[], fontKey: FontKey) {
-    const buffer = fontKey.size * 2;
-    this.radius = buffer;
-    this.cutoff = 0.5;
+  private readonly _fontToSDF = new Map<string, TinySDF>();
 
-    this._sdf = new TinySDF({
-      fontSize: fontKey.size * SDFAtlas.SCALE,
-      fontFamily: fontKey.font,
-      fontWeight: fontKey.weight,
-      buffer,
-      radius: this.radius,
-      cutoff: this.cutoff,
-    });
+  constructor(options: SDFAtlasOptions) {
+    const { fontSize, scale, capacityMultiplier } = options;
+    this.fontSize = fontSize;
+    this._scale = scale;
+    this._capacityMultiplier = capacityMultiplier;
 
-    this._cellSize = fontKey.size * SDFAtlas.SCALE + buffer * 2;
-    this._capacity = Math.max(8, Math.ceil(chars.length * SDFAtlas.CAPACITY_MULTIPLIER));
-    this._cols = Math.ceil(Math.sqrt(this._capacity));
-    const rows = Math.ceil(this._capacity / this._cols);
+    this.buffer = Math.ceil(fontSize * scale * 0.5);
+    this.radius = this.buffer;
+    this.cutoff = 0.495;
+    this._cellSize = fontSize * scale + this.buffer * 2;
 
-    this._width = nextPow2(Math.max(
-      this._cols * this._cellSize,
-      rows * this._cellSize,
-    ));
-    this._data = new Uint8Array(this._width * this._width);
-
-    this.texture = new DataTexture(
-      this._data, this._width, this._width,
-      RedFormat, UnsignedByteType,
-    );
-    this.texture.flipY = false;
-    this.texture.generateMipmaps = false;
-    this.texture.minFilter = LinearFilter;
-    this.texture.magFilter = LinearFilter;
-
-    this._drawChars(chars);
-    this.texture.needsUpdate = true;
+    // _drawChars divides raster px by `scale`, so stored metrics are in an em of
+    // `fontSize / scale`, and the SDF buffer padding scales down with them.
+    // TinySDF returns `glyphWidth + 2 * buffer`, hence padding = 2 * buffer.
+    this.metrics = {
+      fontSize: fontSize / scale,
+      padding: (this.buffer * 2) / scale,
+    };
   }
 
-  addChars(chars: Iterable<string>): {
+  setChars(fontChars: FontChars[]): {
     dirty: boolean;
     resize: boolean;
   } {
-    let resize = false;
-    const newChars: string[] = [];
-    for (const c of chars) {
-      if (!this.glyphs.has(c)) {
-        newChars.push(c);
-      };
-    }
-    if (newChars.length === 0) {
-      return { dirty: false, resize: false };
+    const newGlyphs: { char: string; fontKey: FontKey }[] = [];
+
+    for (const { fontKey, chars } of fontChars) {
+      const fk = fontKeyStr(fontKey);
+      if (!this._fontToSDF.has(fk)) {
+        this._fontToSDF.set(fk, new TinySDF({
+          fontSize: this.fontSize,
+          fontFamily: fontKey.font,
+          fontWeight: fontKey.weight,
+          fontStyle: fontKey.style,
+          buffer: this.buffer,
+          radius: this.radius,
+          cutoff: this.cutoff,
+        }));
+      }
+
+      for (const c of chars) {
+        if (!this.glyphs.has(glyphKey(fontKey, c))) {
+          newGlyphs.push({ char: c, fontKey });
+        }
+      }
     }
 
-    if (this._slotCount + newChars.length > this._capacity) {
-      this._resize(this._slotCount + newChars.length);
-      resize = true;
-    }
+    if (newGlyphs.length === 0) return { dirty: false, resize: false };
 
-    this._drawChars(newChars);
-    this.texture.needsUpdate = true;
+    const resize = this._slotCount + newGlyphs.length > this._capacity;
+    if (resize) this._resize(this._slotCount + newGlyphs.length);
+    this._drawChars(newGlyphs);
+    this._texture.needsUpdate = true;
+
     return { dirty: true, resize };
   }
 
-  dispose() {
-    this.texture.dispose();
+  /**
+   * Binds a lookup to one font. The key prefix is built once here rather than
+   * per character, and {@link FALLBACK_CHAR} covers characters this font never
+   * rasterized.
+   */
+  resolverFor(fontKey: FontKey): GlyphResolver {
+    const prefix = glyphKeyPrefix(fontKey);
+    const fallback = this.glyphs.get(prefix + FALLBACK_CHAR);
+    if (!fallback) {
+      throw new Error(`SDFAtlas: no "${FALLBACK_CHAR}" glyph for ${fontKeyStr(fontKey)}`);
+    }
+    return (char: string) => this.glyphs.get(prefix + char) ?? fallback;
   }
 
-  private _drawChars(chars: string[]) {
-    for (const c of chars) {
-      if (this.glyphs.has(c)) {
-        continue;
-      }
+  private _drawChars(entries: { char: string; fontKey: FontKey }[]) {
+    for (const { char: c, fontKey } of entries) {
+      const key = glyphKey(fontKey, c);
+      if (this.glyphs.has(key)) continue;
+
+      const sdf = this._fontToSDF.get(fontKeyStr(fontKey));
+      if (!sdf) throw new Error(`SDFAtlas: No TinySDF for fontKey ${fontKeyStr(fontKey)}`);
 
       const slot = this._slotCount++;
       const x = (slot % this._cols) * this._cellSize;
       const y = Math.floor(slot / this._cols) * this._cellSize;
-      const g = this._sdf.draw(c);
+      const g = sdf.draw(c);
 
       if (g.width > 0 && g.height > 0) {
         this._blit(g.data, x, y, g.width, g.height);
       }
 
-      this.glyphs.set(c, {
+      this.glyphs.set(key, {
         px: x,
         py: y,
         pw: g.width,
         ph: g.height,
-        w: g.width / SDFAtlas.SCALE || 1,
-        h: g.height / SDFAtlas.SCALE || 1,
-        advance: g.glyphAdvance / SDFAtlas.SCALE || 1,
-        top: g.glyphTop / SDFAtlas.SCALE || 0,
+        w: g.width / this._scale || 1,
+        h: g.height / this._scale || 1,
+        advance: g.glyphAdvance / this._scale || 1,
+        top: g.glyphTop / this._scale || 0,
       });
     }
+  }
+
+  dispose() {
+    this._texture.dispose();
   }
 
   private _blit(src: Uint8ClampedArray, dx: number, dy: number, w: number, h: number) {
@@ -125,7 +166,7 @@ export class SDFAtlas {
   }
 
   private _resize(minChars: number) {
-    this._capacity = Math.ceil(minChars * SDFAtlas.CAPACITY_MULTIPLIER);
+    this._capacity = Math.ceil(minChars * this._capacityMultiplier);
     this._cols = Math.ceil(Math.sqrt(this._capacity));
     const rows = Math.ceil(this._capacity / this._cols);
 
@@ -156,13 +197,13 @@ export class SDFAtlas {
     this._data = newData;
     this._width = newSize;
 
-    this.texture.dispose();
-    this.texture = new DataTexture(newData, newSize, newSize, RedFormat, UnsignedByteType);
-    this.texture.flipY = false;
-    this.texture.generateMipmaps = false;
-    this.texture.minFilter = LinearFilter;
-    this.texture.magFilter = LinearFilter;
-    this.texture.needsUpdate = true;
+    this._texture.dispose();
+    this._texture = new DataTexture(newData, newSize, newSize, RedFormat, UnsignedByteType);
+    this._texture.flipY = false;
+    this._texture.generateMipmaps = false;
+    this._texture.minFilter = LinearFilter;
+    this._texture.magFilter = LinearFilter;
+    this._texture.needsUpdate = true;
   }
 }
 

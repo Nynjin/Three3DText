@@ -1,21 +1,23 @@
 import type { Label } from '../Label';
-import type { GlyphInfo } from './GlyphRun';
+import type { GlyphResolver } from './GlyphRun';
 
 export interface LineBreaks {
   lines: string[];
   breakIndices: number[];
 }
 
+/**
+ * Splits a label's text into lines that fit its `maxWidth`.
+ *
+ * `glyphScale` converts atlas em metrics to the label's px, matching the scale
+ * layout applies — otherwise breaks would be measured at the wrong size.
+ */
 export default function lineBreak(
   label: Label,
-  glyphs: Map<string, GlyphInfo>,
+  resolve: GlyphResolver,
+  glyphScale: number,
   text = label.getDisplayText(),
 ): LineBreaks {
-  const fallback = glyphs.get('?');
-  if (!fallback) {
-    throw new Error('Fallback glyph "?" not found in glyphs map');
-  }
-
   if (!text) {
     return { lines: [''], breakIndices: [0] };
   }
@@ -44,7 +46,7 @@ export default function lineBreak(
 
     while (i < text.length) {
       const c = text[i];
-      const adv = (glyphs.get(c) ?? fallback).advance;
+      const adv = resolve(c).advance * glyphScale;
       const charW = adv + (lineStr.length > 0 ? letterSpacing : 0);
 
       // Overflow — only after at least one char is on the line

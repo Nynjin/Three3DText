@@ -406,12 +406,6 @@ export class InstancedDataTexture {
     this._texture.needsUpdate = true;
   }
 
-  /**
-   * @todo implement shrinkToFit that compacts items to reduce texture size
-   */
-  private _shrinkToFit() {
-  }
-
   dispose() {
     this._texture.dispose();
   }

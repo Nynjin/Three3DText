@@ -60,8 +60,8 @@ export function InstancedLabelComponent({
 
   // Map of item.key to Label
   const labelMapRef = useRef<Map<number, Label>>(new Map());
-  // How many mesh pairs are already attached to the group
-  const attachedMeshCountRef = useRef(0);
+  // Whether the manager's mesh pair is attached to the group
+  const attachedRef = useRef(false);
 
   const managerRef = useRef<InstancedLabelManager | null>(null);
 
@@ -126,12 +126,11 @@ export function InstancedLabelComponent({
       manager.update();
     }
 
-    // Attach any mesh pairs created by new font groups (lazy, incremental)
-    for (let i = attachedMeshCountRef.current; i < manager.meshes.length; i++) {
-      const { fill, halo: haloMesh } = manager.meshes[i];
-      group.add(haloMesh, fill);
+    // One mesh pair serves every font — attach it once.
+    if (!attachedRef.current) {
+      group.add(manager.mesh.halo, manager.mesh.fill);
+      attachedRef.current = true;
     }
-    attachedMeshCountRef.current = manager.meshes.length;
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, manager, fontSize]);

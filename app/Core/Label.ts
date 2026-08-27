@@ -1,5 +1,6 @@
 import { Color, Euler, Quaternion, Vector2, Vector3 } from 'three';
 import type { GlyphInstance } from './Shaping/GlyphRun';
+import { DEFAULT_FONT_KEY, fontKeyStr, normalizeFontWeight, type FontKey, type FontStyle, type FontWeight, type FontWeightName } from './Shaping/FontKey';
 
 export enum TextAnchorX {
   Left = 0,
@@ -40,17 +41,18 @@ export enum SymbolPlacement {
   'Line-Center' = 2,
 }
 
-// TODO : there aren't cases that require masking yet
-export enum LabelChangeType {
-  None = 0,
-  Font = 1 << 0,
-  Text = 1 << 1,
-  Layout = 1 << 2,
-  Style = 1 << 3,
-  Transform = 1 << 4,
-  Visibility = 1 << 5,
-  Dispose = 1 << 6,
-}
+export const LabelChangeType = {
+  None: 0,
+  Font: 1 << 0,
+  Text: 1 << 1,
+  Layout: 1 << 2,
+  Style: 1 << 3,
+  Transform: 1 << 4,
+  Visibility: 1 << 5,
+  Dispose: 1 << 6,
+} as const;
+
+export type LabelChangeMask = number;
 
 export interface TextPadding {
   top: number;
@@ -64,7 +66,7 @@ export interface LabelBounds {
   height: number;
 }
 
-export type LabelChangeListener = (changes: LabelChangeType) => void;
+export type LabelChangeListener = (changes: LabelChangeMask) => void;
 
 export interface LabelOptions {
   // Content
@@ -78,7 +80,8 @@ export interface LabelOptions {
   // Font
   font?: string;
   fontSize?: number;
-  fontWeight?: string;
+  fontWeight?: FontWeight | FontWeightName;
+  fontStyle?: FontStyle;
   letterSpacing?: number;
   lineHeight?: number;
 
@@ -87,7 +90,7 @@ export interface LabelOptions {
   textAlign?: TextAlign;
   anchorX?: TextAnchorX;
   anchorY?: TextAnchorY;
-  padding?: TextPadding | [number, number, number, number]; // top, right, bottom, left
+  padding?: TextPadding | number | [number, number, number, number]; // top, right, bottom, left
 
   // Fill
   color?: string | number | Color | Vector3;
@@ -118,7 +121,7 @@ export class Label {
   private _listeners = new Set<LabelChangeListener>();
 
   // Unique id
-  private _id: string;
+  private readonly _id: string;
 
   // Content
   private _text: string = '';
@@ -130,23 +133,22 @@ export class Label {
   private _offset: Vector2 = new Vector2();
 
   // Font
-  private _font: string = 'Arial';
-  private _fontSize: number = 20;
-  private _fontWeight: string = 'normal';
-  private _letterSpacing: number = 0;
-  private _lineHeight: number = 1.2;
+  private _fontKey: FontKey = DEFAULT_FONT_KEY;
+  private _fontKeyStr: string = fontKeyStr(DEFAULT_FONT_KEY);
+  private _fontSize = 20;
+  private _letterSpacing = 0;
+  private _lineHeight = 1.2;
 
   // Layout
-  private _maxWidth: number = Infinity;
-  private _textAlign: TextAlign = TextAlign.Auto;
-  private _anchorX: TextAnchorX = TextAnchorX.Left;
-  private _anchorY: TextAnchorY = TextAnchorY.Top;
-  private _padding: TextPadding = { top: 0, right: 0, bottom: 0, left: 0 };
+  private _maxWidth = Infinity;
+  private _textAlign = TextAlign.Auto;
+  private _anchorX = TextAnchorX.Left;
+  private _anchorY = TextAnchorY.Top;
+  private _padding: TextPadding = { top: 20, right: 20, bottom: 20, left: 20 };
 
   // Fill
   private _color: Color = new Color();
   private _opacity: number = 1;
-  private _occlusionFade: number = 1;
 
   // Halo
   private _haloColor: Color = new Color();
@@ -160,24 +162,27 @@ export class Label {
 
   // Visibility
   private _visible: boolean = true;
-  private _shouldRender: boolean = false;
-  private _isCandidate: boolean = false;
-  private _isRendered: boolean = false;
 
-  // Bounds
-  private _bounds: LabelBounds = { width: 0, height: 0 };
+  // Occlusion & Render
+  occlusionFade: number = 1;
+  isCandidate: boolean = false;
+  isRendered: boolean = false;
+  shouldRender: boolean = false;
+  bounds: LabelBounds = { width: 0, height: 0 };
 
   // Glyphs
-  private _glyphs: GlyphInstance[] = [];
+  glyphs: GlyphInstance[] = [];
+
+  constructor(options: LabelOptions) {
+    this._id = crypto.randomUUID();
+    this.set(options, true);
+  }
 
   get id() {
     return this._id;
   }
 
-  set id(_) {
-    console.warn('Label.id is read-only.');
-  }
-
+  // Text properties
   get text() {
     return this._text;
   }
@@ -196,6 +201,21 @@ export class Label {
     this._emit(LabelChangeType.Text);
   }
 
+  /** Get transformed text based on textTransform property */
+  getDisplayText(): string {
+    switch (this._textTransform) {
+      case TextTransform.Uppercase:
+        return this._text.toUpperCase();
+      case TextTransform.Lowercase:
+        return this._text.toLowerCase();
+      case TextTransform.Capitalize:
+        return this._text.replace(/\b\w/g, c => c.toUpperCase());
+      default:
+        return this._text;
+    }
+  }
+
+  // Transform properties
   get position(): Vector3 {
     return this._position;
   }
@@ -223,13 +243,24 @@ export class Label {
     this._emit(LabelChangeType.Layout);
   }
 
+  // Font properties
+
+  /** The label's font identity, shared by reference — never mutate it. */
+  get fontKey(): FontKey {
+    return this._fontKey;
+  }
+
+  /** Cached identity of {@link fontKey}, for grouping labels by font. */
+  get fontKeyStr(): string {
+    return this._fontKeyStr;
+  }
+
   get font() {
-    return this._font;
+    return this._fontKey.font;
   }
 
   set font(value: string) {
-    this._font = value;
-    this._emit(LabelChangeType.Font);
+    this._setFontKey({ ...this._fontKey, font: value });
   }
 
   get fontSize() {
@@ -238,15 +269,36 @@ export class Label {
 
   set fontSize(value: number) {
     this._fontSize = value;
-    this._emit(LabelChangeType.Font);
+    this._emit(LabelChangeType.Layout);
   }
 
-  get fontWeight() {
-    return this._fontWeight;
+  get fontWeight(): FontWeight {
+    return this._fontKey.weight;
   }
 
-  set fontWeight(value: string) {
-    this._fontWeight = value;
+  /** Accepts an alias name; always reads back as the canonical weight. */
+  set fontWeight(value: FontWeight | FontWeightName) {
+    this._setFontKey({ ...this._fontKey, weight: normalizeFontWeight(value) });
+  }
+
+  get fontStyle() {
+    return this._fontKey.style;
+  }
+
+  set fontStyle(value: FontStyle) {
+    this._setFontKey({ ...this._fontKey, style: value });
+  }
+
+  /**
+   * Replaces the font key, keeping its cached identity in sync. A no-op set is
+   * dropped here so it can't evict the label from its font group.
+   */
+  private _setFontKey(next: FontKey) {
+    const nextStr = fontKeyStr(next);
+    if (nextStr === this._fontKeyStr) return;
+
+    this._fontKey = next;
+    this._fontKeyStr = nextStr;
     this._emit(LabelChangeType.Font);
   }
 
@@ -308,13 +360,15 @@ export class Label {
     return this._padding;
   }
 
-  set padding(value: TextPadding | [number, number, number, number]) {
-    if (Array.isArray(value)) {
-      this._padding = { top: value[0], right: value[1], bottom: value[2], left: value[3] };
-    } else {
-      this._padding = value;
-    }
+  set padding(value: TextPadding | number | [number, number, number, number]) {
+    this._padding = this._parsePadding(value);
     this._emit(LabelChangeType.Layout);
+  }
+
+  private _parsePadding(value: TextPadding | number | [number, number, number, number]): TextPadding {
+    if (Array.isArray(value)) return { top: value[0], right: value[1], bottom: value[2], left: value[3] };
+    if (typeof value === 'number') return { top: value, right: value, bottom: value, left: value };
+    return value;
   }
 
   get color(): Color {
@@ -333,15 +387,6 @@ export class Label {
   set opacity(value: number) {
     this._opacity = value;
     this._emit(LabelChangeType.Style);
-  }
-
-  get occlusionFade() {
-    return this._occlusionFade;
-  }
-
-  set occlusionFade(value: number) {
-    this._occlusionFade = value;
-    // No emit, managed during collision evaluation
   }
 
   get haloColor(): Color {
@@ -380,6 +425,37 @@ export class Label {
     this._emit(LabelChangeType.Style);
   }
 
+  /** Check if halo should be rendered */
+  hasHalo(): boolean {
+    return this._haloWidth > 0 && this._haloOpacity > 0;
+  }
+
+  /** Get displayed halo opacity, affected by entire label opacity */
+  getDisplayedHaloOpacity(): number {
+    if (!this.hasHalo()) return 0;
+    return this._haloOpacity * this._opacity;
+  }
+
+  private _clampHaloWidth(value: number): number {
+    if (value > this._fontSize * 4) {
+      console.warn(
+        `Label.haloWidth ${value} is too large for fontSize ${this._fontSize}. Clamping to ${this._fontSize * 4}.`,
+      );
+      return this._fontSize * 4;
+    }
+    return value;
+  }
+
+  private _clampHaloBlur(value: number): number {
+    if (value > this._fontSize * 4) {
+      console.warn(
+        `Label.haloBlur ${value} is too large for fontSize ${this._fontSize}. Clamping to ${this._fontSize * 4}.`,
+      );
+      return this._fontSize * 4;
+    }
+    return value;
+  }
+
   get rotationAlignment() {
     return this._rotationAlignment;
   }
@@ -407,105 +483,6 @@ export class Label {
     this._emit(LabelChangeType.Visibility);
   }
 
-  get shouldRender() {
-    return this._shouldRender;
-  }
-
-  set shouldRender(value: boolean) {
-    this._shouldRender = value;
-    // No emit, managed during rendering phase
-  }
-
-  get isCandidate() {
-    return this._isCandidate;
-  }
-
-  set isCandidate(value: boolean) {
-    this._isCandidate = value;
-    // No emit, managed during collision evaluation phase
-  }
-
-  get isRendered() {
-    return this._isRendered;
-  }
-
-  set isRendered(value: boolean) {
-    this._isRendered = value;
-    // No emit, managed during rendering phase
-  }
-
-  get bounds() {
-    return this._bounds;
-  }
-
-  set bounds(value: LabelBounds) {
-    this._bounds = value;
-    // No emit, managed during layout phase
-  }
-
-  get glyphs() {
-    return this._glyphs;
-  }
-
-  set glyphs(value: GlyphInstance[]) {
-    this._glyphs = value;
-    // No emit, managed during layout phase
-  }
-
-  constructor(options: LabelOptions) {
-    this._id = crypto.randomUUID();
-    this.set(options, true);
-  }
-
-  _clampHaloWidth(value: number): number {
-    if (value > this._fontSize * 4) {
-      console.warn(
-        `Label.haloWidth ${value} is too large for fontSize ${this._fontSize}. Clamping to ${this._fontSize * 4}.`,
-      );
-      return this._fontSize * 4;
-    }
-    return value;
-  }
-
-  _clampHaloBlur(value: number): number {
-    if (value > this._fontSize * 4) {
-      console.warn(
-        `Label.haloBlur ${value} is too large for fontSize ${this._fontSize}. Clamping to ${this._fontSize * 4}.`,
-      );
-      return this._fontSize * 4;
-    }
-    return value;
-  }
-
-  /** Get transformed text based on textTransform property */
-  getDisplayText(): string {
-    switch (this._textTransform) {
-      case TextTransform.Uppercase:
-        return this._text.toUpperCase();
-      case TextTransform.Lowercase:
-        return this._text.toLowerCase();
-      case TextTransform.Capitalize:
-        return this._text.replace(/\b\w/g, c => c.toUpperCase());
-      default:
-        return this._text;
-    }
-  }
-
-  // isVisible() {
-  //   return this.visible && this.getDisplayText().length > 0 && this._fontSize > 0 && this._opacity > 0;
-  // }
-
-  /** Check if halo should be rendered */
-  hasHalo(): boolean {
-    return this._haloWidth > 0 && this._haloOpacity > 0;
-  }
-
-  /** Get displayed halo opacity, affected by entire label opacity */
-  getDisplayedHaloOpacity(): number {
-    if (!this.hasHalo()) return 0;
-    return this._haloOpacity * this._opacity;
-  }
-
   /** Update multiple properties at once */
   set(options: Partial<LabelOptions>, silent = false): this {
     let changes = LabelChangeType.None;
@@ -524,18 +501,24 @@ export class Label {
       changes |= LabelChangeType.Layout;
     }
 
-    // Font properties
-    if (options.font !== undefined) {
-      this._font = options.font;
-      changes |= LabelChangeType.Font;
+    // Font properties — built in one pass so a multi-property set produces a
+    // single key, not one per property.
+    if (options.font !== undefined || options.fontWeight !== undefined || options.fontStyle !== undefined) {
+      const next: FontKey = {
+        font: options.font ?? this._fontKey.font,
+        weight: options.fontWeight !== undefined ? normalizeFontWeight(options.fontWeight) : this._fontKey.weight,
+        style: options.fontStyle ?? this._fontKey.style,
+      };
+      const nextStr = fontKeyStr(next);
+      if (nextStr !== this._fontKeyStr) {
+        this._fontKey = next;
+        this._fontKeyStr = nextStr;
+        changes |= LabelChangeType.Font;
+      }
     }
     if (options.fontSize !== undefined) {
       this._fontSize = options.fontSize;
-      changes |= LabelChangeType.Font;
-    }
-    if (options.fontWeight !== undefined) {
-      this._fontWeight = options.fontWeight;
-      changes |= LabelChangeType.Font;
+      changes |= LabelChangeType.Layout;
     }
 
     // Text content properties
@@ -574,9 +557,7 @@ export class Label {
       changes |= LabelChangeType.Layout;
     }
     if (options.padding !== undefined) {
-      this._padding = Array.isArray(options.padding)
-        ? { top: options.padding[0], right: options.padding[1], bottom: options.padding[2], left: options.padding[3] }
-        : options.padding;
+      this._padding = this._parsePadding(options.padding);
       changes |= LabelChangeType.Layout;
     }
 
@@ -621,12 +602,12 @@ export class Label {
     }
 
     if (options.bounds !== undefined) {
-      this._bounds = options.bounds;
+      this.bounds = options.bounds;
       changes |= LabelChangeType.Style;
     }
 
     if (options.glyphs !== undefined) {
-      this._glyphs = options.glyphs;
+      this.glyphs = options.glyphs;
       changes |= LabelChangeType.Style;
     }
 
@@ -643,9 +624,10 @@ export class Label {
       position: this._position.clone(),
       rotation: this._rotation.clone(),
       offset: this._offset.clone(),
-      font: this._font,
+      font: this._fontKey.font,
       fontSize: this._fontSize,
-      fontWeight: this._fontWeight,
+      fontWeight: this._fontKey.weight,
+      fontStyle: this._fontKey.style,
       letterSpacing: this._letterSpacing,
       lineHeight: this._lineHeight,
       maxWidth: this._maxWidth,
@@ -663,8 +645,8 @@ export class Label {
       symbolPlacement: this._symbolPlacement,
       visible: this._visible,
       textTransform: this._textTransform,
-      bounds: { ...this._bounds },
-      glyphs: this._glyphs.map(g => ({
+      bounds: { ...this.bounds },
+      glyphs: this.glyphs.map(g => ({
         glyph: { ...g.glyph },
         offset: g.offset.clone(),
         rotation: g.rotation ? g.rotation.clone() : undefined,
@@ -682,7 +664,7 @@ export class Label {
     return () => this._listeners.delete(listener);
   }
 
-  private _emit(changes: LabelChangeType): void {
+  private _emit(changes: LabelChangeMask): void {
     if (changes === LabelChangeType.None) return;
     for (const listener of this._listeners) {
       listener(changes);

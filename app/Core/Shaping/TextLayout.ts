@@ -1,25 +1,31 @@
 import { Vector2 } from 'three';
 import type { Label } from '../Label';
-import type { GlyphInfo, GlyphInstance } from './GlyphRun';
+import type { AtlasMetrics, GlyphInfo, GlyphInstance, GlyphResolver } from './GlyphRun';
 import lineBreak from './LineBreak';
 import textAlign from './TextAlign';
 import { applyShaping, reorderParagraph, isParagraphRTL } from './RTL';
 import anchorText from './TextAnchors';
 
+/**
+ * Positions a label's glyphs and writes them back onto it.
+ *
+ * Glyph metrics arrive in the atlas's em units and are scaled to the label's own
+ * `fontSize` here, so one atlas serves every size.
+ */
 export default function layoutText(
   label: Label,
-  glyphs: Map<string, GlyphInfo>,
+  resolve: GlyphResolver,
+  metrics: AtlasMetrics,
   pxPerUnit: number,
 ): Label {
-  const fallback = glyphs.get('?');
-  if (!fallback) {
-    throw new Error('Fallback glyph "?" not found in glyphs map');
-  }
   const chars: GlyphInstance[] = [];
+
+  // Atlas em units -> this label's px.
+  const glyphScale = label.fontSize / metrics.fontSize;
 
   const shapedText = applyShaping(label.getDisplayText());
   const paragraphIsRTL = isParagraphRTL(shapedText);
-  const { breakIndices } = lineBreak(label, glyphs, shapedText);
+  const { breakIndices } = lineBreak(label, resolve, glyphScale, shapedText);
   const visualLines = reorderParagraph(shapedText, breakIndices);
 
   const letterSpacing = label.letterSpacing * label.fontSize;
@@ -31,7 +37,7 @@ export default function layoutText(
   const resolvedLines: GlyphInfo[][] = visualLines.map((line) => {
     const resolved: GlyphInfo[] = new Array<GlyphInfo>(line.length);
     for (let i = 0; i < line.length; i++) {
-      resolved[i] = glyphs.get(line[i]) ?? fallback;
+      resolved[i] = resolve(line[i]);
     }
     return resolved;
   });
@@ -42,9 +48,9 @@ export default function layoutText(
     let w = 0;
     const last = resolved.length - 1;
     for (let i = 0; i < last; i++) {
-      w += resolved[i].advance + letterSpacing;
+      w += resolved[i].advance * glyphScale + letterSpacing;
     }
-    w += resolved[last].advance;
+    w += resolved[last].advance * glyphScale;
     return w;
   });
 
@@ -74,10 +80,10 @@ export default function layoutText(
         py: resolved[i].py,
         pw: resolved[i].pw,
         ph: resolved[i].ph,
-        w: resolved[i].w / pxPerUnit,
-        h: resolved[i].h / pxPerUnit,
-        advance: resolved[i].advance,
-        top: resolved[i].top,
+        w: (resolved[i].w * glyphScale) / pxPerUnit,
+        h: (resolved[i].h * glyphScale) / pxPerUnit,
+        advance: resolved[i].advance * glyphScale,
+        top: resolved[i].top * glyphScale,
       };
 
       chars.push({
@@ -96,8 +102,9 @@ export default function layoutText(
     }
 
     const g = resolved[last];
-    const gW = g.w / pxPerUnit;
-    const gH = g.h / pxPerUnit;
+    const gW = (g.w * glyphScale) / pxPerUnit;
+    const gH = (g.h * glyphScale) / pxPerUnit;
+    const gTop = g.top * glyphScale;
 
     chars.push({
       glyph: {
@@ -107,12 +114,12 @@ export default function layoutText(
         ph: g.ph,
         w: gW,
         h: gH,
-        advance: g.advance,
-        top: g.top,
+        advance: g.advance * glyphScale,
+        top: gTop,
       },
       offset: new Vector2(
         cursor / pxPerUnit + gW / 2,
-        (g.top + y) / pxPerUnit - gH / 2,
+        (gTop + y) / pxPerUnit - gH / 2,
       ),
     });
   }
@@ -123,9 +130,13 @@ export default function layoutText(
     let minY = Infinity;
     let maxY = -Infinity;
 
+    // Quads carry the SDF buffer on every side, and the ink sits centred in it.
+    // Bounds track the ink, so the padding comes back off before halving.
+    const glyphPadding = (metrics.padding * glyphScale) / pxPerUnit;
+
     for (const ch of chars) {
-      const halfW = ch.glyph.w / 4; // TODO : glyphs are scaled x2 so /4 instead of /2
-      const halfH = ch.glyph.h / 4;
+      const halfW = Math.max(0, ch.glyph.w - glyphPadding) / 2;
+      const halfH = Math.max(0, ch.glyph.h - glyphPadding) / 2;
       const x0 = ch.offset.x - halfW;
       const x1 = ch.offset.x + halfW;
       const y0 = ch.offset.y - halfH;
