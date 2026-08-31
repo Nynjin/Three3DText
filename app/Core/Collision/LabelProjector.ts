@@ -127,7 +127,14 @@ export class LabelProjector {
     const ax = anchorOffsetX(label, bw) + offsetX;
     const ay = anchorOffsetY(label, bh) - offsetY;
 
-    const viewDepth = Math.sqrt(cvx * cvx + cvy * cvy + cvz * cvz);
+    // Must match `getScreenSizeScale` in the glyph vertex shader: the clip-space
+    // w of the label centre, which is what the perspective divide will undo.
+    // Euclidean distance would overshoot off-axis by 1 / cos(angle from the view
+    // axis), so the box would grow as the label pans away from the centre while
+    // the drawn glyphs did not.
+    const sizeScale = Math.abs(
+      pe[3] * cvx + pe[7] * cvy + pe[11] * cvz + pe[15],
+    );
     const isViewport = label.rotationAlignment === RotationAlignment.Viewport;
     if (!isViewport) {
       this._q.set(
@@ -149,8 +156,8 @@ export class LabelProjector {
     for (let i = 0; i < 4; i++) {
       const ux = i & 1;
       const uy = (i >> 1) & 1;
-      const localX = (ux * bw + ax) * viewDepth;
-      const localY = (uy * bh + ay) * viewDepth;
+      const localX = (ux * bw + ax) * sizeScale;
+      const localY = (uy * bh + ay) * sizeScale;
       let vx: number, vy: number, vz: number;
       if (isViewport) {
         vx = cvx + localX;
