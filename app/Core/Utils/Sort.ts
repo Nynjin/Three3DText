@@ -1,53 +1,27 @@
 const EMPTY = new Int32Array(0);
 
-/**
- * Widest key {@link RadixSorter} accepts. Above 31 bits a quantised key
- * overflows the int32 sign bit, and the arithmetic `>>` that extracts digits
- * then sign-extends and scrambles the order.
- */
+/** Above 31 bits a quantised key overflows the int32 sign bit `>>` reads. */
 const MAX_KEY_BITS = 31;
 
-/**
- * Widest digit {@link RadixSorter} accepts, giving 2^16 histogram slots per
- * pass. Wider digits mean fewer passes but a histogram that no longer fits in
- * cache, which costs more than the pass it saves.
- */
+/** Beyond 2^16 slots the histogram stops fitting in cache. */
 const MAX_DIGIT_BITS = 16;
 
 /**
- * @description Least-significant-digit radix sort that returns a permutation
- * of indices instead of reordering its input.
+ * @description Least-significant-digit radix sort returning a permutation of
+ * indices instead of reordering its input. `O(passes * n)` with no comparisons,
+ * which beats a comparison sort from the low thousands up.
  *
- * Keys are quantised to `keyBits`-wide unsigned integers by mapping the
- * observed `[min, max]` range onto `[0, 2 ** keyBits - 1]`, then sorted
- * `digitBits` at a time from the least significant digit up. Cost is
- * `O(passes * n)` with no comparisons, which beats a comparison sort once `n`
- * reaches the low thousands.
- *
- * Quantising has two consequences worth knowing before reaching for this:
- *
- * - The order is approximate. Keys closer together than
- *   `(max - min) / 2 ** keyBits` land in the same bucket and keep their input
- *   order. For depth sorting that is the point: 20 bits across the visible
- *   depth range is finer than the depth buffer resolves.
- * - Every call rescales to its own batch, so orders from two different calls
- *   are not comparable.
- *
- * The sort is stable: keys landing in the same bucket come out in ascending
- * index order.
+ * Keys are quantised into `keyBits` by mapping the batch's own `[min, max]`
+ * onto it, so the order is approximate — keys within
+ * `(max - min) / 2 ** keyBits` keep their input order — and orders from two
+ * calls are not comparable. Ties come out in ascending index order.
  *
  * @example
- * Buffers are reused across calls, so the returned array is valid only until
- * the next call and its `length` is the capacity rather than the element count:
  * ```ts
  * const sorter = new RadixSorter(20, 10);
  * const order = sorter.sort(distances, count);
- * for (let i = 0; i < count; i++) {
- *   visit(items[order[i]]); // nearest first
- * }
+ * for (let i = 0; i < count; i++) visit(items[order[i]]); // nearest first
  * ```
- *
- * @see {@link RadixSorter.sort} for the per-call contract.
  */
 export class RadixSorter {
   private readonly _digitBits: number;
@@ -96,25 +70,13 @@ export class RadixSorter {
   }
 
   /**
-   * Number of digit passes {@link RadixSorter.sort} makes over the data,
-   * `ceil(keyBits / digitBits)`.
-   */
-  get passes(): number {
-    return this._passes;
-  }
-
-  /**
    * Order the first `n` keys without moving them.
    *
-   * @param keys - Values to order. Only indices `0` to `n - 1` are read.
-   * @param n - How many keys to consider, defaulting to `keys.length`.
+   * @returns Indices `0` to `n - 1` by ascending key. Reused buffer: `length`
+   * is the capacity, not `n`, and the next call overwrites it.
    *
-   * @returns Indices `0` to `n - 1` ordered by ascending key, ties broken by
-   * ascending index. This is an internal buffer: its `length` is the current
-   * capacity rather than `n`, and the next call overwrites it.
-   *
-   * @throws {RangeError} If no key in the range is finite. A NaN mixed in with
-   * finite keys is tolerated, quantising to `0` and sorting first.
+   * @throws {RangeError} If no key in the range is finite. A NaN among finite
+   * keys is tolerated, quantising to `0`.
    */
   sort(keys: ArrayLike<number>, n = keys.length): Int32Array {
     if (n <= 0) return EMPTY;
@@ -193,15 +155,7 @@ export class RadixSorter {
     return src;
   }
 
-  /**
-   * Fill the result buffer with `0` to `n - 1`, which is the answer whenever
-   * the keys carry no ordering information.
-   *
-   * @param n - How many indices to write.
-   *
-   * @returns The identity permutation, under the same buffer-lifetime rules as
-   * {@link RadixSorter.sort}.
-   */
+  /** Identity permutation: the answer when the keys carry no order. */
   private _identity(n: number): Int32Array {
     const src = this._indicesSrc;
     for (let i = 0; i < n; i++) {
@@ -211,13 +165,8 @@ export class RadixSorter {
   }
 
   /**
-   * Grow the working buffers to hold at least `n` entries, geometrically so a
-   * slowly growing `n` does not reallocate on every call.
-   *
-   * Contents are not preserved: {@link RadixSorter.sort} rewrites every entry
-   * it goes on to read.
-   *
-   * @param n - Minimum capacity required.
+   * Grow the working buffers to at least `n`, geometrically. Contents are not
+   * preserved — `sort` rewrites every entry it reads.
    */
   private _ensureCapacity(n: number): void {
     if (this._quantised.length >= n) return;
@@ -230,15 +179,7 @@ export class RadixSorter {
 
 // Utils
 
-/**
- * Validate one of {@link RadixSorter}'s bit-width arguments.
- *
- * @param name - Argument name, used in the error message.
- * @param value - Value supplied by the caller.
- * @param max - Largest accepted value.
- *
- * @throws {Error} If `value` is not an integer between 1 and `max`.
- */
+/** @throws {Error} If `value` is not an integer between 1 and `max`. */
 function assertBitCount(name: string, value: number, max: number): void {
   if (!Number.isInteger(value) || value < 1 || value > max) {
     throw new Error(`Invalid ${name}: ${value}. Must be an integer between 1 and ${max}.`);

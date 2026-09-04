@@ -71,6 +71,15 @@ export class SDFAtlas {
     };
   }
 
+  /**
+   * Rasterize any `(font, char)` pair not in the atlas yet. Existing glyphs are
+   * never re-rasterized and their slots are never freed.
+   *
+   * @param fontChars - The characters each font needs, as a whole.
+   *
+   * @returns `dirty` if the texture contents changed, `resize` if the atlas grew
+   * and every existing glyph moved — which invalidates any cached glyph UVs.
+   */
   setChars(fontChars: FontChars[]): {
     dirty: boolean;
     resize: boolean;
@@ -122,6 +131,14 @@ export class SDFAtlas {
     return (char: string) => this.glyphs.get(prefix + char) ?? fallback;
   }
 
+  /**
+   * Rasterizes glyphs into the next free slots and records their atlas metrics.
+   * Assumes the atlas already has room; entries already present are skipped.
+   *
+   * @param entries - The `(font, char)` pairs to rasterize.
+   *
+   * @throws {Error} If a font has no TinySDF instance registered.
+   */
   private _drawChars(entries: { char: string; fontKey: FontKey }[]) {
     for (const { char: c, fontKey } of entries) {
       const key = glyphKey(fontKey, c);
@@ -152,10 +169,20 @@ export class SDFAtlas {
     }
   }
 
+  /** Releases the GPU texture. The atlas is unusable afterwards. */
   dispose() {
     this._texture.dispose();
   }
 
+  /**
+   * Copies a rasterized glyph into the atlas data, row by row.
+   *
+   * @param src - Single-channel glyph coverage, `w * h` bytes.
+   * @param dx - Destination column.
+   * @param dy - Destination row.
+   * @param w - Glyph width.
+   * @param h - Glyph height.
+   */
   private _blit(src: Uint8ClampedArray, dx: number, dy: number, w: number, h: number) {
     for (let row = 0; row < h; row++) {
       this._data.set(
@@ -165,6 +192,13 @@ export class SDFAtlas {
     }
   }
 
+  /**
+   * Grows the atlas to hold at least `minChars` glyphs, `capacityMultiplier`
+   * over that so the next few additions are free. Existing glyphs are re-laid
+   * out into the new grid, so their slots change.
+   *
+   * @param minChars - Glyph count the new size has to cover.
+   */
   private _resize(minChars: number) {
     this._capacity = Math.ceil(minChars * this._capacityMultiplier);
     this._cols = Math.ceil(Math.sqrt(this._capacity));

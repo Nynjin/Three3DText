@@ -1,7 +1,7 @@
 import { type Label, LabelChangeType } from './Label';
 import type { FontKey } from './Shaping/FontKey';
 import { FALLBACK_CHAR, SDFAtlas } from './Shaping/SDFAtlas';
-import { applyShaping } from './Shaping/RTL';
+import { applyShaping, needsShaping, rtlReady } from './Shaping/RTL';
 import type { LabelManagerConfig } from './Types/LabelConfig';
 
 /**
@@ -64,6 +64,10 @@ export class LabelAtlasManager {
       scale: config.sdfScale,
       capacityMultiplier: config.atlasCapacityMultiplier,
     });
+
+    // The shaper loads asynchronously, so labels added before it lands were
+    // laid out from unshaped text and have to be redone once it is live.
+    void rtlReady.then(() => this._relayoutShaped());
   }
 
   /** Whether anything is waiting for a sync. */
@@ -71,10 +75,17 @@ export class LabelAtlasManager {
     return this._dirty.size > 0;
   }
 
+  /** Adds one label. See {@link LabelAtlasManager.addLabels}. */
   addLabel(label: Label) {
     this.addLabels([label]);
   }
 
+  /**
+   * Start tracking labels: request their characters, mark them for a first
+   * layout, and subscribe to their changes.
+   *
+   * @param labels - Labels to add; any already tracked are ignored.
+   */
   addLabels(labels: Label[]) {
     let added = false;
 
@@ -91,10 +102,17 @@ export class LabelAtlasManager {
     if (added) this._emit();
   }
 
+  /** Removes one label. See {@link LabelAtlasManager.removeLabels}. */
   removeLabel(label: Label) {
     this.removeLabels([label]);
   }
 
+  /**
+   * Stop tracking labels and mark them for disposal, so the next flush frees
+   * their buffer slots. Their atlas glyphs stay — the atlas never frees slots.
+   *
+   * @param labels - Labels to remove; any not tracked are ignored.
+   */
   removeLabels(labels: Label[]) {
     let removed = false;
 
@@ -146,11 +164,20 @@ export class LabelAtlasManager {
     return flushed;
   }
 
+  /**
+   * Subscribe to "something needs a sync". Fires once per mutation batch, not
+   * once per label.
+   *
+   * @param listener - Called after any change that leaves work pending.
+   *
+   * @returns Unsubscribe function.
+   */
   onChange(listener: () => void): () => void {
     this._listeners.add(listener);
     return () => this._listeners.delete(listener);
   }
 
+  /** Drops every label and subscription, and disposes the atlas. */
   dispose() {
     for (const unsub of this._unsubs.values()) unsub();
     this._unsubs.clear();
@@ -161,6 +188,12 @@ export class LabelAtlasManager {
     this.atlas.dispose();
   }
 
+  /**
+   * Translate a label's own change notification into a dirty level.
+   *
+   * @param label - The label that changed.
+   * @param changes - Bitmask of {@link LabelChangeType}.
+   */
   private _onLabelChange(label: Label, changes: number) {
     if (changes & LabelChangeType.Dispose) {
       this.removeLabels([label]);
@@ -177,7 +210,30 @@ export class LabelAtlasManager {
     this._emit();
   }
 
-  /** Queues the label's characters for rasterization under its own font. */
+  /**
+   * Re-request characters and force a relayout for the labels whose text the
+   * newly-loaded shaper can actually change. Pure-LTR text shapes to itself, so
+   * skipping it keeps a large label set from re-laying out for nothing.
+   */
+  private _relayoutShaped() {
+    let marked = false;
+
+    for (const label of this.labels) {
+      if (!needsShaping(label.getDisplayText())) continue;
+      this._requestChars(label);
+      this._markDirty(label, DirtyLevel.Relayout);
+      marked = true;
+    }
+
+    if (marked) this._emit();
+  }
+
+  /**
+   * Queues the label's characters for rasterization under its own font. Marks
+   * the char set dirty only for characters the font has not seen yet.
+   *
+   * @param label - Label whose display text is scanned.
+   */
   private _requestChars(label: Label) {
     let entry = this._fontChars.get(label.fontKeyStr);
 
@@ -195,11 +251,19 @@ export class LabelAtlasManager {
     }
   }
 
+  /**
+   * Raise the label's pending work to `level`. Never lowers it, so the highest
+   * level marked before a flush is the one that runs.
+   *
+   * @param label - Label to mark.
+   * @param level - Work the label needs on the next sync.
+   */
   private _markDirty(label: Label, level: DirtyLevel) {
     const current = this._dirty.get(label) ?? DirtyLevel.None;
     if (level > current) this._dirty.set(label, level);
   }
 
+  /** Notifies every {@link LabelAtlasManager.onChange} listener. */
   private _emit() {
     for (const listener of this._listeners) listener();
   }

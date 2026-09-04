@@ -25,7 +25,7 @@ export default function layoutText(
 
   const shapedText = applyShaping(label.getDisplayText());
   const paragraphIsRTL = isParagraphRTL(shapedText);
-  const { breakIndices } = lineBreak(label, resolve, glyphScale, shapedText);
+  const breakIndices = lineBreak(label, resolve, glyphScale, shapedText);
   const visualLines = reorderParagraph(shapedText, breakIndices);
 
   const letterSpacing = label.letterSpacing * label.fontSize;

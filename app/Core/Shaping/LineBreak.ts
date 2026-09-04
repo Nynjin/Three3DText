@@ -1,34 +1,24 @@
 import type { Label } from '../Label';
 import type { GlyphResolver } from './GlyphRun';
 
-export interface LineBreaks {
-  lines: string[];
-  breakIndices: number[];
-}
-
 /**
- * Splits a label's text into lines that fit its `maxWidth`.
+ * Finds where a label's text has to break to fit its `maxWidth`. `glyphScale`
+ * converts atlas em metrics to the label's px, matching what layout applies —
+ * otherwise breaks are measured at the wrong size.
  *
- * `glyphScale` converts atlas em metrics to the label's px, matching the scale
- * layout applies — otherwise breaks would be measured at the wrong size.
+ * @returns The index just past the end of each line.
  */
 export default function lineBreak(
   label: Label,
   resolve: GlyphResolver,
   glyphScale: number,
   text = label.getDisplayText(),
-): LineBreaks {
-  if (!text) {
-    return { lines: [''], breakIndices: [0] };
-  }
-
-  if (label.maxWidth >= Infinity) {
-    return { lines: [text], breakIndices: [text.length] };
-  }
+): number[] {
+  if (!text) return [0];
+  if (label.maxWidth >= Infinity) return [text.length];
 
   const letterSpacing = label.letterSpacing * label.fontSize;
   const maxWidth = label.maxWidth * label.fontSize;
-  const lines: string[] = [];
   const breakIndices: number[] = [];
 
   let i = 0;
@@ -37,55 +27,39 @@ export default function lineBreak(
     while (i < text.length && text[i] === ' ') i++;
     if (i >= text.length) break;
 
-    let lineStr = '';
+    let lineLen = 0;
     let lineWidth = 0;
+    let overflowed = false;
 
-    // Track the last space position so we can break at a word boundary
-    let lastSpaceI = -1; // index in `text` of the last space that fit
-    let lastSpaceLineLen = 0; // length of lineStr when that space was recorded
+    // Index in `text` of the last space that fit, to break on a word boundary
+    let lastSpaceI = -1;
 
     while (i < text.length) {
       const c = text[i];
       const adv = resolve(c).advance * glyphScale;
-      const charW = adv + (lineStr.length > 0 ? letterSpacing : 0);
+      const charW = adv + (lineLen > 0 ? letterSpacing : 0);
 
       // Overflow — only after at least one char is on the line
-      if (lineStr.length > 0 && lineWidth + charW > maxWidth) {
-        if (lastSpaceI >= 0) {
-          // Break at the last word boundary
-          lines.push(lineStr.slice(0, lastSpaceLineLen));
-          // Break index = position just after the space
-          breakIndices.push(lastSpaceI + 1);
-          i = lastSpaceI + 1;
-        } else {
-          // No word boundary — break mid-character
-          lines.push(lineStr);
-          breakIndices.push(i);
-        }
-        lineStr = '';
+      if (lineLen > 0 && lineWidth + charW > maxWidth) {
+        // Break just after the last word boundary, or mid-word when there is none.
+        if (lastSpaceI >= 0) i = lastSpaceI + 1;
+        breakIndices.push(i);
+        overflowed = true;
         break;
       }
 
-      if (c === ' ') {
-        lastSpaceI = i;
-        lastSpaceLineLen = lineStr.length;
-      }
+      if (c === ' ') lastSpaceI = i;
 
-      lineStr += c;
+      lineLen++;
       lineWidth += charW;
       i++;
     }
 
-    if (lineStr) {
-      lines.push(lineStr);
-      breakIndices.push(i);
-    }
+    // The inner loop ran to the end of the text, so `i` closes the last line.
+    if (!overflowed && lineLen > 0) breakIndices.push(i);
   }
 
-  if (lines.length === 0) {
-    lines.push('');
-    breakIndices.push(text.length);
-  }
+  if (breakIndices.length === 0) breakIndices.push(text.length);
 
-  return { lines, breakIndices };
+  return breakIndices;
 }

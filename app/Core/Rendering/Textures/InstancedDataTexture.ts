@@ -9,21 +9,17 @@ const MAX_TEXTURE_WIDTH = 4096; // should be safe for most devices
 // TODO : may be possible to increase max size with a DataArrayTexture using layers
 // const MAX_LAYERS = 256;
 
-export interface Texel {
-  x: number;
-  y: number;
-  z: number;
-  w: number;
-}
-
-export interface Item {
-  idx: number;
-  data: Texel[];
-}
+/** Shared source for a removal, which carries no data. */
+export const NO_DATA = new Float32Array(0);
 
 export interface ItemAllocation {
   key: string;
-  flatItems: Texel[]; // flat array of texels for all items of this key, concatenated
+  /**
+   * The key's items as flat RGBA floats, concatenated — length must be a
+   * multiple of `texelsPerItem * 4`. Read during the call and never retained,
+   * so a view into a reused staging buffer is fine. Empty means "remove".
+   */
+  data: Float32Array;
 }
 
 // Todo : avoid freeSlots sorting
@@ -41,13 +37,14 @@ export class InstancedDataTexture {
   private _itemCapacity: number = 0;
   private _usedSlots: number = 0;
 
-  private _keyToItems: Map<string, Item[]> = new Map();
   private _keyToTexelIndices: Map<string, number[]> = new Map();
   private _availableTexelIdx: number[] = [];
 
-  readonly _texelsPerItem: number = 0;
-  readonly _maxTextureWidth: number;
-  readonly _capacityMultiplier: number;
+  private readonly _texelsPerItem: number = 0;
+  /** `texelsPerItem * TEXEL_SIZE`, the stride one item occupies in `data`. */
+  private readonly _floatsPerItem: number = 0;
+  private readonly _maxTextureWidth: number;
+  private readonly _capacityMultiplier: number;
 
   get texture(): DataTexture {
     return this._texture;
@@ -57,20 +54,13 @@ export class InstancedDataTexture {
     return this._width;
   }
 
-  get capacity() {
-    return this._itemCapacity;
-  }
-
-  get usedSlots() {
-    return this._usedSlots;
-  }
-
   constructor(
     texelsPerItem: number,
     maxTexWidth = MAX_TEXTURE_WIDTH,
     capacityMultiplier = CAPACITY_MULTIPLIER,
   ) {
     this._texelsPerItem = texelsPerItem;
+    this._floatsPerItem = texelsPerItem * TEXEL_SIZE;
     this._maxTextureWidth = maxTexWidth;
     this._capacityMultiplier = capacityMultiplier;
 
@@ -98,7 +88,7 @@ export class InstancedDataTexture {
     const w = Math.ceil(Math.sqrt(texelCapacity));
     if (w > this._maxTextureWidth) {
       console.warn(
-        `InstancedDataBuffer.calcWidth - Requested texture width ${w} exceeds max of ${this._maxTextureWidth}. This may cause rendering issues on some devices.`,
+        `InstancedDataTexture._calcWidth - Requested texture width ${w} exceeds max of ${this._maxTextureWidth}. This may cause rendering issues on some devices.`,
       );
     }
     return w;
@@ -153,23 +143,23 @@ export class InstancedDataTexture {
     this._texture.needsUpdate = true;
   }
 
-  getKeys(): string[] {
-    return Array.from(this._keyToItems.keys());
-  }
-
-  getAllTexelIndices(): number[] {
-    const indices: number[] = [];
-    for (const idx of this._keyToTexelIndices.values()) {
-      indices.push(...idx);
-    }
-    return indices;
-  }
-
+  /**
+   * @param key - The key to look up.
+   *
+   * @returns The texel index of each of the key's items, or `undefined` if the
+   * key is unknown. Live array — do not mutate.
+   */
   getTexelIndicesOf(key: string): number[] | undefined {
     return this._keyToTexelIndices.get(key);
   }
 
-  getFirstTexelIdxOf(key: string): number | undefined {
+  /**
+   * @param key - The key to look up.
+   *
+   * @returns The texel index of the key's first item, or `undefined` if the key
+   * is unknown or holds no items.
+   */
+  getFirstTexelIndexOf(key: string): number | undefined {
     const items = this._keyToTexelIndices.get(key);
     if (!items || items.length === 0) {
       return undefined;
@@ -178,45 +168,22 @@ export class InstancedDataTexture {
   }
 
   /**
-   * Retrieves the items associated with a given key.
+   * Drops allocations whose data does not divide evenly into items, warning for
+   * each. An empty `flatItems` is kept — `_updateKeys` reads it as a removal.
    *
-   * @param key - The unique key identifying the items to retrieve.
+   * @param allocations - Allocations to check.
    *
-   * @returns An array of items associated with the key, or undefined if no items are found for the key.
+   * @returns The allocations that are safe to write.
    */
-  getItemsOf(key: string): Item[] | undefined {
-    return this._keyToItems.get(key);
-  }
-
-  getFirstItemOf(key: string): Item | undefined {
-    return this._keyToItems.get(key)?.[0];
-  }
-
-  /**
-   * Public method to add items to the buffer for a specific key
-   */
-  addToKey(allocation: ItemAllocation) {
-    this.addToKeys([allocation]);
-  }
-
-  /**
-   * Public method to add multiple items to the buffer for multiple keys
-   */
-  addToKeys(allocations: ItemAllocation[]) {
-    const validAllocations = this._filterValidAllocations(allocations);
-    this._addToKeys(validAllocations);
-    this._texture.needsUpdate = true;
-  }
-
   private _filterValidAllocations(allocations: ItemAllocation[]) {
-    return allocations.filter(({ key, flatItems }) => {
-      // empty flatItems is valid — treated as removal in _updateKeys
-      if (flatItems.length === 0) {
+    return allocations.filter(({ key, data }) => {
+      // Empty data is valid — treated as a removal in _updateKeys.
+      if (data.length === 0) {
         return true;
       };
-      if (flatItems.length % this._texelsPerItem !== 0) {
+      if (data.length % this._floatsPerItem !== 0) {
         console.warn(
-          `InstancedDataBuffer - Item ${key} has data length ${flatItems.length} which is not a multiple of texelsPerItem ${this._texelsPerItem}`,
+          `InstancedDataTexture - Item ${key} has data length ${data.length} which is not a multiple of floatsPerItem ${this._floatsPerItem}`,
         );
         return false;
       }
@@ -224,22 +191,31 @@ export class InstancedDataTexture {
     });
   }
 
-  private _setTexelDataAt(idx: number, offset: number, flatItems: Texel[], out?: Texel[]) {
-    const data = out ?? new Array<Texel>(this._texelsPerItem);
-
-    let base = idx * TEXEL_SIZE;
-    for (let i = 0; i < this._texelsPerItem; i++) {
-      const t = flatItems[offset * this._texelsPerItem + i];
-      data[i] = t;
-      this._data[base++] = t.x;
-      this._data[base++] = t.y;
-      this._data[base++] = t.z;
-      this._data[base++] = t.w;
+  /**
+   * Copies one item's floats into the buffer at `idx`.
+   *
+   * @param idx - Destination texel index.
+   * @param src - The key's flat float data.
+   * @param itemOffset - Which item to read out of `src`.
+   */
+  private _writeItem(idx: number, src: Float32Array, itemOffset: number) {
+    const n = this._floatsPerItem;
+    let s = itemOffset * n;
+    let d = idx * TEXEL_SIZE;
+    for (let i = 0; i < n; i++) {
+      this._data[d++] = src[s++];
     }
-
-    return data;
   }
 
+  /**
+   * Appends brand-new keys, growing the buffer first if the free slots do not
+   * cover them. Assumes none of the keys exist yet.
+   *
+   * @param allocations - Allocations to insert.
+   *
+   * @throws {Error} If the free-slot list runs dry, which means `_usedSlots`
+   * has drifted from the buffer's real capacity.
+   */
   private _addToKeys(allocations: ItemAllocation[]) {
     if (allocations.length === 0) {
       return;
@@ -247,91 +223,32 @@ export class InstancedDataTexture {
 
     // Resize buffer if needed
     let totalNewItems = 0;
-    const itemCounts: number[] = [];
-    for (const { flatItems } of allocations) {
-      const count = flatItems.length / this._texelsPerItem;
-      itemCounts.push(count);
-      totalNewItems += count;
+    for (const { data } of allocations) {
+      totalNewItems += data.length / this._floatsPerItem;
     }
     const totalNeeded = this._usedSlots + totalNewItems;
     if (totalNeeded > this._itemCapacity) {
       this._resize(totalNeeded);
     }
 
-    for (let i = 0; i < allocations.length; i++) {
-      const { key, flatItems } = allocations[i];
-      const currentItemCount = itemCounts[i];
-      const storedItems = this._keyToItems.get(key) ?? [];
+    for (const { key, data } of allocations) {
+      const itemCount = data.length / this._floatsPerItem;
       const storedIndices = this._keyToTexelIndices.get(key) ?? [];
 
-      for (let j = 0; j < currentItemCount; j++) {
+      for (let j = 0; j < itemCount; j++) {
         const idx = this._availableTexelIdx.pop();
         if (idx === undefined) {
           throw new Error('Unexpected undefined index in free slots');
         }
 
-        const data = this._setTexelDataAt(idx, j, flatItems);
-        storedItems.push({ idx, data });
+        this._writeItem(idx, data, j);
         storedIndices.push(idx);
       }
 
-      this._keyToItems.set(key, storedItems);
       this._keyToTexelIndices.set(key, storedIndices);
     }
 
     this._usedSlots += totalNewItems;
-  }
-
-  /**
-   *
-   * @param key
-   */
-  removeKey(key: string) {
-    this.removeKeys([key]);
-  }
-
-  /**
-   *
-   * @param keys
-   */
-  removeKeys(keys: string[]) {
-    this._removeKeys(keys);
-    this._texture.needsUpdate = true;
-  }
-
-  private _removeKeys(keys: string[]) {
-    for (const key of keys) {
-      const items = this._keyToItems.get(key);
-      if (!items) {
-        console.warn(
-          `InstancedDataBuffer.removeKeys - No items found for key ${key}`,
-        );
-        continue;
-      }
-
-      for (const item of items) {
-        this._data.fill(0, item.idx * TEXEL_SIZE, (item.idx + this._texelsPerItem) * TEXEL_SIZE);
-        this._availableTexelIdx.push(item.idx);
-      }
-      this._keyToItems.delete(key);
-      this._keyToTexelIndices.delete(key);
-      this._usedSlots -= items.length;
-    }
-  }
-
-  /**
-   * @param allocation - Allocation whose texel data should be refreshed.
-   */
-  updateKey(allocation: ItemAllocation) {
-    this.updateKeys([allocation]);
-  }
-
-  /**
-   * @param allocations - Allocations whose texel data should be refreshed.
-   */
-  updateKeys(allocations: ItemAllocation[]) {
-    this._updateKeys(allocations);
-    this._texture.needsUpdate = true;
   }
 
   /**
@@ -342,43 +259,38 @@ export class InstancedDataTexture {
 
     const toAdd: ItemAllocation[] = [];
 
-    for (const { key, flatItems } of validAllocations) {
-      const existingItems = this._keyToItems.get(key) ?? [];
+    for (const { key, data } of validAllocations) {
+      const indices = this._keyToTexelIndices.get(key) ?? [];
 
-      const newItemCount = flatItems.length / this._texelsPerItem;
-      const oldItemCount = existingItems.length;
+      const newItemCount = data.length / this._floatsPerItem;
+      const oldItemCount = indices.length;
       const commonCount = Math.min(newItemCount, oldItemCount);
       const deleteCount = oldItemCount - commonCount;
 
       // update existing items with new data
       for (let i = 0; i < commonCount; i++) {
-        this._setTexelDataAt(existingItems[i].idx, i, flatItems, existingItems[i].data);
+        this._writeItem(indices[i], data, i);
       }
 
       // delete excess if new count is lower
       for (let i = commonCount; i < oldItemCount; i++) {
-        const item = existingItems[i];
-        this._data.fill(0, item.idx * TEXEL_SIZE, (item.idx + this._texelsPerItem) * TEXEL_SIZE);
-        this._availableTexelIdx.push(item.idx);
+        const idx = indices[i];
+        this._data.fill(0, idx * TEXEL_SIZE, (idx + this._texelsPerItem) * TEXEL_SIZE);
+        this._availableTexelIdx.push(idx);
       }
-      existingItems.length = commonCount;
+      indices.length = commonCount;
       this._usedSlots -= deleteCount;
 
-      // remove from maps if key does not have any items
+      // remove from the map if the key has no items left
       if (newItemCount === 0) {
-        this._keyToItems.delete(key);
         this._keyToTexelIndices.delete(key);
       } else {
-        this._keyToItems.set(key, existingItems);
-
-        if (deleteCount > 0) {
-          this._keyToTexelIndices.set(key, existingItems.map(i => i.idx));
-        }
+        this._keyToTexelIndices.set(key, indices);
       }
 
-      // store new items for batched insertion
+      // store new items for batched insertion — a view, not a copy
       if (newItemCount > oldItemCount) {
-        toAdd.push({ key, flatItems: flatItems.slice(commonCount * this._texelsPerItem) });
+        toAdd.push({ key, data: data.subarray(commonCount * this._floatsPerItem) });
       }
     }
 
@@ -396,16 +308,16 @@ export class InstancedDataTexture {
   update(toAdd: ItemAllocation[], toRemove: string[], toUpdate: ItemAllocation[]) {
     if (toAdd.length === 0 && toRemove.length === 0 && toUpdate.length === 0) return;
 
-    // todo: avoid mapping and unwrapping
     const all = [
       ...toUpdate,
       ...toAdd,
-      ...toRemove.map(key => ({ key, flatItems: [] })),
+      ...toRemove.map(key => ({ key, data: NO_DATA })),
     ];
     this._updateKeys(all);
     this._texture.needsUpdate = true;
   }
 
+  /** Releases the GPU texture. The instance is unusable afterwards. */
   dispose() {
     this._texture.dispose();
   }

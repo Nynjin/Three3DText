@@ -165,8 +165,6 @@ export class Label {
 
   // Occlusion & Render
   occlusionFade: number = 1;
-  isCandidate: boolean = false;
-  isRendered: boolean = false;
   shouldRender: boolean = false;
   bounds: LabelBounds = { width: 0, height: 0 };
 
@@ -365,6 +363,15 @@ export class Label {
     this._emit(LabelChangeType.Layout);
   }
 
+  /**
+   * Normalizes the shorthand padding forms to a {@link TextPadding}.
+   *
+   * @param value - One number for all sides, a `[top, right, bottom, left]`
+   * tuple, or an already-complete object.
+   *
+   * @returns The padding as an object. An object argument is returned as given,
+   * not copied.
+   */
   private _parsePadding(value: TextPadding | number | [number, number, number, number]): TextPadding {
     if (Array.isArray(value)) return { top: value[0], right: value[1], bottom: value[2], left: value[3] };
     if (typeof value === 'number') return { top: value, right: value, bottom: value, left: value };
@@ -403,7 +410,7 @@ export class Label {
   }
 
   set haloWidth(value: number) {
-    this._haloWidth = this._clampHaloWidth(value);
+    this._haloWidth = this._clampHalo('haloWidth', value);
     this._emit(LabelChangeType.Style);
   }
 
@@ -412,7 +419,7 @@ export class Label {
   }
 
   set haloBlur(value: number) {
-    this._haloBlur = this._clampHaloBlur(value);
+    this._haloBlur = this._clampHalo('haloBlur', value);
     this._emit(LabelChangeType.Style);
   }
 
@@ -436,24 +443,23 @@ export class Label {
     return this._haloOpacity * this._opacity;
   }
 
-  private _clampHaloWidth(value: number): number {
-    if (value > this._fontSize * 4) {
-      console.warn(
-        `Label.haloWidth ${value} is too large for fontSize ${this._fontSize}. Clamping to ${this._fontSize * 4}.`,
-      );
-      return this._fontSize * 4;
-    }
-    return value;
-  }
+  /**
+   * Caps a halo dimension at four times the font size, warning when it does.
+   * Wider than that and the SDF has no range left to encode the falloff.
+   *
+   * @param property - Property name, for the warning only.
+   * @param value - Requested value, in the same units as `fontSize`.
+   *
+   * @returns `value`, or the cap when it exceeds it.
+   */
+  private _clampHalo(property: 'haloWidth' | 'haloBlur', value: number): number {
+    const max = this._fontSize * 4;
+    if (value <= max) return value;
 
-  private _clampHaloBlur(value: number): number {
-    if (value > this._fontSize * 4) {
-      console.warn(
-        `Label.haloBlur ${value} is too large for fontSize ${this._fontSize}. Clamping to ${this._fontSize * 4}.`,
-      );
-      return this._fontSize * 4;
-    }
-    return value;
+    console.warn(
+      `Label.${property} ${value} is too large for fontSize ${this._fontSize}. Clamping to ${max}.`,
+    );
+    return max;
   }
 
   get rotationAlignment() {
@@ -575,11 +581,11 @@ export class Label {
       changes |= LabelChangeType.Style;
     }
     if (options.haloWidth !== undefined) {
-      this._haloWidth = this._clampHaloWidth(options.haloWidth);
+      this._haloWidth = this._clampHalo('haloWidth', options.haloWidth);
       changes |= LabelChangeType.Style;
     }
     if (options.haloBlur !== undefined) {
-      this._haloBlur = this._clampHaloBlur(options.haloBlur);
+      this._haloBlur = this._clampHalo('haloBlur', options.haloBlur);
       changes |= LabelChangeType.Style;
     }
     if (options.haloOpacity !== undefined) {
@@ -618,6 +624,10 @@ export class Label {
     return this;
   }
 
+  /**
+   * @returns An independent copy, including its current bounds and glyphs, with
+   * a fresh id and no listeners.
+   */
   clone(): Label {
     return new Label({
       text: this._text,
@@ -654,16 +664,33 @@ export class Label {
     });
   }
 
+  /**
+   * Announces the label is finished, which makes any manager holding it release
+   * its slots, then drops every listener. The object itself stays usable.
+   */
   dispose() {
     this._emit(LabelChangeType.Dispose);
     this._listeners.clear();
   }
 
+  /**
+   * Subscribe to this label's own property changes.
+   *
+   * @param listener - Called with a {@link LabelChangeType} bitmask.
+   *
+   * @returns Unsubscribe function.
+   */
   onChange(listener: LabelChangeListener): () => void {
     this._listeners.add(listener);
     return () => this._listeners.delete(listener);
   }
 
+  /**
+   * Notifies listeners of what changed. A `None` mask is dropped, so setters
+   * can emit unconditionally.
+   *
+   * @param changes - Bitmask of {@link LabelChangeType}.
+   */
   private _emit(changes: LabelChangeMask): void {
     if (changes === LabelChangeType.None) return;
     for (const listener of this._listeners) {

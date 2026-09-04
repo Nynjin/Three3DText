@@ -10,15 +10,12 @@ export interface ScreenAABB {
 }
 
 /**
- * @description Projects a Label's 4 corners through view/projection matrices
- * into a screen-aligned bounding box, in whatever pixel resolution `setFrame`
- * was given. The collision engine passes the viewport size, so boxes come out
- * in screen pixels for the occupancy grid to downscale to cells.
+ * @description Projects a Label's 4 corners into a screen-aligned bounding box,
+ * in whatever pixel resolution `setFrame` was given — the collision engine
+ * passes the viewport size, so boxes come out in screen pixels.
  *
- * Stateless apart from preconfigured matrices and target dimensions.
- * Set those once per frame via {@link LabelProjector.setFrame}, then call
- * {@link LabelProjector.checkVisible} to reject labels cheaply and
- * {@link LabelProjector.project} on the ones that survive.
+ * Set the frame once per frame, then use {@link LabelProjector.checkVisible} to
+ * reject labels cheaply and {@link LabelProjector.project} on the survivors.
  */
 export class LabelProjector {
   private readonly _view = new Matrix4();
@@ -35,13 +32,13 @@ export class LabelProjector {
   }
 
   /**
-   * Fix the frame every later `checkVisible` and `project` call resolves
-   * against. Both matrices are copied, so the caller may reuse its own.
+   * Fix the frame every later `checkVisible` and `project` resolves against. Both
+   * matrices are copied, so the caller may reuse its own.
    *
    * @param view - Camera `matrixWorldInverse`.
    * @param proj - Camera `projectionMatrix`.
-   * @param targetW - Width of the coordinate space boxes come out in, pixels.
-   * @param targetH - Height of that space, pixels.
+   * @param targetW - Width of the pixel space boxes come out in.
+   * @param targetH - Height of that space.
    */
   setFrame(
     view: Matrix4,
@@ -59,20 +56,12 @@ export class LabelProjector {
    * Cheap rejection test to run before the much costlier
    * {@link LabelProjector.project}.
    *
-   * Transforms the label's *centre* only, against the frustum widened by the
-   * label's extent and `config.ndcCullMargin`, so it over-accepts: passing
-   * means "worth projecting", not "on screen". A NaN position passes too,
-   * since every comparison against NaN is false.
-   *
-   * @param label - Label to test.
-   *
-   * @returns `false` only when the label is certainly not worth projecting.
+   * Transforms the label's position only, against the frustum widened by
+   * `config.ndcCullMargin`, so it over-accepts: passing means "worth projecting",
+   * not "on screen". A NaN position passes too, since every comparison against
+   * NaN is false.
    */
   checkVisible(label: Label): boolean {
-    const bw = label.bounds.width;
-    const bh = label.bounds.height;
-    if (bw === 0 || bh === 0) return false;
-
     const ve = this._view.elements;
     const pe = this._proj.elements;
     const p = label.position;
@@ -82,33 +71,28 @@ export class LabelProjector {
     const cvz = ve[2] * p.x + ve[6] * p.y + ve[10] * p.z + ve[14];
     if (cvz >= 0) return false;
 
-    // Off-screen center cull with generous text margins
+    // Off-screen cull on the label position, widened by `ndcCullMargin`. The
+    // label's own extent is not accounted for, so `project` still has to test
+    // the box this admits.
     const ccx = pe[0] * cvx + pe[4] * cvy + pe[8] * cvz + pe[12];
     const ccy = pe[1] * cvx + pe[5] * cvy + pe[9] * cvz + pe[13];
     const ccw = pe[3] * cvx + pe[7] * cvy + pe[11] * cvz + pe[15];
     if (ccw <= 0) return false;
 
-    const ndcCx = ccx / ccw,
-      ndcCy = ccy / ccw;
-    const maxBound = Math.max(bw, bh);
-    const marginNDC = (maxBound * pe[0]) / ccw + this._config.ndcCullMargin; // usually gives ~20% breathing room
-
-    if (Math.abs(ndcCx) > 1 + marginNDC || Math.abs(ndcCy) > 1 + marginNDC)
-      return false;
-
-    return true;
+    const limit = 1 + this._config.ndcCullMargin;
+    return Math.abs(ccx / ccw) <= limit && Math.abs(ccy / ccw) <= limit;
   }
 
   /**
-   * Project a label's quad to a screen-aligned bounding box.
+   * Project a label's quad to a screen-aligned bounding box, written into `out`
+   * in `setFrame`'s pixel space only when this returns `true` — so one scratch
+   * object can serve every label.
    *
-   * @param label - Label to project.
-   * @param out - Filled with the box, in `setFrame`'s pixel space and clamped
-   * to it, only when this returns `true`. Left untouched otherwise, so it is
-   * safe to pass one scratch object for every label.
+   * The box is not clamped to the target: it may fall partly or wholly outside
+   * it, and what to do about that is the caller's policy.
    *
-   * @returns `true` if the label projects to a non-empty on-screen box, `false`
-   * if any corner falls behind the eye or the box misses the target entirely.
+   * @returns `true` if the label has bounds and every corner lies in front of
+   * the eye, `false` otherwise.
    */
   project(label: Label, out: ScreenAABB): boolean {
     const bw = label.bounds.width;
@@ -186,15 +170,10 @@ export class LabelProjector {
       if (py > maxY) maxY = py;
     }
 
-    const x0 = Math.max(0, Math.floor(minX));
-    const x1 = Math.min(W - 1, Math.ceil(maxX));
-    const y0 = Math.max(0, Math.floor(minY));
-    const y1 = Math.min(H - 1, Math.ceil(maxY));
-    if (x0 > x1 || y0 > y1) return false;
-    out.x0 = x0;
-    out.y0 = y0;
-    out.x1 = x1;
-    out.y1 = y1;
+    out.x0 = Math.floor(minX);
+    out.y0 = Math.floor(minY);
+    out.x1 = Math.ceil(maxX);
+    out.y1 = Math.ceil(maxY);
     return true;
   }
 }

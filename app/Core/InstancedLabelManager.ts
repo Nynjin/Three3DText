@@ -3,8 +3,8 @@ import layoutText from './Shaping/TextLayout';
 import { LabelAtlasManager } from './LabelAtlasManager';
 import type { Label } from './Label';
 import type { GlyphResolver } from './Shaping/GlyphRun';
-import { LabelMeshGroup } from './Rendering/LabelMeshGroup';
-import type { LabelMesh } from './Rendering/LabelMeshGroup';
+import { LabelMeshManager } from './Rendering/LabelMeshManager';
+import type { LabelMesh } from './Rendering/LabelMeshManager';
 import { LabelCollisionEngine } from './Collision/LabelCollisionEngine';
 import { type LabelManagerConfig, DefaultLabelConfig } from './Types/LabelConfig';
 
@@ -14,54 +14,95 @@ export interface LabelMeshPair {
 }
 
 export class InstancedLabelManager {
+  /** Global label settings, shared by reference with the collision engine and atlas. */
   readonly config: LabelManagerConfig;
+
+  /** The fill and halo meshes to add to the scene. */
+  readonly mesh: LabelMeshPair;
+
+  /** The collision engine for managing label occlusion and prioritization. */
+  readonly collision: LabelCollisionEngine;
+
+  /** All labels share one atlas and one mesh pair. */
+  private readonly _atlasManager: LabelAtlasManager;
+  private readonly _meshManager = new LabelMeshManager();
+
   private _lastCullTime = 0;
   private _lastFrameTime = 0;
 
-  /** All labels share one atlas and one mesh pair, whatever font they use. */
-  private readonly atlasManager: LabelAtlasManager;
-  private readonly meshGroup = new LabelMeshGroup();
-
-  readonly mesh: LabelMeshPair;
-
-  collision: LabelCollisionEngine;
-
+  /**
+   * @param renderer - Renderer whose drawing-buffer size drives the collision
+   * resolution.
+   * @param options - Overrides merged over {@link DefaultLabelConfig}.
+   */
   constructor(renderer: WebGLRenderer, options?: Partial<LabelManagerConfig>) {
     this.config = { ...DefaultLabelConfig, ...options };
     this.collision = new LabelCollisionEngine(renderer, this.config);
-    this.atlasManager = new LabelAtlasManager(this.config);
-    this.mesh = { fill: this.meshGroup.fillMesh, halo: this.meshGroup.haloMesh };
+    this._atlasManager = new LabelAtlasManager(this.config);
+    this.mesh = { fill: this._meshManager.fillMesh, halo: this._meshManager.haloMesh };
 
-    this.atlasManager.onChange(() => {
+    this._atlasManager.onChange(() => {
       if (!this.config.autoUpdate) return;
       queueMicrotask(() => this.update());
     });
   }
 
+  /** Adds one label. See {@link InstancedLabelManager.addLabels}. */
   addLabel(label: Label) {
     this.addLabels([label]);
   }
 
+  /**
+   * Take ownership of labels: they get glyphs, buffer slots and a first layout
+   * on the next sync, and are placed by the next {@link cull}.
+   *
+   * @param labels - Labels to add; any already owned are ignored.
+   */
   addLabels(labels: Label[]) {
-    this.atlasManager.addLabels(labels);
+    this._atlasManager.addLabels(labels);
     this._lastCullTime = 0;
   }
 
+  /** Removes one label. See {@link InstancedLabelManager.removeLabels}. */
   removeLabel(label: Label) {
     this.removeLabels([label]);
   }
 
+  /**
+   * Release labels: their buffer slots are freed on the next sync. The label
+   * objects themselves are left alone, so they can be added again later.
+   *
+   * @param labels - Labels to remove; any not owned are ignored.
+   */
   removeLabels(labels: Label[]) {
-    this.atlasManager.removeLabels(labels);
+    this._atlasManager.removeLabels(labels);
     this._lastCullTime = 0;
   }
 
+  /** Releases every label at once. See {@link removeLabels}. */
+  clear() {
+    this.removeLabels([...this._atlasManager.labels]);
+  }
+
+  /**
+   * Flush pending label work to the GPU. Called automatically on the microtask
+   * after any change while `config.autoUpdate` is on; call it yourself when it
+   * is off.
+   */
   update() {
-    if (!this.atlasManager.hasDirty) return;
+    if (!this._atlasManager.hasDirty) return;
     this._sync();
     this._lastCullTime = 0;
   }
 
+  /**
+   * Re-place labels at `config.cullingRate`, step the fades,
+   * and rewrite the draw list if anything changed. Call once per rendered frame,
+   * before the renderer draws.
+   *
+   * @param camera - Its `projectionMatrix` and `matrixWorldInverse` must be up to
+   * date.
+   */
   cull(camera: Camera) {
     const now = performance.now();
     const frameDelta = now - this._lastFrameTime;
@@ -71,7 +112,7 @@ export class InstancedLabelManager {
 
     const cullDelta = now - this._lastCullTime;
 
-    // Evaluate normally at the culling rate...
+    // Evaluate normally at the culling rate
     let evaluated = false;
     if (cullDelta >= this.config.cullingRate * 1000) {
       if (this.collision.evaluate(camera)) visualNeedUpdate = true;
@@ -79,7 +120,7 @@ export class InstancedLabelManager {
       evaluated = true;
     }
 
-    const labels = this.atlasManager.labels;
+    const labels = this._atlasManager.labels;
 
     // keep evaluating on label fading out/in
     if (!evaluated) {
@@ -109,24 +150,27 @@ export class InstancedLabelManager {
 
     if (!visualNeedUpdate) return;
 
-    this.meshGroup.cull(labels);
+    this._meshManager.cull(labels);
   }
 
+  /**
+   * Release every resource.
+   */
   dispose() {
-    this.atlasManager.dispose();
-    this.meshGroup.dispose();
+    this._atlasManager.dispose();
+    this._meshManager.dispose();
     this.collision.dispose();
   }
 
   /**
-   * Rasterizes pending glyphs, then pushes the pending label work to the mesh.
-   * The atlas syncs first: a resize moves existing glyphs, which promotes every
-   * label to a relayout.
+   * Rasterizes pending glyphs, then pushes pending label work to the mesh. The
+   * atlas syncs first: a resize moves existing glyphs, which promotes every label
+   * to a relayout.
    */
   private _sync() {
-    const { atlas } = this.atlasManager;
-    const { dirty } = this.atlasManager.syncAtlas();
-    const { add, relayout, update, dispose } = this.atlasManager.flushDirty();
+    const { atlas } = this._atlasManager;
+    const { dirty } = this._atlasManager.syncAtlas();
+    const { add, relayout, update, dispose } = this._atlasManager.flushDirty();
 
     // Both consumers key removals by id — build the list once.
     const disposedIds = dispose.map(label => label.id);
@@ -153,13 +197,13 @@ export class InstancedLabelManager {
       update.push(label);
     }
 
-    this.meshGroup.update(
+    this._meshManager.update(
       add,
       disposedIds,
       update,
       dirty ? atlas : undefined,
     );
 
-    this.meshGroup.cull(this.atlasManager.labels);
+    this._meshManager.cull(this._atlasManager.labels);
   }
 }

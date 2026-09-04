@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { Group, Mesh } from 'three';
+import type { Group } from 'three';
 import {
   Label,
   RotationAlignment,
@@ -54,7 +54,6 @@ export function InstancedLabelComponent({
   pxPerUnit = 1024,
 }: InstancedLabelsProps) {
   const groupRef = useRef<Group>(null);
-  const debugMeshRef = useRef<Mesh>(null);
   const camera = useThree(state => state.camera);
   const renderer = useThree(state => state.gl);
 
@@ -77,17 +76,6 @@ export function InstancedLabelComponent({
       managerRef.current = null;
     };
   }, []); // dispose only on real unmount
-
-  // Manager created once per pxPerUnit change only
-  // const manager = useMemo(() => {
-  //   const m = new InstancedLabelManager(
-  //     pxPerUnit,
-  //     renderer
-  //   );
-
-  //   m.autoUpdate = false;
-  //   return m;
-  // }, [pxPerUnit, renderer]);
 
   useEffect(() => {
     const group = groupRef.current;
@@ -147,15 +135,5 @@ export function InstancedLabelComponent({
     manager.cull(camera);
   });
 
-  return (
-    <group ref={groupRef}>
-      <mesh
-        ref={debugMeshRef}
-        geometry={debugMeshRef.current?.geometry}
-        material={debugMeshRef.current?.material}
-        renderOrder={9999}
-        frustumCulled={false}
-      />
-    </group>
-  );
+  return <group ref={groupRef} />;
 }

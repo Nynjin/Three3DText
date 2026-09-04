@@ -8,39 +8,29 @@ import type { LabelManagerConfig } from '../Types/LabelConfig';
 /**
  * @description Greedy nearest-first label culling.
  *
- * Each evaluation projects every candidate label to a screen-space AABB with
- * {@link LabelProjector} and tries to claim that region in a
- * {@link BitmapOccupancy}. Labels are visited in ascending camera distance —
- * the order comes from {@link RadixSorter} — so a near label claims its region
- * before anything behind it can contest it, and a label whose region is
- * already too crowded is dropped.
+ * Each evaluation projects every candidate to a screen-space AABB and tries to
+ * claim that region in a {@link BitmapOccupancy}, nearest label first, so a
+ * near label takes its region before anything behind it can contest it.
+ * Everything works in screen pixels; the bitmap converts to its cell grid.
  *
- * Everything downstream of the projector works in screen pixels; the bitmap
- * owns the conversion to its coarser cell grid.
- *
- * Decisions must be stable between frames or labels visibly flicker, so two
- * mechanisms favour the status quo: a label culled last frame sorts as if it
- * were further away, and one already on screen may hold a region that is up to
- * `config.occlusionTolerance` taken, where a label appearing for the first time
- * needs a completely free one. Ties in camera distance fall back to label order.
- *
- * The pass is skipped entirely while the view-projection matrix and the
- * viewport both hold still.
+ * Two rules favour the status quo, or labels flicker between frames: a label
+ * culled last frame sorts as if it were further away, and one already on screen
+ * may claim a region up to `config.occlusionTolerance` taken where a new label
+ * needs a free one.
  *
  * @see {@link LabelCollisionEngine.evaluate} for the per-frame entry point.
  */
 export class LabelCollisionEngine {
   private _labels: Label[] = [];
 
-  /**
-   * Labels that passed the validity and frustum gates this frame, in `labels`
-   * order. Refilled in place by `collectCandidates`; `length` is the live count.
-   */
+  /** Membership mirror of `labels`, so an append does not have to scan it. */
+  private _tracked = new Set<Label>();
+
+  /** Labels that passed this frame's gates, refilled in place per evaluation. */
   private _candidates: Label[] = [];
 
   /**
-   * Sort keys parallel to `candidates`: squared camera distance scaled by
-   * `config.renderPenaltyMultiplier`. Capacity tracks `labels.length`, so only
+   * Sort keys parallel to `candidates`. Capacity tracks `labels.length`, so only
    * the first `candidates.length` entries are meaningful.
    */
   private _sortKeys = new Float32Array(0);
@@ -58,7 +48,6 @@ export class LabelCollisionEngine {
   private _screenH = 1;
 
   private readonly _lastVP = new Matrix4();
-  private readonly _lastVPSort = new Matrix4();
 
   private readonly _scratchAABB: ScreenAABB = { x0: 0, y0: 0, x1: 0, y1: 0 };
 
@@ -86,55 +75,28 @@ export class LabelCollisionEngine {
   }
 
   /**
-   * Replace the tracked label set. The array is held by reference, not copied,
-   * so later mutations of it are picked up by the next evaluation.
-   *
-   * @param labels - New label set. Ignored when it is already the tracked
-   * array, even if its contents changed — use
-   * {@link LabelCollisionEngine.addLabels} to append in that case.
-   */
-  setLabels(labels: Label[]) {
-    if (labels === this._labels) return;
-    this._labels = labels;
-    // `dirty` forces a refill before `candidates` is read again, so dropping
-    // the stale references is all that is needed here.
-    this._candidates.length = 0;
-    this._dirty = true;
-  }
-
-  /**
    * Append labels that are not tracked yet.
    *
-   * @param labels - Labels to add; any already tracked are skipped. Costs
-   * `O(labels.length * tracked)`, so prefer
-   * {@link LabelCollisionEngine.setLabels} for a bulk replacement.
+   * @param labels - Labels to add; any already tracked are skipped.
    */
   addLabels(labels: Label[]) {
     for (const label of labels) {
-      if (!this._labels.includes(label)) {
-        this._labels.push(label);
-        this._dirty = true;
-      }
+      if (this._tracked.has(label)) continue;
+      this._tracked.add(label);
+      this._labels.push(label);
+      this._dirty = true;
     }
   }
 
-  /** Drop every tracked label. Their `shouldRender` is left as it stands. */
-  clear() {
-    this._labels = [];
-    this._candidates.length = 0;
-    this._dirty = true;
-  }
-
   /**
-   * Stop tracking labels by id.
-   *
-   * @param ids - Ids to remove; untracked ids are ignored. Removed labels keep
-   * whatever `shouldRender` they last had.
+   * Stop tracking labels by id. Untracked ids are ignored, and removed labels
+   * keep whatever `shouldRender` they last had.
    */
   removeLabels(ids: string[]) {
     if (ids.length === 0) return;
     const s = new Set(ids);
     this._labels = this._labels.filter(l => !s.has(l.id));
+    this._tracked = new Set(this._labels);
     this._candidates.length = 0;
     this._dirty = true;
   }
@@ -142,21 +104,19 @@ export class LabelCollisionEngine {
   /**
    * Recompute `shouldRender` across the tracked labels for this camera.
    *
-   * Skipped entirely, touching nothing, when the view-projection matrix has
-   * moved no further than `config.viewProjThreshold`, the viewport is
-   * unchanged, and no label-set mutation has marked the engine dirty.
+   * Skipped, touching nothing, while the view has moved no further than
+   * `config.viewProjThreshold` and nothing has marked the engine dirty. Labels
+   * failing the candidate gate — invisible, transparent, empty or off screen —
+   * keep their previous `shouldRender`.
    *
-   * Labels that fail the candidate gate — invisible, transparent, empty, or
-   * outside the frustum — keep their previous `shouldRender`.
+   * @param camera - Its `projectionMatrix` and `matrixWorldInverse` must be up to
+   * date.
    *
-   * @param camera - Camera to evaluate against. Its `projectionMatrix` and
-   * `matrixWorldInverse` must already be up to date.
-   *
-   * @returns `true` if the pass ran and some label's `shouldRender` may have
-   * changed, `false` if it was skipped.
+   * @returns `true` if the pass ran, `false` if it was skipped.
    */
   evaluate(camera: Camera): boolean {
     if (this._labels.length === 0) return false;
+
     const viewportChanged = this._syncToViewport();
 
     this._frustumMatrix.multiplyMatrices(
@@ -167,13 +127,11 @@ export class LabelCollisionEngine {
 
     if (
       !this._dirty
-      && viewDiff <= this._config.viewProjThreshold
       && !viewportChanged
+      && viewDiff <= this._config.viewProjThreshold
     ) {
       return false;
     }
-
-    this._lastVP.copy(this._frustumMatrix);
 
     this._projector.setFrame(
       camera.matrixWorldInverse,
@@ -181,21 +139,32 @@ export class LabelCollisionEngine {
       this._screenW,
       this._screenH,
     );
+
+    this._lastVP.copy(this._frustumMatrix);
     this._bitmap.clear();
+    this._dirty = false;
 
     const count = this._collectCandidates(camera);
     const order = this._sorter.sort(this._sortKeys, count);
 
-    this._lastVPSort.copy(this._frustumMatrix);
-    this._dirty = false;
-
     const occlusionTolerance = this._config.occlusionTolerance;
+    const maxX = this._screenW - 1;
+    const maxY = this._screenH - 1;
 
     const aabb = this._scratchAABB;
     for (let i = 0; i < count; i++) {
       const label = this._candidates[order[i]];
 
-      if (!this._projector.project(label, aabb)) {
+      // A label hanging off the viewport edge is dropped rather than clipped:
+      // a clipped box would claim less space than the glyphs actually cover.
+      const placeable
+        = this._projector.project(label, aabb)
+          && aabb.x0 >= 0
+          && aabb.y0 >= 0
+          && aabb.x1 <= maxX
+          && aabb.y1 <= maxY;
+
+      if (!placeable) {
         label.shouldRender = false;
         continue;
       }
@@ -220,18 +189,14 @@ export class LabelCollisionEngine {
   /**
    * Refill `candidates` and `sortKeys` from `labels` for the current frame.
    *
-   * Keys are squared distances, left unrooted because the sort only compares
-   * them. `config.renderPenaltyMultiplier` therefore scales squared distance,
-   * and the sort's buckets are uniform in squared distance too, which makes the
-   * order slightly coarser near the camera than far from it.
+   * Keys are squared distances, left unrooted since the sort only compares them,
+   * so `config.renderPenaltyMultiplier` scales squared distance and the order is
+   * coarser near the camera than far from it.
    *
-   * @param camera - Camera whose position the distances are measured from.
-   *
-   * @returns Number of candidates written, always `candidates.length`.
+   * @returns Number of candidates written.
    */
   private _collectCandidates(camera: Camera): number {
-    const labels = this._labels;
-    const n = labels.length;
+    const n = this._labels.length;
 
     if (this._sortKeys.length < n) {
       this._sortKeys = new Float32Array(Math.max(n, this._sortKeys.length * 2));
@@ -250,7 +215,7 @@ export class LabelCollisionEngine {
 
     let count = 0;
     for (let i = 0; i < n; i++) {
-      const label = labels[i];
+      const label = this._labels[i];
       const p = label.position;
       const dx = p.x - cx,
         dy = p.y - cy,
@@ -263,13 +228,11 @@ export class LabelCollisionEngine {
         = label.visible
           && label.opacity > 0
           && label.glyphs.length > 0
-          && label.bounds.width > 0
           // A NaN position slips past checkVisible, since every comparison
           // against NaN is false, and would make the sorter throw.
           && Number.isFinite(key)
           && this._projector.checkVisible(label);
 
-      label.isCandidate = isValid;
       if (!isValid) continue;
 
       keys[count] = key;
@@ -287,7 +250,7 @@ export class LabelCollisionEngine {
    * re-evaluation because every region claimed at the old size is gone. A
    * pixel-level resize too small to change the cell grid returns `false`.
    */
-  private _syncToViewport() {
+  private _syncToViewport(): boolean {
     const size = this._renderer.getSize(this._tmpVec2);
     this._screenW = Math.max(1, size.x);
     this._screenH = Math.max(1, size.y);
@@ -298,11 +261,7 @@ export class LabelCollisionEngine {
 // Helper functions
 
 /**
- * Cheap "has the view moved?" metric, compared against
- * `config.viewProjThreshold` to decide whether an evaluation can be skipped.
- *
- * @param a - First matrix.
- * @param b - Second matrix.
+ * Cheap "has the view moved?" metric for `config.viewProjThreshold`.
  *
  * @returns The largest absolute element-wise difference between the two.
  */
