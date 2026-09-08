@@ -13,6 +13,7 @@ uniform int uGlyphTexWidth;
 in vec2 vUv;
 flat in int vLabelId;
 flat in int vGlyphId;
+flat in float vOcclusionFade;
 
 out vec4 outColor;
 
@@ -30,9 +31,11 @@ vec4 glyphFetch(int instanceId, int texel) {
 
 void main() {
   vec4 g2 = glyphFetch(vGlyphId, 2);
+  vec4 t2 = labelFetch(vLabelId, 2);
   vec4 t3 = labelFetch(vLabelId, 3);
   vec4 t4 = labelFetch(vLabelId, 4);
   vec3 haloColor = t3.rgb;
+  float opacity = t2.a;
   float haloOpacity = t3.a;
   float haloWidth = t4.x;
   float haloBlur = t4.y;
@@ -61,6 +64,6 @@ void main() {
     discard;
   }
 
-  outColor = vec4(haloColor, alpha * haloOpacity);
+  outColor = vec4(haloColor, alpha * opacity * haloOpacity * (1.0 - vOcclusionFade));
 }
 `;

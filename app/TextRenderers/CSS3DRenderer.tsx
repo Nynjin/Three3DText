@@ -1,13 +1,13 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
-import { useFrame, useThree } from "@react-three/fiber";
+import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useFrame, useThree } from '@react-three/fiber';
 import {
   CSS3DRenderer,
   CSS3DObject,
-} from "three/examples/jsm/renderers/CSS3DRenderer.js";
-import type { Item } from "../Types/Item";
+} from 'three/examples/jsm/renderers/CSS3DRenderer.js';
+import type { Item } from '../Types/Item';
 
-function createDiv(text: Item["text"]) {
-  const div = document.createElement("div");
+function createDiv(text: Item['text']) {
+  const div = document.createElement('div');
   div.textContent = text;
   div.style.cssText = `
         color: black;
@@ -27,9 +27,9 @@ export function CSS3DCloud({ items, halo }: { items: Item[]; halo: boolean }) {
   useEffect(() => {
     const renderer = new CSS3DRenderer();
     renderer.setSize(size.width, size.height);
-    renderer.domElement.style.position = "absolute";
-    renderer.domElement.style.top = "0";
-    renderer.domElement.style.pointerEvents = "none";
+    renderer.domElement.style.position = 'absolute';
+    renderer.domElement.style.top = '0';
+    renderer.domElement.style.pointerEvents = 'none';
     gl.domElement.parentElement?.appendChild(renderer.domElement);
     cssRenderer.current = renderer;
 
@@ -44,16 +44,16 @@ export function CSS3DCloud({ items, halo }: { items: Item[]; halo: boolean }) {
     for (const [key, obj] of map) {
       if (!nextKeys.has(key)) {
         scene.remove(obj);
-        obj.element.remove?.();
+        obj.element.remove();
         map.delete(key);
       }
     }
     for (const { key, text, position, rotation } of items) {
       if (!map.has(key)) {
         const div = createDiv(text);
-        div.style.backgroundColor = halo ? "#cccccc" : "";
+        div.style.backgroundColor = halo ? '#cccccc' : '';
         const obj = new CSS3DObject(div);
-        div.remove?.();
+        div.remove();
         obj.position.set(...position);
         obj.rotation.set(...rotation);
         scene.add(obj);
@@ -65,14 +65,14 @@ export function CSS3DCloud({ items, halo }: { items: Item[]; halo: boolean }) {
 
   useEffect(() => {
     for (const obj of mapRef.current.values()) {
-      obj.element.style.backgroundColor = halo ? "#cccccc" : "";
+      obj.element.style.backgroundColor = halo ? '#cccccc' : '';
     }
   }, [halo]);
 
   useEffect(() => () => {
     for (const obj of mapRef.current.values()) {
       scene.remove(obj);
-      obj.element.remove?.();
+      obj.element.remove();
     }
     mapRef.current.clear();
   }, [scene]);

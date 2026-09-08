@@ -1,10 +1,6 @@
-import { Color, Euler, Quaternion, Vector2, Vector3 } from "three";
-import {
-  toColor,
-  toQuaternion,
-  toVector2,
-  toVector3,
-} from "../Utils/LabelUtils";
+import { Color, Euler, Quaternion, Vector2, Vector3 } from 'three';
+import type { GlyphInstance } from './Shaping/GlyphRun';
+import { DEFAULT_FONT_KEY, fontKeyStr, normalizeFontWeight, type FontKey, type FontStyle, type FontWeight, type FontWeightName } from './Shaping/FontKey';
 
 export enum TextAnchorX {
   Left = 0,
@@ -42,22 +38,35 @@ export enum RotationAlignment {
 export enum SymbolPlacement {
   Point = 0,
   Line = 1,
-  "Line-Center" = 2,
+  'Line-Center' = 2,
 }
 
-// TODO : there aren't cases that require masking yet
-export enum LabelChangeType {
-  None = 0,
-  Font = 1 << 0,
-  Text = 1 << 1,
-  Layout = 1 << 2,
-  Style = 1 << 3,
-  Transform = 1 << 4,
-  Visibility = 1 << 5,
-  Dispose = 1 << 6,
+export const LabelChangeType = {
+  None: 0,
+  Font: 1 << 0,
+  Text: 1 << 1,
+  Layout: 1 << 2,
+  Style: 1 << 3,
+  Transform: 1 << 4,
+  Visibility: 1 << 5,
+  Dispose: 1 << 6,
+} as const;
+
+export type LabelChangeMask = number;
+
+export interface TextPadding {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
 }
 
-export type LabelChangeListener = (changes: LabelChangeType) => void;
+export interface LabelBounds {
+  width: number;
+  height: number;
+}
+
+export type LabelChangeListener = (changes: LabelChangeMask) => void;
 
 export interface LabelOptions {
   // Content
@@ -71,7 +80,8 @@ export interface LabelOptions {
   // Font
   font?: string;
   fontSize?: number;
-  fontWeight?: string;
+  fontWeight?: FontWeight | FontWeightName;
+  fontStyle?: FontStyle;
   letterSpacing?: number;
   lineHeight?: number;
 
@@ -80,7 +90,7 @@ export interface LabelOptions {
   textAlign?: TextAlign;
   anchorX?: TextAnchorX;
   anchorY?: TextAnchorY;
-  padding?: [number, number, number, number]; // top, right, bottom, left
+  padding?: TextPadding | number | [number, number, number, number]; // top, right, bottom, left
 
   // Fill
   color?: string | number | Color | Vector3;
@@ -99,64 +109,82 @@ export interface LabelOptions {
 
   // Transform
   textTransform?: TextTransform;
+
+  // Bounds in label-local space
+  bounds?: LabelBounds;
+
+  // GLyphs
+  glyphs?: GlyphInstance[];
 }
 
 export class Label {
   private _listeners = new Set<LabelChangeListener>();
 
   // Unique id
-  private _id: string;
+  private readonly _id: string;
 
   // Content
-  private _text: string;
-  private _textTransform: TextTransform;
+  private _text: string = '';
+  private _textTransform: TextTransform = TextTransform.None;
 
   // Position & Transform
-  private _position: Vector3;
-  private _rotation: Quaternion;
-  private _offset: Vector2;
+  private _position: Vector3 = new Vector3();
+  private _rotation: Quaternion = new Quaternion();
+  private _offset: Vector2 = new Vector2();
 
   // Font
-  private _font: string;
-  private _fontSize: number;
-  private _fontWeight: string;
-  private _letterSpacing: number;
-  private _lineHeight: number;
+  private _fontKey: FontKey = DEFAULT_FONT_KEY;
+  private _fontKeyStr: string = fontKeyStr(DEFAULT_FONT_KEY);
+  private _fontSize = 20;
+  private _letterSpacing = 0;
+  private _lineHeight = 1.2;
 
   // Layout
-  private _maxWidth: number;
-  private _textAlign: TextAlign;
-  private _anchorX: TextAnchorX;
-  private _anchorY: TextAnchorY;
-  private _padding: [number, number, number, number];
+  private _maxWidth = Infinity;
+  private _textAlign = TextAlign.Auto;
+  private _anchorX = TextAnchorX.Left;
+  private _anchorY = TextAnchorY.Top;
+  private _padding: TextPadding = { top: 20, right: 20, bottom: 20, left: 20 };
 
   // Fill
-  private _color: Color;
-  private _opacity: number;
+  private _color: Color = new Color();
+  private _opacity: number = 1;
 
   // Halo
-  private _haloColor: Color;
-  private _haloWidth: number;
-  private _haloBlur: number;
-  private _haloOpacity: number;
+  private _haloColor: Color = new Color();
+  private _haloWidth: number = 0;
+  private _haloBlur: number = 0;
+  private _haloOpacity: number = 1;
 
   // Rendering
-  private _rotationAlignment: RotationAlignment;
-  private _symbolPlacement: SymbolPlacement;
+  private _rotationAlignment: RotationAlignment = RotationAlignment.Map;
+  private _symbolPlacement: SymbolPlacement = SymbolPlacement.Point;
 
   // Visibility
-  private _visible: boolean;
+  private _visible: boolean = true;
+
+  // Occlusion & Render
+  occlusionFade: number = 1;
+  shouldRender: boolean = false;
+  bounds: LabelBounds = { width: 0, height: 0 };
+
+  // Glyphs
+  glyphs: GlyphInstance[] = [];
+
+  constructor(options: LabelOptions) {
+    this._id = crypto.randomUUID();
+    this.set(options, true);
+  }
 
   get id() {
     return this._id;
   }
-  set id(_) {
-    console.warn("Label.id is read-only.");
-  }
 
+  // Text properties
   get text() {
     return this._text;
   }
+
   set text(value: string) {
     this._text = value;
     this._emit(LabelChangeType.Text);
@@ -165,250 +193,10 @@ export class Label {
   get textTransform() {
     return this._textTransform;
   }
+
   set textTransform(value: TextTransform) {
     this._textTransform = value;
     this._emit(LabelChangeType.Text);
-  }
-
-  get position(): Vector3 {
-    return this._position;
-  }
-  set position(value: Vector3 | [number, number, number]) {
-    this._position = toVector3(value);
-    this._emit(LabelChangeType.Transform);
-  }
-
-  get rotation(): Quaternion {
-    return this._rotation;
-  }
-  set rotation(value: [number, number, number] | Euler | Quaternion) {
-    this._rotation = toQuaternion(value);
-    this._emit(LabelChangeType.Transform);
-  }
-
-  get offset(): Vector2 {
-    return this._offset;
-  }
-  set offset(value: Vector2 | [number, number]) {
-    this._offset = toVector2(value);
-    this._emit(LabelChangeType.Layout);
-  }
-
-  get font() {
-    return this._font;
-  }
-  set font(value: string) {
-    this._font = value;
-    this._emit(LabelChangeType.Font);
-  }
-
-  get fontSize() {
-    return this._fontSize;
-  }
-  set fontSize(value: number) {
-    this._fontSize = value;
-    this._emit(LabelChangeType.Font);
-  }
-
-  get fontWeight() {
-    return this._fontWeight;
-  }
-  set fontWeight(value: string) {
-    this._fontWeight = value;
-    this._emit(LabelChangeType.Font);
-  }
-
-  get letterSpacing() {
-    return this._letterSpacing;
-  }
-  set letterSpacing(value: number) {
-    this._letterSpacing = value;
-    this._emit(LabelChangeType.Layout);
-  }
-
-  get lineHeight() {
-    return this._lineHeight;
-  }
-  set lineHeight(value: number) {
-    this._lineHeight = value;
-    this._emit(LabelChangeType.Layout);
-  }
-
-  get maxWidth() {
-    return this._maxWidth;
-  }
-  set maxWidth(value: number) {
-    this._maxWidth = value;
-    this._emit(LabelChangeType.Layout);
-  }
-
-  get textAlign() {
-    return this._textAlign;
-  }
-  set textAlign(value: TextAlign) {
-    this._textAlign = value;
-    this._emit(LabelChangeType.Layout);
-  }
-
-  get anchorX() {
-    return this._anchorX;
-  }
-  set anchorX(value: TextAnchorX) {
-    this._anchorX = value;
-    this._emit(LabelChangeType.Layout);
-  }
-
-  get anchorY() {
-    return this._anchorY;
-  }
-  set anchorY(value: TextAnchorY) {
-    this._anchorY = value;
-    this._emit(LabelChangeType.Layout);
-  }
-
-  get padding() {
-    return this._padding;
-  }
-  set padding(value: [number, number, number, number]) {
-    this._padding = value;
-    this._emit(LabelChangeType.Layout);
-  }
-
-  get color(): Color {
-    return this._color;
-  }
-  set color(value: string | number | Color | Vector3) {
-    this._color = toColor(value);
-    this._emit(LabelChangeType.Style);
-  }
-
-  get opacity() {
-    return this._opacity;
-  }
-  set opacity(value: number) {
-    this._opacity = value;
-    this._emit(LabelChangeType.Style);
-  }
-
-  get haloColor(): Color {
-    return this._haloColor;
-  }
-  set haloColor(value: string | number | Color | Vector3) {
-    this._haloColor = toColor(value);
-    this._emit(LabelChangeType.Style);
-  }
-
-  get haloWidth() {
-    return this._haloWidth;
-  }
-  set haloWidth(value: number) {
-    this._haloWidth = this._clampHaloWidth(value);
-    this._emit(LabelChangeType.Style);
-  }
-
-  get haloBlur() {
-    return this._haloBlur;
-  }
-  set haloBlur(value: number) {
-    this._haloBlur = this._clampHaloBlur(value);
-    this._emit(LabelChangeType.Style);
-  }
-
-  get haloOpacity() {
-    return this._haloOpacity;
-  }
-  set haloOpacity(value: number) {
-    this._haloOpacity = value;
-    this._emit(LabelChangeType.Style);
-  }
-
-  get rotationAlignment() {
-    return this._rotationAlignment;
-  }
-  set rotationAlignment(value: RotationAlignment) {
-    this._rotationAlignment = value;
-    this._emit(LabelChangeType.Style);
-  }
-
-  get symbolPlacement() {
-    return this._symbolPlacement;
-  }
-  set symbolPlacement(value: SymbolPlacement) {
-    this._symbolPlacement = value;
-    this._emit(LabelChangeType.Style);
-  }
-
-  get visible() {
-    return this._visible && this._opacity > 0;
-  }
-  set visible(value: boolean) {
-    this._visible = value;
-    this._emit(LabelChangeType.Visibility);
-  }
-
-  constructor(options: LabelOptions) {
-    this._id = crypto.randomUUID();
-
-    this._text = options.text;
-
-    this._position = options.position
-      ? toVector3(options.position)
-      : new Vector3();
-    this._rotation = options.rotation
-      ? toQuaternion(options.rotation)
-      : new Quaternion();
-    this._offset = options.offset ? toVector2(options.offset) : new Vector2();
-
-    this._font = options.font ?? "sans-serif";
-    this._fontSize = options.fontSize ?? 16;
-    this._fontWeight = options.fontWeight ?? "normal";
-    this._letterSpacing = options.letterSpacing ?? 0;
-    this._lineHeight = options.lineHeight ?? 0.5;
-
-    this._maxWidth = options.maxWidth ?? 10;
-    this._textAlign = options.textAlign ?? TextAlign.Center;
-    this._anchorX = options.anchorX ?? TextAnchorX.Center;
-    this._anchorY = options.anchorY ?? TextAnchorY.Middle;
-    this._padding = options.padding ?? [0, 0, 0, 0];
-
-    this._color =
-      options.color !== undefined ? toColor(options.color) : new Color(0, 0, 0);
-    this._opacity = options.opacity ?? 1;
-
-    this._haloColor =
-      options.haloColor !== undefined
-        ? toColor(options.haloColor)
-        : new Color(1, 1, 1);
-    this._haloWidth = this._clampHaloWidth(options.haloWidth ?? 0);
-    this._haloBlur = this._clampHaloBlur(options.haloBlur ?? 0);
-    this._haloOpacity = options.haloOpacity ?? 1;
-
-    this._rotationAlignment =
-      options.rotationAlignment ?? RotationAlignment.Map;
-    this._symbolPlacement = options.symbolPlacement ?? SymbolPlacement.Point;
-    this._visible = options.visible !== undefined ? options.visible : true;
-
-    this._textTransform = options.textTransform ?? TextTransform.None;
-  }
-
-  _clampHaloWidth(value: number): number {
-    if (value > this._fontSize * 4) {
-      console.warn(
-        `Label.haloWidth ${value} is too large for fontSize ${this._fontSize}. Clamping to ${this._fontSize * 4}.`,
-      );
-      return this._fontSize * 4;
-    }
-    return value;
-  }
-
-  _clampHaloBlur(value: number): number {
-    if (value > this._fontSize * 4) {
-      console.warn(
-        `Label.haloBlur ${value} is too large for fontSize ${this._fontSize}. Clamping to ${this._fontSize * 4}.`,
-      );
-      return this._fontSize * 4;
-    }
-    return value;
   }
 
   /** Get transformed text based on textTransform property */
@@ -419,10 +207,229 @@ export class Label {
       case TextTransform.Lowercase:
         return this._text.toLowerCase();
       case TextTransform.Capitalize:
-        return this._text.replace(/\b\w/g, (c) => c.toUpperCase());
+        return this._text.replace(/\b\w/g, c => c.toUpperCase());
       default:
         return this._text;
     }
+  }
+
+  // Transform properties
+  get position(): Vector3 {
+    return this._position;
+  }
+
+  set position(value: Vector3 | [number, number, number]) {
+    this._position = toVector3(value);
+    this._emit(LabelChangeType.Transform);
+  }
+
+  get rotation(): Quaternion {
+    return this._rotation;
+  }
+
+  set rotation(value: [number, number, number] | Euler | Quaternion) {
+    this._rotation = toQuaternion(value);
+    this._emit(LabelChangeType.Transform);
+  }
+
+  get offset(): Vector2 {
+    return this._offset;
+  }
+
+  set offset(value: Vector2 | [number, number]) {
+    this._offset = toVector2(value);
+    this._emit(LabelChangeType.Layout);
+  }
+
+  // Font properties
+
+  /** The label's font identity, shared by reference — never mutate it. */
+  get fontKey(): FontKey {
+    return this._fontKey;
+  }
+
+  /** Cached identity of {@link fontKey}, for grouping labels by font. */
+  get fontKeyStr(): string {
+    return this._fontKeyStr;
+  }
+
+  get font() {
+    return this._fontKey.font;
+  }
+
+  set font(value: string) {
+    this._setFontKey({ ...this._fontKey, font: value });
+  }
+
+  get fontSize() {
+    return this._fontSize;
+  }
+
+  set fontSize(value: number) {
+    this._fontSize = value;
+    this._emit(LabelChangeType.Layout);
+  }
+
+  get fontWeight(): FontWeight {
+    return this._fontKey.weight;
+  }
+
+  /** Accepts an alias name; always reads back as the canonical weight. */
+  set fontWeight(value: FontWeight | FontWeightName) {
+    this._setFontKey({ ...this._fontKey, weight: normalizeFontWeight(value) });
+  }
+
+  get fontStyle() {
+    return this._fontKey.style;
+  }
+
+  set fontStyle(value: FontStyle) {
+    this._setFontKey({ ...this._fontKey, style: value });
+  }
+
+  /**
+   * Replaces the font key, keeping its cached identity in sync. A no-op set is
+   * dropped here so it can't evict the label from its font group.
+   */
+  private _setFontKey(next: FontKey) {
+    const nextStr = fontKeyStr(next);
+    if (nextStr === this._fontKeyStr) return;
+
+    this._fontKey = next;
+    this._fontKeyStr = nextStr;
+    this._emit(LabelChangeType.Font);
+  }
+
+  get letterSpacing() {
+    return this._letterSpacing;
+  }
+
+  set letterSpacing(value: number) {
+    this._letterSpacing = value;
+    this._emit(LabelChangeType.Layout);
+  }
+
+  get lineHeight() {
+    return this._lineHeight;
+  }
+
+  set lineHeight(value: number) {
+    this._lineHeight = value;
+    this._emit(LabelChangeType.Layout);
+  }
+
+  get maxWidth() {
+    return this._maxWidth;
+  }
+
+  set maxWidth(value: number) {
+    this._maxWidth = value;
+    this._emit(LabelChangeType.Layout);
+  }
+
+  get textAlign() {
+    return this._textAlign;
+  }
+
+  set textAlign(value: TextAlign) {
+    this._textAlign = value;
+    this._emit(LabelChangeType.Layout);
+  }
+
+  get anchorX() {
+    return this._anchorX;
+  }
+
+  set anchorX(value: TextAnchorX) {
+    this._anchorX = value;
+    this._emit(LabelChangeType.Layout);
+  }
+
+  get anchorY() {
+    return this._anchorY;
+  }
+
+  set anchorY(value: TextAnchorY) {
+    this._anchorY = value;
+    this._emit(LabelChangeType.Layout);
+  }
+
+  get padding(): TextPadding {
+    return this._padding;
+  }
+
+  set padding(value: TextPadding | number | [number, number, number, number]) {
+    this._padding = this._parsePadding(value);
+    this._emit(LabelChangeType.Layout);
+  }
+
+  /**
+   * Normalizes the shorthand padding forms to a {@link TextPadding}.
+   *
+   * @param value - One number for all sides, a `[top, right, bottom, left]`
+   * tuple, or an already-complete object.
+   *
+   * @returns The padding as an object. An object argument is returned as given,
+   * not copied.
+   */
+  private _parsePadding(value: TextPadding | number | [number, number, number, number]): TextPadding {
+    if (Array.isArray(value)) return { top: value[0], right: value[1], bottom: value[2], left: value[3] };
+    if (typeof value === 'number') return { top: value, right: value, bottom: value, left: value };
+    return value;
+  }
+
+  get color(): Color {
+    return this._color;
+  }
+
+  set color(value: string | number | Color | Vector3) {
+    this._color = toColor(value);
+    this._emit(LabelChangeType.Style);
+  }
+
+  get opacity() {
+    return this._opacity;
+  }
+
+  set opacity(value: number) {
+    this._opacity = value;
+    this._emit(LabelChangeType.Style);
+  }
+
+  get haloColor(): Color {
+    return this._haloColor;
+  }
+
+  set haloColor(value: string | number | Color | Vector3) {
+    this._haloColor = toColor(value);
+    this._emit(LabelChangeType.Style);
+  }
+
+  get haloWidth() {
+    return this._haloWidth;
+  }
+
+  set haloWidth(value: number) {
+    this._haloWidth = this._clampHalo('haloWidth', value);
+    this._emit(LabelChangeType.Style);
+  }
+
+  get haloBlur() {
+    return this._haloBlur;
+  }
+
+  set haloBlur(value: number) {
+    this._haloBlur = this._clampHalo('haloBlur', value);
+    this._emit(LabelChangeType.Style);
+  }
+
+  get haloOpacity() {
+    return this._haloOpacity;
+  }
+
+  set haloOpacity(value: number) {
+    this._haloOpacity = value;
+    this._emit(LabelChangeType.Style);
   }
 
   /** Check if halo should be rendered */
@@ -430,8 +437,60 @@ export class Label {
     return this._haloWidth > 0 && this._haloOpacity > 0;
   }
 
+  /** Get displayed halo opacity, affected by entire label opacity */
+  getDisplayedHaloOpacity(): number {
+    if (!this.hasHalo()) return 0;
+    return this._haloOpacity * this._opacity;
+  }
+
+  /**
+   * Caps a halo dimension at four times the font size, warning when it does.
+   * Wider than that and the SDF has no range left to encode the falloff.
+   *
+   * @param property - Property name, for the warning only.
+   * @param value - Requested value, in the same units as `fontSize`.
+   *
+   * @returns `value`, or the cap when it exceeds it.
+   */
+  private _clampHalo(property: 'haloWidth' | 'haloBlur', value: number): number {
+    const max = this._fontSize * 4;
+    if (value <= max) return value;
+
+    console.warn(
+      `Label.${property} ${value} is too large for fontSize ${this._fontSize}. Clamping to ${max}.`,
+    );
+    return max;
+  }
+
+  get rotationAlignment() {
+    return this._rotationAlignment;
+  }
+
+  set rotationAlignment(value: RotationAlignment) {
+    this._rotationAlignment = value;
+    this._emit(LabelChangeType.Style);
+  }
+
+  get symbolPlacement() {
+    return this._symbolPlacement;
+  }
+
+  set symbolPlacement(value: SymbolPlacement) {
+    this._symbolPlacement = value;
+    this._emit(LabelChangeType.Style);
+  }
+
+  get visible() {
+    return this._visible && this._opacity > 0;
+  }
+
+  set visible(value: boolean) {
+    this._visible = value;
+    this._emit(LabelChangeType.Visibility);
+  }
+
   /** Update multiple properties at once */
-  set(options: Partial<LabelOptions>): this {
+  set(options: Partial<LabelOptions>, silent = false): this {
     let changes = LabelChangeType.None;
 
     // Transform properties
@@ -448,18 +507,24 @@ export class Label {
       changes |= LabelChangeType.Layout;
     }
 
-    // Font properties
-    if (options.font !== undefined) {
-      this._font = options.font;
-      changes |= LabelChangeType.Font;
+    // Font properties — built in one pass so a multi-property set produces a
+    // single key, not one per property.
+    if (options.font !== undefined || options.fontWeight !== undefined || options.fontStyle !== undefined) {
+      const next: FontKey = {
+        font: options.font ?? this._fontKey.font,
+        weight: options.fontWeight !== undefined ? normalizeFontWeight(options.fontWeight) : this._fontKey.weight,
+        style: options.fontStyle ?? this._fontKey.style,
+      };
+      const nextStr = fontKeyStr(next);
+      if (nextStr !== this._fontKeyStr) {
+        this._fontKey = next;
+        this._fontKeyStr = nextStr;
+        changes |= LabelChangeType.Font;
+      }
     }
     if (options.fontSize !== undefined) {
       this._fontSize = options.fontSize;
-      changes |= LabelChangeType.Font;
-    }
-    if (options.fontWeight !== undefined) {
-      this._fontWeight = options.fontWeight;
-      changes |= LabelChangeType.Font;
+      changes |= LabelChangeType.Layout;
     }
 
     // Text content properties
@@ -498,7 +563,7 @@ export class Label {
       changes |= LabelChangeType.Layout;
     }
     if (options.padding !== undefined) {
-      this._padding = options.padding;
+      this._padding = this._parsePadding(options.padding);
       changes |= LabelChangeType.Layout;
     }
 
@@ -516,11 +581,11 @@ export class Label {
       changes |= LabelChangeType.Style;
     }
     if (options.haloWidth !== undefined) {
-      this._haloWidth = this._clampHaloWidth(options.haloWidth);
+      this._haloWidth = this._clampHalo('haloWidth', options.haloWidth);
       changes |= LabelChangeType.Style;
     }
     if (options.haloBlur !== undefined) {
-      this._haloBlur = this._clampHaloBlur(options.haloBlur);
+      this._haloBlur = this._clampHalo('haloBlur', options.haloBlur);
       changes |= LabelChangeType.Style;
     }
     if (options.haloOpacity !== undefined) {
@@ -542,26 +607,44 @@ export class Label {
       changes |= LabelChangeType.Visibility;
     }
 
-    this._emit(changes);
+    if (options.bounds !== undefined) {
+      this.bounds = options.bounds;
+      changes |= LabelChangeType.Style;
+    }
+
+    if (options.glyphs !== undefined) {
+      this.glyphs = options.glyphs;
+      changes |= LabelChangeType.Style;
+    }
+
+    if (!silent) {
+      this._emit(changes);
+    }
+
     return this;
   }
 
+  /**
+   * @returns An independent copy, including its current bounds and glyphs, with
+   * a fresh id and no listeners.
+   */
   clone(): Label {
     return new Label({
       text: this._text,
       position: this._position.clone(),
       rotation: this._rotation.clone(),
       offset: this._offset.clone(),
-      font: this._font,
+      font: this._fontKey.font,
       fontSize: this._fontSize,
-      fontWeight: this._fontWeight,
+      fontWeight: this._fontKey.weight,
+      fontStyle: this._fontKey.style,
       letterSpacing: this._letterSpacing,
       lineHeight: this._lineHeight,
       maxWidth: this._maxWidth,
       textAlign: this._textAlign,
       anchorX: this._anchorX,
       anchorY: this._anchorY,
-      padding: [...this._padding],
+      padding: { ...this._padding },
       color: this._color.clone(),
       opacity: this._opacity,
       haloColor: this._haloColor.clone(),
@@ -572,23 +655,75 @@ export class Label {
       symbolPlacement: this._symbolPlacement,
       visible: this._visible,
       textTransform: this._textTransform,
+      bounds: { ...this.bounds },
+      glyphs: this.glyphs.map(g => ({
+        glyph: { ...g.glyph },
+        offset: g.offset.clone(),
+        rotation: g.rotation ? g.rotation.clone() : undefined,
+      })),
     });
   }
 
+  /**
+   * Announces the label is finished, which makes any manager holding it release
+   * its slots, then drops every listener. The object itself stays usable.
+   */
   dispose() {
     this._emit(LabelChangeType.Dispose);
     this._listeners.clear();
   }
 
+  /**
+   * Subscribe to this label's own property changes.
+   *
+   * @param listener - Called with a {@link LabelChangeType} bitmask.
+   *
+   * @returns Unsubscribe function.
+   */
   onChange(listener: LabelChangeListener): () => void {
     this._listeners.add(listener);
     return () => this._listeners.delete(listener);
   }
 
-  private _emit(changes: LabelChangeType): void {
+  /**
+   * Notifies listeners of what changed. A `None` mask is dropped, so setters
+   * can emit unconditionally.
+   *
+   * @param changes - Bitmask of {@link LabelChangeType}.
+   */
+  private _emit(changes: LabelChangeMask): void {
     if (changes === LabelChangeType.None) return;
     for (const listener of this._listeners) {
       listener(changes);
     }
   }
+}
+
+// Utils
+
+function toColor(value: string | number | Color | Vector3): Color {
+  if (value instanceof Color) return value.clone();
+  if (value instanceof Vector3) return new Color(value.x, value.y, value.z);
+  return new Color(value);
+}
+
+function toVector2(value: [number, number] | Vector2): Vector2 {
+  if (value instanceof Vector2) return value.clone();
+  return new Vector2(...value);
+}
+
+function toVector3(
+  value: [number, number, number] | Vector3 | Color,
+): Vector3 {
+  if (value instanceof Vector3) return value.clone();
+  if (value instanceof Color) return new Vector3(value.r, value.g, value.b);
+  return new Vector3(...value);
+}
+
+function toQuaternion(
+  value: [number, number, number] | Euler | Quaternion,
+): Quaternion {
+  if (value instanceof Quaternion) return value.clone();
+  if (value instanceof Euler) return new Quaternion().setFromEuler(value);
+  return new Quaternion().setFromEuler(new Euler(...value, 'XYZ'));
 }

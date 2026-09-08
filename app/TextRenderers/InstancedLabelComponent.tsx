@@ -1,15 +1,15 @@
-import { useEffect, useMemo, useRef } from "react";
-import { Group } from "three";
+import { useEffect, useRef } from 'react';
+import type { Group } from 'three';
 import {
   Label,
   RotationAlignment,
   TextAlign,
   TextAnchorX,
   TextAnchorY,
-} from "../Labels/Core/Label";
-import { InstancedLabelManager } from "../Labels/Core/InstancedLabelManager";
-import { Item } from "../Types/Item";
-import { useFrame, useThree } from "@react-three/fiber";
+} from '../Core/Label';
+import { InstancedLabelManager } from '../Core/InstancedLabelManager';
+import type { Item } from '../Types/Item';
+import { useFrame, useThree } from '@react-three/fiber';
 
 export interface InstancedLabelsProps {
   items: Item[];
@@ -30,18 +30,19 @@ function makeLabel(
     position: item.position,
     rotation: item.rotation,
     rotationAlignment: RotationAlignment.Map,
-    color: "#000000",
-    haloColor: viewportPredicate(item) ? "#ffcccc" : "#cce5ff",
+    color: '#000000',
+    haloColor: viewportPredicate(item) ? '#ffcccc' : '#cce5ff',
     haloWidth: halo ? 1 : 0,
     haloBlur: halo ? 10 : 0,
-    font: "Arial",
+    font: 'Arial',
     fontSize,
     maxWidth: 5,
-    textAlign: TextAlign.Justify,
+    textAlign: TextAlign.Left,
     lineHeight: 1.2,
     offset: [0, 0],
-    anchorX: TextAnchorX.Center,
-    anchorY: TextAnchorY.Middle,
+    anchorX: TextAnchorX.Left,
+    anchorY: TextAnchorY.Top,
+    padding: [20, 20, 20, 20],
   });
 }
 
@@ -50,29 +51,39 @@ export function InstancedLabelComponent({
   halo,
   viewportPredicate,
   fontSize = 20,
-  pxPerUnit = 96,
+  pxPerUnit = 1024,
 }: InstancedLabelsProps) {
   const groupRef = useRef<Group>(null);
-  const camera = useThree((state) => state.camera);
+  const camera = useThree(state => state.camera);
+  const renderer = useThree(state => state.gl);
 
   // Map of item.key to Label
   const labelMapRef = useRef<Map<number, Label>>(new Map());
-  // How many mesh pairs are already attached to the group
-  const attachedMeshCountRef = useRef(0);
+  // Whether the manager's mesh pair is attached to the group
+  const attachedRef = useRef(false);
 
-  // Manager created once per pxPerUnit change only
-  const manager = useMemo(() => {
-    const m = new InstancedLabelManager(pxPerUnit);
-    m.autoUpdate = false;
-    return m;
-  }, [pxPerUnit]);
+  const managerRef = useRef<InstancedLabelManager | null>(null);
+
+  managerRef.current ??= new InstancedLabelManager(renderer, {
+    pxPerUnit,
+    autoUpdate: false,
+    labelFar: 100,
+  });
+  const manager = managerRef.current;
+
+  useEffect(() => {
+    return () => {
+      managerRef.current?.dispose();
+      managerRef.current = null;
+    };
+  }, []); // dispose only on real unmount
 
   useEffect(() => {
     const group = groupRef.current;
     if (!group) return;
 
     const labelMap = labelMapRef.current;
-    const currentKeys = new Set(items.map((i) => i.key));
+    const currentKeys = new Set(items.map(i => i.key));
 
     // Remove labels whose items are gone
     const toRemove: Label[] = [];
@@ -104,13 +115,13 @@ export function InstancedLabelComponent({
       manager.update();
     }
 
-    // Attach any mesh pairs created by new font groups (lazy, incremental)
-    for (let i = attachedMeshCountRef.current; i < manager.meshes.length; i++) {
-      const { fill, halo: haloMesh } = manager.meshes[i];
-      group.add(haloMesh, fill);
+    // One mesh pair serves every font — attach it once.
+    if (!attachedRef.current) {
+      group.add(manager.mesh.halo, manager.mesh.fill);
+      attachedRef.current = true;
     }
-    attachedMeshCountRef.current = manager.meshes.length;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, manager, fontSize]);
 
   // Halo toggle — mutate labels in-place, no rebuild, no re-layout

@@ -21,11 +21,13 @@ uniform int uGlyphTexWidth;
 
 // Indirect draw index: points into glyphTex, set by culling
 attribute int glyphIndex;
+attribute float occlusionFade; // 0-1
 
 // Varyings for fragment shader
 out vec2 vUv;
 flat out int vLabelId;
 flat out int vGlyphId;
+flat out float vOcclusionFade;
 
 vec4 labelFetch(int instanceId, int texel) {
   int li = instanceId + texel;
@@ -58,10 +60,19 @@ vec4 computeViewportAlignedPosition(vec3 localPos, vec3 labelPos) {
   return projectionMatrix * vec4(posVS, 1.0);
 }
 
-// Calculate scale factor based on distance to camera
-float getDistanceScale(vec3 labelPos) {
+// Scale that keeps a glyph the same size in pixels wherever its label sits.
+//
+// The perspective divide shrinks geometry by the clip-space w of its position,
+// so scaling by that same w cancels it exactly. Under an orthographic camera w
+// is 1 and nothing is compensated, which is correct — it has no distance
+// falloff to undo.
+//
+// length(viewPos.xyz) is NOT this factor: it exceeds w by 1 / cos(angle from
+// the view axis), so a label swells as panning carries it away from the screen
+// centre and shrinks as it returns.
+float getScreenSizeScale(vec3 labelPos) {
   vec4 viewPos = modelViewMatrix * vec4(labelPos, 1.0);
-  return length(viewPos.xyz) / 10.0;
+  return abs((projectionMatrix * viewPos).w);
 }
 
 void main() {
@@ -70,6 +81,9 @@ void main() {
   // glyphIndex is the texture slot for this glyph set by culling
   int gId = glyphIndex;
   vGlyphId = gId;
+
+  // occlusionFade is set by culling based on label visibility
+  vOcclusionFade = occlusionFade;
 
   // Read glyph data first to get the label index
   vec4 g0 = glyphFetch(gId, 0);
@@ -85,7 +99,7 @@ void main() {
   int rotAlign = int(t5.x);
   int symPlace = int(t5.y);
 
-  float sizeScale = getDistanceScale(labelPos);
+  float sizeScale = getScreenSizeScale(labelPos);
   vec3 quad = position * vec3(size * sizeScale, 1.0);
   vec3 local = vec3(charOffset * sizeScale, 0.0) + quad;
 
