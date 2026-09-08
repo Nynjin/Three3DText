@@ -67,6 +67,7 @@ export function InstancedLabelComponent({
   managerRef.current ??= new InstancedLabelManager(renderer, {
     pxPerUnit,
     autoUpdate: false,
+    labelFar: 100,
   });
   const manager = managerRef.current;
 

@@ -213,6 +213,13 @@ export class LabelCollisionEngine {
       cz = camPos.z;
     const penalty = this._config.renderPenaltyMultiplier;
 
+    // Compared against squared distance, so the bounds are squared once here
+    // rather than rooting every label's distance.
+    const near = this._config.labelNear;
+    const nearSq = near > 0 ? near * near : 0;
+    const far = this._config.labelFar;
+    const farSq = far === Infinity ? Infinity : far * far;
+
     let count = 0;
     for (let i = 0; i < n; i++) {
       const label = this._labels[i];
@@ -221,8 +228,20 @@ export class LabelCollisionEngine {
         dy = p.y - cy,
         dz = p.z - cz;
 
-      let key = dx * dx + dy * dy + dz * dz;
-      if (!label.shouldRender) key *= penalty;
+      // Raw distance first: the penalty below reorders labels but must not move
+      // them across the near/far bounds.
+      //
+      // Unlike the gate below, this is a decision, not a lack of one: a label
+      // out of range is culled outright. Leaving `shouldRender` alone would let
+      // one placed inside the range keep drawing after the camera pulled it
+      // outside, never contesting its region again.
+      const distSq = dx * dx + dy * dy + dz * dz;
+      if (distSq < nearSq || distSq > farSq) {
+        label.shouldRender = false;
+        continue;
+      }
+
+      const key = label.shouldRender ? distSq : distSq * penalty;
 
       const isValid
         = label.visible

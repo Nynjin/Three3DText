@@ -25,7 +25,7 @@ export class InstancedLabelManager {
 
   /** All labels share one atlas and one mesh pair. */
   private readonly _atlasManager: LabelAtlasManager;
-  private readonly _meshManager = new LabelMeshManager();
+  private readonly _meshManager: LabelMeshManager;
 
   private _lastCullTime = 0;
   private _lastFrameTime = 0;
@@ -39,6 +39,7 @@ export class InstancedLabelManager {
     this.config = { ...DefaultLabelConfig, ...options };
     this.collision = new LabelCollisionEngine(renderer, this.config);
     this._atlasManager = new LabelAtlasManager(this.config);
+    this._meshManager = new LabelMeshManager(this.config);
     this.mesh = { fill: this._meshManager.fillMesh, halo: this._meshManager.haloMesh };
 
     this._atlasManager.onChange(() => {

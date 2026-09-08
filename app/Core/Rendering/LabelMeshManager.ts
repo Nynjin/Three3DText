@@ -17,6 +17,7 @@ import {
 import type { GlyphInstance } from '../Shaping/GlyphRun';
 import type { Label } from '../Label';
 import { InstancedDataTexture, type ItemAllocation } from './Textures/InstancedDataTexture';
+import type { LabelManagerConfig } from '../Types/LabelConfig';
 
 /**
  * T0: label position + opacity (x, y, z, -)
@@ -168,7 +169,15 @@ export class LabelMeshManager {
   private _labelStaging = new Float32Array(0);
   private _glyphStaging = new Float32Array(0);
 
-  constructor() {
+  private readonly _config: LabelManagerConfig;
+
+  /**
+   * @param config - Shared label-manager settings, held by reference so later
+   * edits take effect on the next cull.
+   */
+  constructor(config: LabelManagerConfig) {
+    this._config = config;
+
     const base = new PlaneGeometry(1, 1);
     this.geom.index = base.index;
     this.geom.attributes.position = base.attributes.position;
@@ -341,6 +350,7 @@ export class LabelMeshManager {
   cull(labels: Iterable<Label>) {
     let pos = 0;
     let hasHalo = false;
+    const gamma = this._config.fadeGamma;
 
     for (const label of labels) {
       if (!label.shouldRender && label.occlusionFade === 1) continue;
@@ -348,9 +358,14 @@ export class LabelMeshManager {
       const glyphIndices = this._glyphDataBuffer.getTexelIndicesOf(label.id);
       if (!glyphIndices) continue;
 
+      // Shaped once per label, not per glyph: every glyph shares the value.
+      const fade = gamma === 1
+        ? label.occlusionFade
+        : 1 - (1 - label.occlusionFade) ** gamma;
+
       for (let i = 0; i < glyphIndices.length; i++) {
         this._glyphIndex[pos] = glyphIndices[i];
-        this._occlusionFade[pos] = label.occlusionFade;
+        this._occlusionFade[pos] = fade;
         pos++;
       }
 
