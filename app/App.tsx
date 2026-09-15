@@ -12,7 +12,7 @@ import {
 } from './TextRenderers/Troika';
 import { InstancedLabelComponent } from './TextRenderers/InstancedLabelComponent';
 import { makeItems } from './Utils/MakeItems';
-import { Perf } from 'r3f-perf';
+import { StatsPanel } from './Commons/StatsPanel';
 
 function App() {
   const [mode, setMode] = useState<
@@ -156,7 +156,7 @@ function App() {
         camera={{ fov: 45, near: 0.1, far: 10000, position: [0, 0, 50] }}
         style={{ position: 'absolute', inset: 0, background: '#505050' }}
       >
-        <Perf position="top-left" overClock={true} matrixUpdate={true} deepAnalyze={true} />
+        <StatsPanel position="top-left" />
         <OrbitControls />
 
         {mode === 'uikit'

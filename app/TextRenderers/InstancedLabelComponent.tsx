@@ -1,13 +1,13 @@
 import { useEffect, useRef } from 'react';
 import type { Group } from 'three';
 import {
+  InstancedLabelManager,
   Label,
   RotationAlignment,
   TextAlign,
   TextAnchorX,
   TextAnchorY,
-} from '../Core/Label';
-import { InstancedLabelManager } from '../Core/InstancedLabelManager';
+} from '@itowns/labels';
 import type { Item } from '../Types/Item';
 import { useFrame, useThree } from '@react-three/fiber';
 
