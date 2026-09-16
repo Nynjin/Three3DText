@@ -7,14 +7,16 @@ export function makeItems(count: number, seed: number): Item[] {
   const items: Item[] = new Array<Item>(count);
   const len = TextOptions.length;
   for (let i = 0; i < count; i++) {
-    const x = rand() * 30 - 15;
-    const y = rand() * 30 - 15;
+    // Spread scales with depth so the cloud fills the frustum, not a box.
+    // Factors are the half-extents of the 45 deg / 16:9 camera, pulled in a bit.
     const z = rand() * -100;
+    const depth = 50 - z;
+    const x = (rand() * 2 - 1) * 0.68 * depth;
+    const y = (rand() * 2 - 1) * 0.38 * depth;
     const rotX = (rand() - 0.5) * Math.PI * 0.33;
     const rotY = (rand() - 0.5) * Math.PI * 0.33;
     const rotZ = (rand() - 0.5) * Math.PI * 0.33;
-    const idx = len ? Math.floor(rand() * len) : 0;
-    const text = len ? TextOptions[idx] : '';
+    const text = TextOptions[Math.floor(rand() * len)];
     items[i] = {
       key: i,
       text,

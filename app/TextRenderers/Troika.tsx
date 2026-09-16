@@ -163,7 +163,7 @@ export function BatchedTroikaCloud({
   return <primitive object={batchedText} />;
 }
 
-export function BatchedTroikaCloudOpt({
+export function BatchedTroikaCloudCulled({
   items,
   halo,
 }: {

@@ -8,7 +8,7 @@ import { CSS3DCloud } from './TextRenderers/CSS3DRenderer';
 import {
   TroikaCloud,
   BatchedTroikaCloud,
-  BatchedTroikaCloudOpt,
+  BatchedTroikaCloudCulled,
 } from './TextRenderers/Troika';
 import { InstancedLabelComponent } from './TextRenderers/InstancedLabelComponent';
 import { makeItems } from './Utils/MakeItems';
@@ -19,7 +19,7 @@ function App() {
     | 'uikit'
     | 'troika'
     | 'troika-batched'
-    | 'troika-batched-opt'
+    | 'troika-batched-cull'
     | 'css3d'
     | 'custom-instanced'
   >('custom-instanced');
@@ -28,7 +28,7 @@ function App() {
     uikit: 500,
     troika: 500,
     'troika-batched': 10000,
-    'troika-batched-opt': 10000,
+    'troika-batched-cull': 10000,
     css3d: 1000,
     'custom-instanced': 300000,
   };
@@ -75,7 +75,7 @@ function App() {
             ['uikit', 'UIKit'],
             ['troika', 'Troika'],
             ['troika-batched', 'Batched Troika'],
-            ['troika-batched-opt', 'Batched Troika Opt'],
+            ['troika-batched-cull', 'Batched Troika + Cull'],
             ['css3d', 'CSS3D'],
             ['custom-instanced', 'Custom Instanced'],
           ] as const
@@ -171,10 +171,10 @@ function App() {
               ? (
                   <BatchedTroikaCloud key="troika-batched" items={items} halo={halo} />
                 )
-              : mode === 'troika-batched-opt'
+              : mode === 'troika-batched-cull'
                 ? (
-                    <BatchedTroikaCloudOpt
-                      key="troika-batched-opt"
+                    <BatchedTroikaCloudCulled
+                      key="troika-batched-cull"
                       items={items}
                       halo={halo}
                     />
@@ -187,7 +187,6 @@ function App() {
                       <InstancedLabelComponent
                         items={items}
                         halo={halo}
-                        viewportPredicate={item => item.key % 2 === 0}
                       />
                     )}
       </Canvas>

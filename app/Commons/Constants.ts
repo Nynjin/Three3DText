@@ -1,25 +1,84 @@
-export const FontPathRegular = {
-  sdfPath: './roboto-regular.png',
-  fontPath: './roboto-regular.fnt',
-};
-
+/**
+ * Label text for every renderer: place names covering each writing system that
+ * needs special handling. Kept long because items pick at random and placement
+ * favours short labels, so a short list repeats the same few names.
+ *
+ * 'Villejuif' is left out, its 'j' advance is wrong.
+ */
 export const TextOptions = [
-  'Hello World',
-  'Lorem Ipsum',
-  'Label',
-  'Text',
-  'Benchmark',
-  'This is a longer text to test wrapping',
-  '你好世界',
-  'مرحبا بالعالم', // requires Arabic shaping to pick correct glyph forms, otherwise renders isolated letters like ع
-  'Здравствуй мир',
-  'שלום עולם', // requires bidi reordering to detect direction, otherwise renders in logical order as םלוע םולש
-  'こんにちは世界', // some characters are very thin and may require cutoff adjustments
-  '안녕하세요 세계',
-  // "😀😃😄😁😆😅😂🤣☺️😊", // most emojis do not work
-  'Hello بالعالم 你好 мир', // mixed RTL and LTR
-  'Azلعاo世m界', // mixed RTL and CJK with no spaces
-  'AVAVAVA', // Kerning
-];
+  // Latin. 'AVIGNON' for AV/VA kerning, the last two for wrapping.
+  'Lyon',
+  'Bordeaux',
+  'Toulouse',
+  'Strasbourg',
+  'Nantes',
+  'Grenoble',
+  'Montpellier',
+  'Perpignan',
+  'Besançon',
+  'Le Havre',
+  'Saint-Étienne',
+  'Aix-en-Provence',
+  'AVIGNON',
+  'Clermont-Ferrand',
+  'Villeneuve-lès-Avignon',
+
+  // Cyrillic.
+  'Москва',
+  'Казань',
+  'Новосибирск',
+  'Владивосток',
+  'Екатеринбург',
+  'Санкт-Петербург',
+  'Нижний Новгород',
+
+  // Greek.
+  'Αθήνα',
+  'Πάτρα',
+  'Ηράκλειο',
+  'Θεσσαλονίκη',
+
+  // Chinese and Japanese. Thin glyphs, watch for SDF cutoff.
+  '上海',
+  '北京',
+  '广州',
+  '深圳',
+  '成都',
+  '杭州',
+  '東京',
+  '大阪',
+  '京都',
+  '横浜',
+  '札幌',
+  '名古屋',
+
+  // Korean.
+  '서울',
+  '부산',
+  '인천',
+  '대전',
+  '광주',
+
+  // Arabic. Needs shaping to join letterforms, including across spaces.
+  'القاهرة',
+  'بيروت',
+  'دمشق',
+  'بغداد',
+  'الرياض',
+  'تونس',
+  'الجزائر',
+  'الدار البيضاء',
+
+  // Hebrew. Needs bidi reordering.
+  'תל אביב',
+  'ירושלים',
+  'חיפה',
+  'נצרת',
+  'באר שבע',
+
+  // Bilingual: RTL and LTR runs in one label.
+  'Beirut بيروت',
+  'Jerusalem ירושלים',
+] as const;
 
 export const FrustumCullRate = 0.01;
