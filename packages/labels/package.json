@@ -1,6 +1,6 @@
 {
   "name": "@itowns/labels",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "description": "Instanced SDF text labels for three.js: GPU glyph rendering, screen-space collision and priority-based occlusion.",
   "keywords": [
     "three",
@@ -37,7 +37,10 @@
   "main": "./dist/index.js",
   "files": [
     "dist",
-    "src"
+    "src",
+    "README.md",
+    "LICENSE",
+    "THIRD-PARTY-NOTICES.md"
   ],
   "scripts": {
     "build": "tsc --build && esbuild src/index.ts --bundle --format=esm --platform=browser --target=es2022 --packages=external --sourcemap --outfile=dist/index.js",

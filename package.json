@@ -11,7 +11,8 @@
     "watch:lib": "npm run watch -w @itowns/labels",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "typecheck": "npm run build:lib && tsc --noEmit"
+    "typecheck": "npm run build:lib && tsc --noEmit",
+    "notices": "node scripts/notices.mjs"
   },
   "dependencies": {
     "@itowns/labels": "^0.1.0",
