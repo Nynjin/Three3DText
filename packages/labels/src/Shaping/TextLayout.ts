@@ -7,10 +7,19 @@ import { applyShaping, reorderParagraph, isParagraphRTL } from './RTL';
 import anchorText from './TextAnchors';
 
 /**
- * Positions a label's glyphs and writes them back onto it.
+ * Positions a label's glyphs, then writes them, the ink bounds and the draw
+ * quad back onto the label.
  *
- * Glyph metrics arrive in the atlas's em units and are scaled to the label's own
- * `fontSize` here, so one atlas serves every size.
+ * Glyph metrics arrive in the atlas's raster pixels and are scaled to the
+ * label's own `fontSize` here, so one atlas serves every size.
+ *
+ * @param label - Label to lay out. Mutated in place.
+ * @param resolve - Glyph lookup bound to the label's font.
+ * @param metrics - Metrics of the atlas the resolver reads from.
+ * @param pxPerUnit - Label pixels per world unit; see
+ * `LabelManagerConfig.pxPerUnit`.
+ *
+ * @returns The same label.
  */
 export default function layoutText(
   label: Label,
@@ -20,7 +29,7 @@ export default function layoutText(
 ): Label {
   const chars: GlyphInstance[] = [];
 
-  // Atlas em units -> this label's px.
+  // Atlas raster pixels -> this label's px.
   const glyphScale = label.fontSize / metrics.fontSize;
 
   const shapedText = applyShaping(label.getDisplayText());
@@ -130,22 +139,30 @@ export default function layoutText(
     let minY = Infinity;
     let maxY = -Infinity;
 
-    // Quads carry the SDF buffer on every side, and the ink sits centred in it.
-    // Bounds track the ink, so the padding comes back off before halving.
+    // The drawn quad covers whole glyph bitmaps; bounds track the ink centred
+    // inside them, so the SDF buffer comes back off before halving.
+    let quadMinX = Infinity;
+    let quadMaxX = -Infinity;
+    let quadMinY = Infinity;
+    let quadMaxY = -Infinity;
+
     const glyphPadding = (metrics.padding * glyphScale) / pxPerUnit;
 
     for (const ch of chars) {
       const halfW = Math.max(0, ch.glyph.w - glyphPadding) / 2;
       const halfH = Math.max(0, ch.glyph.h - glyphPadding) / 2;
-      const x0 = ch.offset.x - halfW;
-      const x1 = ch.offset.x + halfW;
-      const y0 = ch.offset.y - halfH;
-      const y1 = ch.offset.y + halfH;
+      minX = Math.min(minX, ch.offset.x - halfW);
+      maxX = Math.max(maxX, ch.offset.x + halfW);
+      minY = Math.min(minY, ch.offset.y - halfH);
+      maxY = Math.max(maxY, ch.offset.y + halfH);
 
-      minX = Math.min(minX, x0);
-      maxX = Math.max(maxX, x1);
-      minY = Math.min(minY, y0);
-      maxY = Math.max(maxY, y1);
+      if (ch.glyph.pw <= 0) continue; // blank, e.g. a space: a quad with no field
+      const quadHalfW = ch.glyph.w * 0.5;
+      const quadHalfH = ch.glyph.h * 0.5;
+      quadMinX = Math.min(quadMinX, ch.offset.x - quadHalfW);
+      quadMaxX = Math.max(quadMaxX, ch.offset.x + quadHalfW);
+      quadMinY = Math.min(quadMinY, ch.offset.y - quadHalfH);
+      quadMaxY = Math.max(quadMaxY, ch.offset.y + quadHalfH);
     }
 
     maxX += label.padding.right / pxPerUnit;
@@ -169,11 +186,23 @@ export default function layoutText(
       width: maxX - minX,
       height: maxY - minY,
     };
+
+    // Measured before the shift above, so the centre carries it and the size,
+    // being a difference, does not.
+    label.quad = quadMinX === Infinity
+      ? { cx: 0, cy: 0, width: 0, height: 0 }
+      : {
+          cx: (quadMinX + quadMaxX) * 0.5 + shiftX,
+          cy: (quadMinY + quadMaxY) * 0.5 + shiftY,
+          width: quadMaxX - quadMinX,
+          height: quadMaxY - quadMinY,
+        };
   } else {
     label.bounds = {
       width: maxLineWidth / pxPerUnit,
       height: (visualLines.length * lineHeight) / pxPerUnit,
     };
+    label.quad = { cx: 0, cy: 0, width: 0, height: 0 };
   }
 
   label.glyphs = chars;

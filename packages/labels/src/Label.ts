@@ -35,6 +35,12 @@ export enum RotationAlignment {
   Viewport = 1,
 }
 
+/**
+ * MapLibre `symbol-placement`.
+ *
+ * TODO: only `Point` is implemented. `Line` and `Line-Center` are accepted and
+ * stored, but placement follows {@link RotationAlignment} alone.
+ */
 export enum SymbolPlacement {
   Point = 0,
   Line = 1,
@@ -62,6 +68,14 @@ export interface TextPadding {
 }
 
 export interface LabelBounds {
+  width: number;
+  height: number;
+}
+
+/** Centre and size, in label-local units, of the area a label draws over. */
+export interface LabelQuad {
+  cx: number;
+  cy: number;
   width: number;
   height: number;
 }
@@ -98,12 +112,19 @@ export interface LabelOptions {
 
   // Halo
   haloColor?: string | number | Color | Vector3;
+
+  /**
+   * Halo thickness in pixels. The halo reaches `haloWidth + haloBlur` past the
+   * ink.
+   */
   haloWidth?: number;
+  /** Halo falloff in pixels, outside {@link haloWidth}. */
   haloBlur?: number;
   haloOpacity?: number;
 
   // Rendering
   rotationAlignment?: RotationAlignment;
+  /** TODO: stored and sent to the shader, but not acted on. See {@link SymbolPlacement}. */
   symbolPlacement?: SymbolPlacement;
   visible?: boolean;
 
@@ -164,11 +185,31 @@ export class Label {
   private _visible: boolean = true;
 
   // Occlusion & Render
+
+  /**
+   * How far the label has faded out: 0 fully drawn, 1 invisible. The manager
+   * steps it each cull, towards 0 while {@link shouldRender} holds.
+   */
   occlusionFade: number = 1;
+
+  /**
+   * Whether placement gave the label a slot on the last pass. Written by the
+   * collision engine; setting it by hand is overwritten on the next pass.
+   */
   shouldRender: boolean = false;
+
+  /** Size of the laid-out text plus its padding, written by layout. */
   bounds: LabelBounds = { width: 0, height: 0 };
 
+  /**
+   * Area the shader shades: the union of the label's glyph bitmaps, each
+   * carrying the SDF buffer around its ink. Written by layout.
+   */
+  quad: LabelQuad = { cx: 0, cy: 0, width: 0, height: 0 };
+
   // Glyphs
+
+  /** Positioned glyphs, in label-local space. Written by layout. */
   glyphs: GlyphInstance[] = [];
 
   constructor(options: LabelOptions) {
@@ -199,7 +240,7 @@ export class Label {
     this._emit(LabelChangeType.Text);
   }
 
-  /** Get transformed text based on textTransform property */
+  /** @returns The text as {@link textTransform} renders it. */
   getDisplayText(): string {
     switch (this._textTransform) {
       case TextTransform.Uppercase:
@@ -243,7 +284,7 @@ export class Label {
 
   // Font properties
 
-  /** The label's font identity, shared by reference — never mutate it. */
+  /** The label's font identity, shared by reference. Never mutate it. */
   get fontKey(): FontKey {
     return this._fontKey;
   }
@@ -288,8 +329,8 @@ export class Label {
   }
 
   /**
-   * Replaces the font key, keeping its cached identity in sync. A no-op set is
-   * dropped here so it can't evict the label from its font group.
+   * Replaces the font key, keeping its cached identity in sync. A set that does
+   * not change the key emits nothing.
    */
   private _setFontKey(next: FontKey) {
     const nextStr = fontKeyStr(next);
@@ -364,13 +405,8 @@ export class Label {
   }
 
   /**
-   * Normalizes the shorthand padding forms to a {@link TextPadding}.
-   *
-   * @param value - One number for all sides, a `[top, right, bottom, left]`
-   * tuple, or an already-complete object.
-   *
-   * @returns The padding as an object. An object argument is returned as given,
-   * not copied.
+   * Normalizes the shorthand forms (one number, or `[top, right, bottom, left]`)
+   * to a {@link TextPadding}. An object argument is returned as given, not copied.
    */
   private _parsePadding(value: TextPadding | number | [number, number, number, number]): TextPadding {
     if (Array.isArray(value)) return { top: value[0], right: value[1], bottom: value[2], left: value[3] };
@@ -432,20 +468,23 @@ export class Label {
     this._emit(LabelChangeType.Style);
   }
 
-  /** Check if halo should be rendered */
+  /** @returns Whether the halo has both width and opacity to draw with. */
   hasHalo(): boolean {
     return this._haloWidth > 0 && this._haloOpacity > 0;
   }
 
-  /** Get displayed halo opacity, affected by entire label opacity */
+  /** @returns The halo's opacity scaled by the label's, or 0 with no halo. */
   getDisplayedHaloOpacity(): number {
     if (!this.hasHalo()) return 0;
     return this._haloOpacity * this._opacity;
   }
 
   /**
-   * Caps a halo dimension at four times the font size, warning when it does.
-   * Wider than that and the SDF has no range left to encode the falloff.
+   * Caps a halo dimension at `4 * fontSize`, warning when it does.
+   *
+   * A sanity bound, well above the distance a halo can actually reach. Anything
+   * between the two is accepted and draws no wider. See
+   * {@link LabelOptions.haloWidth}.
    *
    * @param property - Property name, for the warning only.
    * @param value - Requested value, in the same units as `fontSize`.
@@ -480,6 +519,7 @@ export class Label {
     this._emit(LabelChangeType.Style);
   }
 
+  /** Both the flag and a non-zero {@link opacity}: a label at 0 reads false. */
   get visible() {
     return this._visible && this._opacity > 0;
   }
@@ -489,7 +529,16 @@ export class Label {
     this._emit(LabelChangeType.Visibility);
   }
 
-  /** Update multiple properties at once */
+  /**
+   * Apply several properties in one go, emitting a single change notification
+   * for the lot.
+   *
+   * @param options - Properties to change; the rest are left alone.
+   * @param silent - Suppress the notification, leaving any manager holding the
+   * label unaware of the change. For construction, not for live labels.
+   *
+   * @returns This label.
+   */
   set(options: Partial<LabelOptions>, silent = false): this {
     let changes = LabelChangeType.None;
 
@@ -507,8 +556,8 @@ export class Label {
       changes |= LabelChangeType.Layout;
     }
 
-    // Font properties — built in one pass so a multi-property set produces a
-    // single key, not one per property.
+    // Font properties, built in one pass so a multi-property set produces a
+    // single key.
     if (options.font !== undefined || options.fontWeight !== undefined || options.fontStyle !== undefined) {
       const next: FontKey = {
         font: options.font ?? this._fontKey.font,
@@ -686,10 +735,8 @@ export class Label {
   }
 
   /**
-   * Notifies listeners of what changed. A `None` mask is dropped, so setters
-   * can emit unconditionally.
-   *
-   * @param changes - Bitmask of {@link LabelChangeType}.
+   * Notifies listeners of what changed, as a {@link LabelChangeType} bitmask. A
+   * `None` mask is dropped, so setters can emit unconditionally.
    */
   private _emit(changes: LabelChangeMask): void {
     if (changes === LabelChangeType.None) return;

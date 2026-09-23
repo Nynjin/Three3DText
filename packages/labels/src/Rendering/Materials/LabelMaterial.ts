@@ -1,17 +1,25 @@
 import { type DataTexture, GLSL3, ShaderMaterial } from 'three';
-import { GLYPH_VERT } from '../Shaders/Glyph.vert.glsl';
-import { HALO_FRAG } from '../Shaders/Halo.frag.glsl';
+import { LABEL_QUAD_VERT } from '../Shaders/LabelQuad.vert.glsl';
+import { LABEL_FRAG } from '../Shaders/Label.frag.glsl';
 import type { SDFAtlas } from '../../Shaping/SDFAtlas';
 
-export function createHaloMaterial(
+/**
+ * The material for the label pass: ink and halo together, one instance per
+ * label.
+ *
+ * @param atlas - Atlas the shader samples the distance field from.
+ * @param labelTex - Per-label data texture.
+ * @param glyphTex - Per-glyph data texture.
+ */
+export function createLabelMaterial(
   atlas: SDFAtlas,
   labelTex: DataTexture,
   glyphTex: DataTexture,
 ): ShaderMaterial {
-  const material = new ShaderMaterial({
+  return new ShaderMaterial({
     glslVersion: GLSL3,
-    vertexShader: GLYPH_VERT,
-    fragmentShader: HALO_FRAG,
+    vertexShader: LABEL_QUAD_VERT,
+    fragmentShader: LABEL_FRAG,
     uniforms: {
       uAtlas: { value: atlas.texture },
       uAtlasWidth: { value: atlas.texture.width },
@@ -23,31 +31,21 @@ export function createHaloMaterial(
       uGlyphTexWidth: { value: glyphTex.width },
     },
     transparent: true,
-
-    // TODO : either set to false and handle label collision or keep to true and handle glyph collision
+    // Blended surfaces do not write depth. The test stays on, so a label is
+    // still occluded by anything drawn before it.
     depthWrite: false,
     depthTest: true,
-
-    // prevent overlap with glyph fill
-    polygonOffset: true,
-    polygonOffsetFactor: 1,
-    polygonOffsetUnits: 1,
   });
-
-  return material;
 }
 
-export function updateHaloAtlas(
-  material: ShaderMaterial,
-  atlas: SDFAtlas,
-) {
-  material.uniforms.uAtlas.value = atlas.texture;
-  material.uniforms.uAtlasWidth.value = atlas.texture.width;
-  material.uniforms.uCutoff.value = atlas.cutoff;
-  material.uniforms.uRadius.value = atlas.radius;
-}
-
-export function updateHaloUniforms(
+/**
+ * Repoint the material at the data textures, after either was reallocated.
+ *
+ * @param material - Material to update.
+ * @param labelTex - Per-label data texture.
+ * @param glyphTex - Per-glyph data texture.
+ */
+export function updateLabelUniforms(
   material: ShaderMaterial,
   labelTex: DataTexture,
   glyphTex: DataTexture,

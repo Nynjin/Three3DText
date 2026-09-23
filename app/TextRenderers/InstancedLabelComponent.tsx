@@ -123,21 +123,18 @@ export function InstancedLabelComponent({
       manager.addLabels(toAdd);
     }
 
-    // Always flush dirty state so removes + adds are both committed.
     if (toAdd.length > 0 || toRemove.length > 0) {
       manager.update();
     }
 
-    // One mesh pair serves every font — attach it once.
     if (!attachedRef.current) {
-      group.add(manager.mesh.halo, manager.mesh.fill);
+      group.add(manager.mesh);
       attachedRef.current = true;
     }
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, manager, styleSeed]);
 
-  // Halo toggle — mutate labels in-place, no rebuild, no re-layout
   useEffect(() => {
     for (const label of labelMapRef.current.values()) {
       label.set({ haloWidth: halo ? 1 : 0, haloBlur: halo ? 10 : 0 });
