@@ -6,11 +6,25 @@ import type { AtlasMetrics, GlyphInfo, GlyphResolver } from '../Shaping/GlyphRun
 /** Character every font is rasterized with, used when a lookup misses. */
 export const FALLBACK_CHAR = '?';
 
+/**
+ * Distance encoded outside the glyph, as a fraction of the em. It caps how far
+ * a halo can reach, and it is how far each glyph quad overruns its ink.
+ */
+const BUFFER_EM = 0.25;
+
+/**
+ * Distance, in raster pixels, the field carries outside the ink at a given
+ * raster font size.
+ *
+ * @param fontSize - Raster font size, {@link SDFAtlasOptions.fontSize}.
+ */
+export function sdfBuffer(fontSize: number): number {
+  return Math.max(2, Math.round(fontSize * BUFFER_EM));
+}
+
 export interface SDFAtlasOptions {
-  /** Font size (px) at which glyphs are rasterized. */
+  /** Font size (px) at which glyphs are rasterized, as a CSS px font size. */
   fontSize: number;
-  /** SDF oversampling multiplier. */
-  scale: number;
   /** Slot pre-allocation growth factor. */
   capacityMultiplier: number;
 }
@@ -33,10 +47,7 @@ export class SDFAtlas {
   readonly cutoff: number;
   readonly radius: number;
 
-  /**
-   * What layout needs to read {@link glyphs}. Held as one object so it can be
-   * passed per label without allocating.
-   */
+  /** What layout needs to read {@link glyphs}. */
   readonly metrics: AtlasMetrics;
 
   private _data: Uint8Array = new Uint8Array(1);
@@ -46,28 +57,27 @@ export class SDFAtlas {
   private _capacity = 0;
   private _slotCount = 0;
 
-  private readonly _scale: number;
   private readonly _capacityMultiplier: number;
 
   private readonly _fontToSDF = new Map<string, TinySDF>();
 
   constructor(options: SDFAtlasOptions) {
-    const { fontSize, scale, capacityMultiplier } = options;
+    const { fontSize, capacityMultiplier } = options;
     this.fontSize = fontSize;
-    this._scale = scale;
     this._capacityMultiplier = capacityMultiplier;
 
-    this.buffer = Math.ceil(fontSize * scale * 0.5);
-    this.radius = this.buffer;
+    this.buffer = sdfBuffer(fontSize);
     this.cutoff = 0.495;
-    this._cellSize = fontSize * scale + this.buffer * 2;
+    this.radius = Math.ceil(this.buffer / (1 - this.cutoff));
+    // tiny-sdf rasterizes into a canvas of fontSize + 4 * buffer and allows a
+    // glyph one further buffer beyond it, so fontSize + 5 * buffer is the
+    // largest bitmap it can hand back. A smaller cell bleeds into the next.
+    this._cellSize = fontSize + this.buffer * 5;
 
-    // _drawChars divides raster px by `scale`, so stored metrics are in an em of
-    // `fontSize / scale`, and the SDF buffer padding scales down with them.
-    // TinySDF returns `glyphWidth + 2 * buffer`, hence padding = 2 * buffer.
+    // Raster pixels: consumers scale by their own font size over this one.
     this.metrics = {
-      fontSize: fontSize / scale,
-      padding: (this.buffer * 2) / scale,
+      fontSize,
+      padding: this.buffer * 2,
     };
   }
 
@@ -78,7 +88,7 @@ export class SDFAtlas {
    * @param fontChars - The characters each font needs, as a whole.
    *
    * @returns `dirty` if the texture contents changed, `resize` if the atlas grew
-   * and every existing glyph moved — which invalidates any cached glyph UVs.
+   * and every existing glyph moved, which invalidates any cached glyph UVs.
    */
   setChars(fontChars: FontChars[]): {
     dirty: boolean;
@@ -118,9 +128,8 @@ export class SDFAtlas {
   }
 
   /**
-   * Binds a lookup to one font. The key prefix is built once here rather than
-   * per character, and {@link FALLBACK_CHAR} covers characters this font never
-   * rasterized.
+   * Binds a lookup to one font. {@link FALLBACK_CHAR} covers characters this
+   * font never rasterized.
    */
   resolverFor(fontKey: FontKey): GlyphResolver {
     const prefix = glyphKeyPrefix(fontKey);
@@ -161,10 +170,10 @@ export class SDFAtlas {
         py: y,
         pw: g.width,
         ph: g.height,
-        w: g.width / this._scale || 1,
-        h: g.height / this._scale || 1,
-        advance: g.glyphAdvance / this._scale || 1,
-        top: g.glyphTop / this._scale || 0,
+        w: g.width || 1,
+        h: g.height || 1,
+        advance: g.glyphAdvance || 1,
+        top: g.glyphTop || 0,
       });
     }
   }
@@ -178,10 +187,6 @@ export class SDFAtlas {
    * Copies a rasterized glyph into the atlas data, row by row.
    *
    * @param src - Single-channel glyph coverage, `w * h` bytes.
-   * @param dx - Destination column.
-   * @param dy - Destination row.
-   * @param w - Glyph width.
-   * @param h - Glyph height.
    */
   private _blit(src: Uint8ClampedArray, dx: number, dy: number, w: number, h: number) {
     for (let row = 0; row < h; row++) {
@@ -202,12 +207,8 @@ export class SDFAtlas {
   private _resize(minChars: number) {
     this._capacity = Math.ceil(minChars * this._capacityMultiplier);
     this._cols = Math.ceil(Math.sqrt(this._capacity));
-    const rows = Math.ceil(this._capacity / this._cols);
 
-    const newSize = nextPow2(Math.max(
-      this._cols * this._cellSize,
-      rows * this._cellSize,
-    ));
+    const newSize = this._cols * this._cellSize;
 
     const oldData = this._data;
     const oldWidth = this._width;
@@ -234,15 +235,11 @@ export class SDFAtlas {
     this._texture.dispose();
     this._texture = new DataTexture(newData, newSize, newSize, RedFormat, UnsignedByteType);
     this._texture.flipY = false;
+    // No mipmaps: averaging a distance field across a thin stem erodes the
+    // stroke, and small labels turn faint. Minified labels alias instead.
     this._texture.generateMipmaps = false;
     this._texture.minFilter = LinearFilter;
     this._texture.magFilter = LinearFilter;
     this._texture.needsUpdate = true;
   }
-}
-
-function nextPow2(n: number): number {
-  let p = 1;
-  while (p < n) p <<= 1;
-  return p;
 }

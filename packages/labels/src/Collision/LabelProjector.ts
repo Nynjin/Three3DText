@@ -1,6 +1,7 @@
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import { type Label, RotationAlignment, TextAnchorX, TextAnchorY } from '../Label';
 import type { LabelManagerConfig } from '../Types/LabelConfig';
+import { sdfBuffer } from '../Shaping/SDFAtlas';
 
 export interface ScreenAABB {
   x0: number;
@@ -10,9 +11,9 @@ export interface ScreenAABB {
 }
 
 /**
- * @description Projects a Label's 4 corners into a screen-aligned bounding box,
- * in whatever pixel resolution `setFrame` was given — the collision engine
- * passes the viewport size, so boxes come out in screen pixels.
+ * Projects a Label's 4 corners into a screen-aligned bounding box, in whatever
+ * pixel resolution `setFrame` was given. The collision engine passes the
+ * viewport size, so boxes come out in screen pixels.
  *
  * Set the frame once per frame, then use {@link LabelProjector.checkVisible} to
  * reject labels cheaply and {@link LabelProjector.project} on the survivors.
@@ -85,8 +86,11 @@ export class LabelProjector {
 
   /**
    * Project a label's quad to a screen-aligned bounding box, written into `out`
-   * in `setFrame`'s pixel space only when this returns `true` — so one scratch
+   * in `setFrame`'s pixel space only when this returns `true`, so one scratch
    * object can serve every label.
+   *
+   * The box covers the label's bounds plus however far the halo reaches past
+   * the padding.
    *
    * The box is not clamped to the target: it may fall partly or wholly outside
    * it, and what to do about that is the caller's policy.
@@ -168,6 +172,21 @@ export class LabelProjector {
       if (px > maxX) maxX = px;
       if (py < minY) minY = py;
       if (py > maxY) maxY = py;
+    }
+
+    // The halo reaches haloWidth + haloBlur past the ink, in the screen pixels
+    // the box is already in, and the padding covers part of that.
+    if (label.hasHalo()) {
+      // Capped at the field's own reach; a wider halo draws no further.
+      const raster = this._config.atlasFontSize;
+      const reach = (label.fontSize * sdfBuffer(raster)) / raster;
+      const halo = Math.min(label.haloWidth + label.haloBlur, reach);
+      const pad = label.padding;
+      minX -= Math.max(0, halo - pad.left);
+      maxX += Math.max(0, halo - pad.right);
+      // y grows downward here, so minY is the label's top edge.
+      minY -= Math.max(0, halo - pad.top);
+      maxY += Math.max(0, halo - pad.bottom);
     }
 
     out.x0 = Math.floor(minX);

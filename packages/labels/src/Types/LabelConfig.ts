@@ -1,11 +1,9 @@
 export interface LabelManagerConfig {
   pxPerUnit: number;
 
-  // SDF atlas — one atlas serves every font, so these are global.
-  /** Font size (px) glyphs are rasterized at, independent of any label's fontSize. */
+  // SDF atlas, shared by every font.
+  /** Fixed raster size for every glyph. Labels scale from it, whatever their own fontSize. */
   atlasFontSize: number;
-  /** SDF oversampling multiplier. */
-  sdfScale: number;
   /** Slot pre-allocation growth factor on atlas resize. */
   atlasCapacityMultiplier: number;
 
@@ -52,8 +50,7 @@ export interface LabelManagerConfig {
 export const DefaultLabelConfig: LabelManagerConfig = {
   pxPerUnit: 48,
 
-  atlasFontSize: 20,
-  sdfScale: 2,
+  atlasFontSize: 24,
   atlasCapacityMultiplier: 1.5,
 
   autoUpdate: true,

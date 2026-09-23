@@ -11,13 +11,13 @@ import type { LabelManagerConfig } from './Types/LabelConfig';
  */
 export const enum DirtyLevel {
   None = 0,
-  /** Label data only — style, transform or visibility changed. */
+  /** Label data only: style, transform or visibility changed. */
   Update = 1,
-  /** Glyph instances are stale — text, font or layout changed. */
+  /** Glyph instances are stale: text, font or layout changed. */
   Relayout = 2,
-  /** Newly added — needs buffer slots and a first layout. */
+  /** Newly added, so it needs buffer slots and a first layout. */
   Add = 3,
-  /** Gone — free its buffer slots. */
+  /** Gone: free its buffer slots. */
   Dispose = 4,
 }
 
@@ -38,18 +38,17 @@ interface FontCharSet {
  * Owns the single SDF atlas shared by every font, and tracks which labels need
  * work before the next draw.
  *
- * Glyphs are keyed by font *and* character, so one atlas serves all fonts and a
- * label changing weight no longer moves between per-font groups — it just asks
- * for glyphs under a different key and re-runs layout.
+ * Glyphs are keyed by font *and* character, so one atlas serves every font. A
+ * label changing weight asks for glyphs under a different key and re-runs
+ * layout.
  */
 export class LabelAtlasManager {
   readonly atlas: SDFAtlas;
   readonly labels = new Set<Label>();
 
   /**
-   * Characters requested per font, accumulated and never pruned. The atlas only
-   * ever adds glyphs — a removed label cannot free a slot — so tracking which
-   * characters are still referenced would buy nothing.
+   * Characters requested per font. Accumulated and never pruned, since the
+   * atlas never frees a glyph slot.
    */
   private readonly _fontChars = new Map<string, FontCharSet>();
   private _charsDirty = false;
@@ -61,7 +60,6 @@ export class LabelAtlasManager {
   constructor(config: LabelManagerConfig) {
     this.atlas = new SDFAtlas({
       fontSize: config.atlasFontSize,
-      scale: config.sdfScale,
       capacityMultiplier: config.atlasCapacityMultiplier,
     });
 
@@ -109,7 +107,8 @@ export class LabelAtlasManager {
 
   /**
    * Stop tracking labels and mark them for disposal, so the next flush frees
-   * their buffer slots. Their atlas glyphs stay — the atlas never frees slots.
+   * their buffer slots. Their atlas glyphs stay, since the atlas never frees a
+   * slot.
    *
    * @param labels - Labels to remove; any not tracked are ignored.
    */
@@ -188,19 +187,14 @@ export class LabelAtlasManager {
     this.atlas.dispose();
   }
 
-  /**
-   * Translate a label's own change notification into a dirty level.
-   *
-   * @param label - The label that changed.
-   * @param changes - Bitmask of {@link LabelChangeType}.
-   */
+  /** Translates a {@link LabelChangeType} bitmask into a dirty level. */
   private _onLabelChange(label: Label, changes: number) {
     if (changes & LabelChangeType.Dispose) {
       this.removeLabels([label]);
       return;
     }
 
-    // A font change leaves the label here — only its glyph keys change.
+    // A font change leaves the label here; only its glyph keys change.
     if (changes & (LabelChangeType.Font | LabelChangeType.Text)) {
       this._requestChars(label);
     }
@@ -212,8 +206,8 @@ export class LabelAtlasManager {
 
   /**
    * Re-request characters and force a relayout for the labels whose text the
-   * newly-loaded shaper can actually change. Pure-LTR text shapes to itself, so
-   * skipping it keeps a large label set from re-laying out for nothing.
+   * newly-loaded shaper can actually change. Pure-LTR text shapes to itself and
+   * is skipped.
    */
   private _relayoutShaped() {
     let marked = false;
@@ -231,8 +225,6 @@ export class LabelAtlasManager {
   /**
    * Queues the label's characters for rasterization under its own font. Marks
    * the char set dirty only for characters the font has not seen yet.
-   *
-   * @param label - Label whose display text is scanned.
    */
   private _requestChars(label: Label) {
     let entry = this._fontChars.get(label.fontKeyStr);
@@ -254,9 +246,6 @@ export class LabelAtlasManager {
   /**
    * Raise the label's pending work to `level`. Never lowers it, so the highest
    * level marked before a flush is the one that runs.
-   *
-   * @param label - Label to mark.
-   * @param level - Work the label needs on the next sync.
    */
   private _markDirty(label: Label, level: DirtyLevel) {
     const current = this._dirty.get(label) ?? DirtyLevel.None;

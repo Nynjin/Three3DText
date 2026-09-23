@@ -114,8 +114,11 @@ export interface LabelOptions {
   haloColor?: string | number | Color | Vector3;
 
   /**
-   * Halo thickness in pixels. The halo reaches `haloWidth + haloBlur` past the
-   * ink.
+   * Halo thickness in pixels. It reaches `haloWidth + haloBlur` past the ink,
+   * capped at about a quarter of `fontSize` by the field itself.
+   *
+   * Collision reserves that reach out of `padding` first: padding that already
+   * exceeds the reach adds nothing to the box.
    */
   haloWidth?: number;
   /** Halo falloff in pixels, outside {@link haloWidth}. */
