@@ -182,7 +182,11 @@ export default function layoutText(
       ch.offset.y += shiftY;
     }
 
+    // Recorded after the shift, so consumers place the box without repeating
+    // the anchor and offset arithmetic.
     label.bounds = {
+      minX: minX + shiftX,
+      minY: minY + shiftY,
       width: maxX - minX,
       height: maxY - minY,
     };
@@ -199,6 +203,8 @@ export default function layoutText(
         };
   } else {
     label.bounds = {
+      minX: 0,
+      minY: 0,
       width: maxLineWidth / pxPerUnit,
       height: (visualLines.length * lineHeight) / pxPerUnit,
     };

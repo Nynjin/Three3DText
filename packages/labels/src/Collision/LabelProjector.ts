@@ -1,5 +1,5 @@
 import { Matrix4, Quaternion, Vector3 } from 'three';
-import { type Label, RotationAlignment, TextAnchorX, TextAnchorY } from '../Label';
+import { type Label, RotationAlignment } from '../Label';
 import type { LabelManagerConfig } from '../Types/LabelConfig';
 import { sdfBuffer } from '../Shaping/SDFAtlas';
 
@@ -110,16 +110,11 @@ export class LabelProjector {
     const cvy = ve[1] * p.x + ve[5] * p.y + ve[9] * p.z + ve[13];
     const cvz = ve[2] * p.x + ve[6] * p.y + ve[10] * p.z + ve[14];
 
-    const offsetX = (label.offset.x * label.fontSize) / this._config.pxPerUnit;
-    const offsetY = (label.offset.y * label.fontSize) / this._config.pxPerUnit;
-    const ax = anchorOffsetX(label, bw) + offsetX;
-    const ay = anchorOffsetY(label, bh) - offsetY;
+    // Layout already anchored the box and applied the label's offset.
+    const bx = label.bounds.minX;
+    const by = label.bounds.minY;
 
-    // Must match `getScreenSizeScale` in the glyph vertex shader: the clip-space
-    // w of the label centre, which is what the perspective divide will undo.
-    // Euclidean distance would overshoot off-axis by 1 / cos(angle from the view
-    // axis), so the box would grow as the label pans away from the centre while
-    // the drawn glyphs did not.
+    // Clip-space w of the label centre, which the perspective divide undoes.
     const sizeScale = Math.abs(
       pe[3] * cvx + pe[7] * cvy + pe[11] * cvz + pe[15],
     );
@@ -144,8 +139,8 @@ export class LabelProjector {
     for (let i = 0; i < 4; i++) {
       const ux = i & 1;
       const uy = (i >> 1) & 1;
-      const localX = (ux * bw + ax) * sizeScale;
-      const localY = (uy * bh + ay) * sizeScale;
+      const localX = (bx + ux * bw) * sizeScale;
+      const localY = (by + uy * bh) * sizeScale;
       let vx: number, vy: number, vz: number;
       if (isViewport) {
         vx = cvx + localX;
@@ -194,29 +189,5 @@ export class LabelProjector {
     out.x1 = Math.ceil(maxX);
     out.y1 = Math.ceil(maxY);
     return true;
-  }
-}
-
-// ─── Anchor helpers ─────────────────────────────────────────────────────────
-
-function anchorOffsetX(label: Label, bw: number): number {
-  switch (label.anchorX) {
-    case TextAnchorX.Left:
-      return 0;
-    case TextAnchorX.Right:
-      return -bw;
-    default:
-      return -bw * 0.5;
-  }
-}
-
-function anchorOffsetY(label: Label, bh: number): number {
-  switch (label.anchorY) {
-    case TextAnchorY.Top:
-      return -bh;
-    case TextAnchorY.Bottom:
-      return 0;
-    default:
-      return -bh * 0.5;
   }
 }

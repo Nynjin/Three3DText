@@ -67,7 +67,15 @@ export interface TextPadding {
   left: number;
 }
 
+/**
+ * The box a label occupies in label-local space: its laid-out text plus
+ * `padding`, positioned by `anchorX`/`anchorY` and `offset`.
+ */
 export interface LabelBounds {
+  /** Left edge. */
+  minX: number;
+  /** Bottom edge, y growing upwards. */
+  minY: number;
   width: number;
   height: number;
 }
@@ -201,8 +209,8 @@ export class Label {
    */
   shouldRender: boolean = false;
 
-  /** Size of the laid-out text plus its padding, written by layout. */
-  bounds: LabelBounds = { width: 0, height: 0 };
+  /** The label's box, written by layout. Zero-sized until it has been laid out. */
+  bounds: LabelBounds = { minX: 0, minY: 0, width: 0, height: 0 };
 
   /**
    * Area the shader shades: the union of the label's glyph bitmaps, each
