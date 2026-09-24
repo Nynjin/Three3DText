@@ -1,32 +1,40 @@
-import { type Camera, Matrix4, Vector2, type WebGLRenderer } from 'three';
+import { type Camera, Matrix4, Vector2, type Vector3, type WebGLRenderer } from 'three';
 import type { Label } from '../Label';
 import { BitmapOccupancy } from './BitmapOccupancy';
 import { LabelProjector, type ScreenAABB } from './LabelProjector';
 import { RadixSorter } from '../Utils/Sort';
 import type { LabelManagerConfig } from '../Types/LabelConfig';
 
+/** Labels scanned per clock check while collecting candidates. */
+const COLLECT_CHUNK = 4096;
+
+/** Candidates projected and claimed per clock check while placing. */
+const PLACE_CHUNK = 512;
+
 /**
- * @description Greedy nearest-first label culling.
+ * Greedy nearest-first label culling.
  *
- * Each evaluation projects every candidate to a screen-space AABB and tries to
- * claim that region in a {@link BitmapOccupancy}, nearest label first, so a
- * near label takes its region before anything behind it can contest it.
- * Everything works in screen pixels; the bitmap converts to its cell grid.
+ * A pass projects every candidate to a screen-space AABB and tries to claim
+ * that region in a {@link BitmapOccupancy}, nearest label first, so a near
+ * label takes its region before anything behind it can contest it. Everything
+ * works in screen pixels; the bitmap converts to its cell grid.
  *
- * Two rules favour the status quo, or labels flicker between frames: a label
- * culled last frame sorts as if it were further away, and one already on screen
- * may claim a region up to `config.occlusionTolerance` taken where a new label
+ * Two rules favour the status quo: a label culled last pass sorts as if it were
+ * `config.renderPenaltyMultiplier` further away, and one already on screen may
+ * claim a region up to `config.occlusionTolerance` taken where a new label
  * needs a free one.
  *
- * @see {@link LabelCollisionEngine.evaluate} for the per-frame entry point.
+ * Drive it with {@link LabelCollisionEngine.beginPass} and
+ * {@link LabelCollisionEngine.stepPass} to spread a pass across frames, or
+ * {@link LabelCollisionEngine.evaluate} to run one to completion in a call.
  */
 export class LabelCollisionEngine {
   private _labels: Label[] = [];
 
-  /** Membership mirror of `labels`, so an append does not have to scan it. */
+  /** Membership mirror of `labels`, for constant-time append checks. */
   private _tracked = new Set<Label>();
 
-  /** Labels that passed this frame's gates, refilled in place per evaluation. */
+  /** Labels that passed the open pass's gates, refilled in place per pass. */
   private _candidates: Label[] = [];
 
   /**
@@ -52,6 +60,9 @@ export class LabelCollisionEngine {
   private readonly _scratchAABB: ScreenAABB = { x0: 0, y0: 0, x1: 0, y1: 0 };
 
   private readonly _frustumMatrix = new Matrix4();
+
+  /** The in-flight pass, suspended between chunks. `null` when none is open. */
+  private _pass: Generator<void, void, void> | null = null;
 
   private readonly _tmpVec2 = new Vector2();
 
@@ -85,6 +96,7 @@ export class LabelCollisionEngine {
       this._tracked.add(label);
       this._labels.push(label);
       this._dirty = true;
+      this._pass = null;
     }
   }
 
@@ -99,22 +111,26 @@ export class LabelCollisionEngine {
     this._tracked = new Set(this._labels);
     this._candidates.length = 0;
     this._dirty = true;
+    this._pass = null;
+  }
+
+  /** Whether a placement pass is part-way through. */
+  get isPassActive(): boolean {
+    return this._pass !== null;
   }
 
   /**
-   * Recompute `shouldRender` across the tracked labels for this camera.
+   * Open a placement pass for this camera.
    *
    * Skipped, touching nothing, while the view has moved no further than
-   * `config.viewProjThreshold` and nothing has marked the engine dirty. Labels
-   * failing the candidate gate — invisible, transparent, empty or off screen —
-   * keep their previous `shouldRender`.
+   * `config.viewProjThreshold` and nothing has marked the engine dirty.
    *
    * @param camera - Its `projectionMatrix` and `matrixWorldInverse` must be up to
    * date.
    *
-   * @returns `true` if the pass ran, `false` if it was skipped.
+   * @returns `true` if a pass opened, `false` if there was nothing to do.
    */
-  evaluate(camera: Camera): boolean {
+  beginPass(camera: Camera): boolean {
     if (this._labels.length === 0) return false;
 
     const viewportChanged = this._syncToViewport();
@@ -143,20 +159,98 @@ export class LabelCollisionEngine {
     this._lastVP.copy(this._frustumMatrix);
     this._bitmap.clear();
     this._dirty = false;
+    const n = this._labels.length;
+    if (this._sortKeys.length < n) {
+      this._sortKeys = new Float32Array(Math.max(n, this._sortKeys.length * 2));
+    }
+    this._candidates.length = 0;
+    this._pass = this._run(camera.position.clone());
+    return true;
+  }
 
-    const count = this._collectCandidates(camera);
+  /**
+   * One whole pass, suspending between chunks so a caller can spend a frame
+   * budget on it. The camera is snapshotted here, so the pass finishes against
+   * the view it opened with.
+   */
+  private* _run(camPos: Vector3): Generator<void, void, void> {
+    const n = this._labels.length;
+
+    let count = 0;
+    for (let at = 0; at < n; at += COLLECT_CHUNK) {
+      count = this._collectChunk(at, Math.min(n, at + COLLECT_CHUNK), count, camPos);
+      yield;
+    }
+
+    // One indivisible step, so a pass can exceed its budget here.
     const order = this._sorter.sort(this._sortKeys, count);
+    yield;
 
+    for (let at = 0; at < count; at += PLACE_CHUNK) {
+      this._placeChunk(order, at, Math.min(count, at + PLACE_CHUNK));
+      yield;
+    }
+  }
+
+  /**
+   * Advance the open pass for up to `budgetMs`, then yield the frame.
+   *
+   * Labels are decided in priority order, so those the pass has not reached
+   * keep their previous `shouldRender`.
+   *
+   * @param budgetMs - Wall-clock milliseconds to spend. `Infinity` finishes the
+   * pass in one call.
+   *
+   * @returns `true` if any label was reconsidered, so the draw list needs a
+   * rebuild.
+   */
+  stepPass(budgetMs: number): boolean {
+    const pass = this._pass;
+    if (!pass) return false;
+
+    const deadline = performance.now() + budgetMs;
+    let worked = false;
+    do {
+      if (pass.next().done) {
+        this._pass = null;
+        return true;
+      }
+      worked = true;
+    } while (performance.now() < deadline);
+    return worked;
+  }
+
+  /**
+   * Run a whole pass now, ignoring the frame budget.
+   *
+   * @returns `true` if the pass ran, `false` if it was skipped.
+   */
+  evaluate(camera: Camera): boolean {
+    if (!this.beginPass(camera)) return false;
+    this.stepPass(Infinity);
+    return true;
+  }
+
+  /** No-op: this engine holds no GPU resources, and the renderer is borrowed. */
+  dispose() {}
+
+  // ─── Internals ────────────────────────────────────────────────────────────
+
+  /**
+   * Project and claim a run of candidates in priority order.
+   *
+   * @param order - Permutation of `candidates`, nearest first.
+   */
+  private _placeChunk(order: Int32Array, from: number, to: number) {
     const occlusionTolerance = this._config.occlusionTolerance;
     const maxX = this._screenW - 1;
     const maxY = this._screenH - 1;
-
     const aabb = this._scratchAABB;
-    for (let i = 0; i < count; i++) {
+
+    for (let i = from; i < to; i++) {
       const label = this._candidates[order[i]];
 
-      // A label hanging off the viewport edge is dropped rather than clipped:
-      // a clipped box would claim less space than the glyphs actually cover.
+      // A box reaching past the viewport edge fails placement.
       const placeable
         = this._projector.project(label, aabb)
           && aabb.x0 >= 0
@@ -177,64 +271,41 @@ export class LabelCollisionEngine {
         label.shouldRender ? occlusionTolerance : 0,
       );
     }
-
-    return true;
   }
 
-  /** No-op: this engine holds no GPU resources, and the renderer is borrowed. */
-  dispose() {}
-
-  // ─── Internals ────────────────────────────────────────────────────────────
-
   /**
-   * Refill `candidates` and `sortKeys` from `labels` for the current frame.
+   * Append the labels in `[from, to)` that pass this pass's gates to
+   * `candidates`, with their sort keys.
    *
-   * Keys are squared distances, left unrooted since the sort only compares them,
-   * so `config.renderPenaltyMultiplier` scales squared distance and the order is
-   * coarser near the camera than far from it.
+   * Keys are squared distances, so `config.renderPenaltyMultiplier` scales
+   * squared distance and quantisation is coarser near the camera.
    *
-   * @returns Number of candidates written.
+   * @returns `count` plus the candidates this chunk appended.
    */
-  private _collectCandidates(camera: Camera): number {
-    const n = this._labels.length;
-
-    if (this._sortKeys.length < n) {
-      this._sortKeys = new Float32Array(Math.max(n, this._sortKeys.length * 2));
-    }
+  private _collectChunk(from: number, to: number, count: number, camPos: Vector3): number {
     const keys = this._sortKeys;
-
-    // Refill in place; a fresh array here would churn the GC every frame.
     const candidates = this._candidates;
-    candidates.length = 0;
 
-    const camPos = camera.position;
     const cx = camPos.x,
       cy = camPos.y,
       cz = camPos.z;
     const penalty = this._config.renderPenaltyMultiplier;
 
-    // Compared against squared distance, so the bounds are squared once here
-    // rather than rooting every label's distance.
     const near = this._config.labelNear;
     const nearSq = near > 0 ? near * near : 0;
     const far = this._config.labelFar;
     const farSq = far === Infinity ? Infinity : far * far;
 
-    let count = 0;
-    for (let i = 0; i < n; i++) {
+    for (let i = from; i < to; i++) {
       const label = this._labels[i];
       const p = label.position;
       const dx = p.x - cx,
         dy = p.y - cy,
         dz = p.z - cz;
 
-      // Raw distance first: the penalty below reorders labels but must not move
-      // them across the near/far bounds.
-      //
-      // Unlike the gate below, this is a decision, not a lack of one: a label
-      // out of range is culled outright. Leaving `shouldRender` alone would let
-      // one placed inside the range keep drawing after the camera pulled it
-      // outside, never contesting its region again.
+      // Range test uses raw distance: the penalty below reorders labels but
+      // must not move them across the bounds. Out of range clears
+      // `shouldRender`, so a label the camera leaves behind stops drawing.
       const distSq = dx * dx + dy * dy + dz * dz;
       if (distSq < nearSq || distSq > farSq) {
         label.shouldRender = false;

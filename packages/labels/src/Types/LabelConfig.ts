@@ -1,4 +1,8 @@
 export interface LabelManagerConfig {
+  /**
+   * Label pixels per world unit. Labels hold their size on screen at any depth;
+   * 1024 is about 1:1 for a 45 deg camera on a 900 px buffer.
+   */
   pxPerUnit: number;
 
   // SDF atlas, shared by every font.
@@ -7,43 +11,57 @@ export interface LabelManagerConfig {
   /** Slot pre-allocation growth factor on atlas resize. */
   atlasCapacityMultiplier: number;
 
-  // Manager behavior
+  /** Commit pending work on the microtask after a change. Off means calling `update()`. */
   autoUpdate: boolean;
-  cullingRate: number; // in seconds
-  fadeDurationMs: number;
 
   /**
-   * Gamma for fade interpolation.
-   * 1 = linear
-   * lower = faster fade-in, slower fade-out.
-   * higher = slower fade-in, faster fade-out.
+   * Minimum seconds between placement pass starts, rounded up to a whole
+   * multiple when a pass outruns it. Far below `fadeDurationMs` reads as flicker.
    */
+  cullingRate: number;
+
+  /** Milliseconds one frame may spend on placement. A pass resumes across frames. */
+  placementBudgetMs: number;
+
+  /** Milliseconds for a label to fade fully in or out. */
+  fadeDurationMs: number;
+
+  /** Fade curve. 1 is linear; lower fades in faster, higher fades out faster. */
   fadeGamma: number;
 
   // Collision Grid settings
+
+  /**
+   * Screen pixels per occupancy cell, a power of two, read once at construction.
+   * Coarser cells pack fewer labels; 4 costs 16 KiB at 1080p.
+   */
   downscale: number;
+
+  /**
+   * Fraction of its cells an already placed label may find taken and still keep.
+   * A label placed for the first time needs all of its cells free.
+   */
   occlusionTolerance: number;
+
+  /** View-projection change below which the camera counts as still and placement is skipped. */
   viewProjThreshold: number;
 
   // Projector settings
+
+  /** NDC units past the cube a label's position may sit and still be projected. */
   ndcCullMargin: number;
 
-  /**
-   * Camera distance, in world units, below which a label is not placed. Culls
-   * labels the camera has moved into. `0` disables it.
-   */
+  /** Camera distance below which a label is not placed. `0` disables it. */
   labelNear: number;
-  /**
-   * Camera distance, in world units, beyond which a label is not placed.
-   *
-   * The candidate gate can only reject on the label's position against the view
-   * frustum, so a far plane much larger than the content leaves nearly every
-   * label a candidate and the expensive projection runs on all of them. This
-   * bounds the set by distance instead. `Infinity` disables it.
-   */
+  /** Camera distance beyond which a label is not placed. `Infinity` disables it. */
   labelFar: number;
 
   // Sorting settings
+
+  /**
+   * Sort penalty on unplaced labels, against squared distance: a contender must
+   * be `sqrt(renderPenaltyMultiplier)` times nearer to take a placed region.
+   */
   renderPenaltyMultiplier: number;
 }
 
@@ -54,8 +72,9 @@ export const DefaultLabelConfig: LabelManagerConfig = {
   atlasCapacityMultiplier: 1.5,
 
   autoUpdate: true,
-  cullingRate: 0.5,
-  fadeDurationMs: 500.0,
+  cullingRate: 0.2,
+  placementBudgetMs: 3,
+  fadeDurationMs: 650.0,
   fadeGamma: 3.0,
 
   downscale: 4,

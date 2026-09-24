@@ -17,6 +17,10 @@ const eslintConfig = defineConfig([
 
     // Build output of the workspace packages.
     'packages/*/dist/**',
+
+    // Agent workflow kit and its scratch evidence: not project sources.
+    '.claude/**',
+    '.workflow/**',
   ]),
 
   js.configs.recommended,

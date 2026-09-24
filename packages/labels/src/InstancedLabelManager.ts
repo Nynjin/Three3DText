@@ -22,7 +22,8 @@ export class InstancedLabelManager {
   private readonly _atlasManager: LabelAtlasManager;
   private readonly _meshManager: LabelMeshManager;
 
-  private _lastCullTime = 0;
+  /** Earliest `performance.now()` at which a pass may open. */
+  private _nextCullTime = 0;
   private _lastFrameTime = 0;
 
   /**
@@ -50,13 +51,12 @@ export class InstancedLabelManager {
 
   /**
    * Take ownership of labels: they get glyphs, buffer slots and a first layout
-   * on the next sync, and are placed by the next {@link cull}.
+   * on the next sync, and are placed by the next placement pass.
    *
    * @param labels - Labels to add; any already owned are ignored.
    */
   addLabels(labels: Label[]) {
     this._atlasManager.addLabels(labels);
-    this._lastCullTime = 0;
   }
 
   /** Removes one label. See {@link InstancedLabelManager.removeLabels}. */
@@ -72,7 +72,6 @@ export class InstancedLabelManager {
    */
   removeLabels(labels: Label[]) {
     this._atlasManager.removeLabels(labels);
-    this._lastCullTime = 0;
   }
 
   /** Releases every label at once. See {@link removeLabels}. */
@@ -88,7 +87,6 @@ export class InstancedLabelManager {
   update() {
     if (!this._atlasManager.hasDirty) return;
     this._sync();
-    this._lastCullTime = 0;
   }
 
   /**
@@ -106,33 +104,28 @@ export class InstancedLabelManager {
 
     let visualNeedUpdate = false;
 
-    const cullDelta = now - this._lastCullTime;
-
-    // Evaluate normally at the culling rate
-    let evaluated = false;
-    if (cullDelta >= this.config.cullingRate * 1000) {
-      if (this.collision.evaluate(camera)) visualNeedUpdate = true;
-      this._lastCullTime = now;
-      evaluated = true;
+    if (now >= this._nextCullTime) {
+      const interval = this.config.cullingRate * 1000;
+      if (this.collision.isPassActive) {
+        // A pass still running at its own tick skips that slot, so starts stay
+        // a whole multiple of the rate apart.
+        this._nextCullTime += interval;
+      } else if (this.collision.beginPass(camera)) {
+        this._nextCullTime = now + interval;
+      }
+      // A refused pass leaves the slot open, so placement starts on the frame
+      // the view moves.
     }
+    if (this.collision.stepPass(this.config.placementBudgetMs)) visualNeedUpdate = true;
 
     const labels = this._atlasManager.labels;
 
-    // keep evaluating on label fading out/in
-    if (!evaluated) {
-      for (const label of labels) {
-        if (label.shouldRender || label.occlusionFade === 0) continue;
-        if (this.collision.evaluate(camera)) visualNeedUpdate = true;
-        break;
-      }
-    }
-
+    // Fades step every frame, independently of the placement cadence above.
     const fadeDelta = frameDelta / this.config.fadeDurationMs;
 
     for (const label of labels) {
+      // 0 is fully drawn, so a placed label fades towards 0.
       const target = label.shouldRender ? 0.0 : 1.0;
-
-      // Lerp the fade state directly on the label object
       if (label.occlusionFade === target) continue;
 
       visualNeedUpdate = true;
