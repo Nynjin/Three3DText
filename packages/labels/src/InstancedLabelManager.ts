@@ -94,8 +94,8 @@ export class InstancedLabelManager {
    * and rewrite the draw list if anything changed. Call once per rendered frame,
    * before the renderer draws.
    *
-   * @param camera - Its `projectionMatrix` and `matrixWorldInverse` must be up to
-   * date.
+   * @param camera - Its `projectionMatrix`, `matrixWorld` and
+   * `matrixWorldInverse` must be up to date.
    */
   cull(camera: Camera) {
     const now = performance.now();
@@ -124,13 +124,16 @@ export class InstancedLabelManager {
     const fadeDelta = frameDelta / this.config.fadeDurationMs;
 
     for (const label of labels) {
-      // 0 is fully drawn, so a placed label fades towards 0.
-      const target = label.shouldRender ? 0.0 : 1.0;
+      // 0 is fully drawn. A hidden label disappears at once; placement drops it
+      // on its next pass.
+      const target = label.shouldRender && label.visible ? 0 : 1;
       if (label.occlusionFade === target) continue;
 
       visualNeedUpdate = true;
 
-      if (label.occlusionFade < target) {
+      if (!label.visible) {
+        label.occlusionFade = 1;
+      } else if (label.occlusionFade < target) {
         label.occlusionFade = Math.min(target, label.occlusionFade + fadeDelta);
       } else {
         label.occlusionFade = Math.max(target, label.occlusionFade - fadeDelta);
@@ -163,9 +166,16 @@ export class InstancedLabelManager {
 
     // Both consumers key removals by id, so build the list once.
     const disposedIds = dispose.map(label => label.id);
+    for (const label of dispose) {
+      label.shouldRender = false;
+      label.occlusionFade = 1;
+    }
 
     this.collision.removeLabels(disposedIds);
     this.collision.addLabels(add);
+    // A label removed and added back before this sync arrives as a relayout.
+    this.collision.addLabels(relayout);
+    if (relayout.length > 0 || update.length > 0) this.collision.invalidate();
 
     // One resolver per distinct font, not per label.
     const resolvers = new Map<string, GlyphResolver>();

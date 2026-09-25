@@ -1,25 +1,9 @@
 /**
- * @description Single-layer packed-bit screen occupancy grid.
+ * Packed-bit screen occupancy grid: one bit per cell, 32 cells per word, each
+ * row padded to a whole word. A cell covers `downscale` × `downscale` pixels.
  *
- * One bit per cell, 32 cells per word, each row padded up to a whole word. A
- * cell covers `downscale` × `downscale` screen pixels, so a 1080p viewport at
- * `downscale = 4` is a 480 × 270 grid costing 16 KiB. Row padding rounds that
- * up whenever the cell width is not a multiple of 32.
- *
- * Rectangles are given in **screen pixels, inclusive on both ends**. Both
- * edges map to the cell that contains them, so a region claims exactly the
- * cells it touches and no gutter is added; callers wanting one must build it
- * into the rectangle.
- *
- * @example
- * ```ts
- * const grid = new BitmapOccupancy(4);
- * grid.resize(canvas.width, canvas.height);
- * grid.clear();                                       // once per frame
- * if (grid.tryClaim(x0, y0, x1, y1, 0.1)) draw(label); // nearest label first
- * ```
- *
- * @see {@link BitmapOccupancy.tryClaim} for the test-and-set contract.
+ * Rectangles are in pixels, inclusive on both ends. Both edges map to the cell
+ * that contains them, so a region claims exactly the cells it touches.
  */
 export class BitmapOccupancy {
   private readonly _shift: number;
@@ -70,20 +54,11 @@ export class BitmapOccupancy {
   }
 
   /**
-   * Claim a rectangle if little enough of it is already claimed.
+   * Claim an inclusive pixel rectangle if at most `tolerance` of it (a fraction
+   * in [0, 1], 0 for no overlap) is already claimed. A rejected rectangle leaves
+   * the grid untouched.
    *
-   * A rejected rectangle leaves the grid untouched, so callers can walk regions
-   * in priority order and let the first one to ask win.
-   *
-   * @param x0 - Left edge in screen pixels, inclusive.
-   * @param y0 - Top edge in screen pixels, inclusive.
-   * @param x1 - Right edge in screen pixels, inclusive.
-   * @param y1 - Bottom edge in screen pixels, inclusive.
-   * @param tolerance - Fraction of the region allowed to be claimed already,
-   * in [0, 1]. Defaults to 0 (no overlap).
-   *
-   * @returns `true` if the region was available and is now claimed, `false` if
-   * it was too crowded, inverted, or entirely off the grid.
+   * @returns `false` if the region was too crowded, inverted, or off the grid.
    *
    * @throws {Error} If `tolerance` is outside `[0, 1]`, NaN included.
    */
@@ -93,10 +68,10 @@ export class BitmapOccupancy {
       throw new Error(`tolerance must be in [0, 1], got ${tolerance}`);
     }
 
-    const cx0 = this._cellLow(x0);
-    const cy0 = this._cellLow(y0);
-    const cx1 = this._cellHigh(x1, this._width);
-    const cy1 = this._cellHigh(y1, this._height);
+    const cx0 = this._cellLow(Math.floor(x0));
+    const cy0 = this._cellLow(Math.floor(y0));
+    const cx1 = this._cellHigh(Math.floor(x1), this._width);
+    const cy1 = this._cellHigh(Math.floor(y1), this._height);
     // Inverted or wholly off-grid once clamped.
     if (cx0 > cx1 || cy0 > cy1) return false;
 
@@ -104,8 +79,7 @@ export class BitmapOccupancy {
     // `claimed / area <= tolerance`, since `claimed` is a whole number.
     const limit = Math.floor(tolerance * (cx1 - cx0 + 1) * (cy1 - cy0 + 1));
 
-    // A zero limit only needs to find one set bit, which the popcount scan
-    // would pay for word by word.
+    // A zero limit only needs to find one set bit, not count them.
     const available = limit === 0
       ? this._isRegionEmpty(cx0, cy0, cx1, cy1)
       : this._isRegionWithinTolerance(cx0, cy0, cx1, cy1, limit);
@@ -120,16 +94,18 @@ export class BitmapOccupancy {
   // assume it has already been clamped to the grid.
 
   /**
-   * Cell holding a rectangle's low edge. Clamps the lower bound only, leaving
-   * an edge past the far side out of range for `tryClaim` to reject.
+   * Cell holding a rectangle's low edge, from an integer pixel. Clamps the lower
+   * bound only, leaving an edge past the far side out of range for `tryClaim`
+   * to reject.
    */
   private _cellLow(px: number): number {
     return Math.max(0, px >> this._shift);
   }
 
   /**
-   * Cell holding a rectangle's high edge. Clamps the upper bound only, leaving
-   * an edge before the near side negative for `tryClaim` to reject.
+   * Cell holding a rectangle's high edge, from an integer pixel. Clamps the
+   * upper bound only, leaving an edge before the near side negative for
+   * `tryClaim` to reject.
    */
   private _cellHigh(px: number, extent: number): number {
     return Math.min(extent - 1, px >> this._shift);
@@ -186,11 +162,8 @@ export class BitmapOccupancy {
   }
 
   /**
-   * True if at most `limit` cells in the rectangle are claimed.
-   *
-   * Counts row by row and stops as soon as the answer is settled: once
-   * `claimed` passes `limit` it can only grow, and once even a fully claimed
-   * remainder would stay inside `limit` the rest need not be read.
+   * True if at most `limit` cells in the rectangle are claimed. Stops once the
+   * unread rows cannot change the answer.
    */
   private _isRegionWithinTolerance(x0: number, y0: number, x1: number, y1: number, limit: number): boolean {
     const wordA = (x0 >> 5);

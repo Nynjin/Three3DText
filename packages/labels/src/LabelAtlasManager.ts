@@ -6,9 +6,10 @@ import { charSplitter } from './Shaping/Graphemes';
 import type { LabelManagerConfig } from './Types/LabelConfig';
 
 /**
- * What a label needs on the next sync. Ordered by precedence: a label marked
- * twice before a flush keeps the higher level, so an add followed by a style
- * change stays an add, and a dispose always wins.
+ * What a label needs on the next sync. A label marked twice before a flush
+ * keeps the higher level, so an add followed by a style change stays an add.
+ * A dispose outranks everything except a later re-add, which turns it into a
+ * relayout.
  */
 export const enum DirtyLevel {
   None = 0,
@@ -93,7 +94,13 @@ export class LabelAtlasManager {
 
       this.labels.add(label);
       this._requestChars(label);
-      this._markDirty(label, DirtyLevel.Add);
+      // Removed and re-added before a flush: it may still hold its slots, or
+      // never have had any; a relayout rewrites or allocates as needed.
+      if (this._dirty.get(label) === DirtyLevel.Dispose) {
+        this._dirty.set(label, DirtyLevel.Relayout);
+      } else {
+        this._markDirty(label, DirtyLevel.Add);
+      }
       this._unsubs.set(label, label.onChange(changes => this._onLabelChange(label, changes)));
       added = true;
     }

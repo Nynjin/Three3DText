@@ -342,7 +342,7 @@ export class LabelMeshManager {
     const gamma = this._config.fadeGamma;
 
     for (const label of labels) {
-      if (!label.shouldRender && label.occlusionFade === 1) continue;
+      if (label.occlusionFade === 1 && !(label.shouldRender && label.visible)) continue;
 
       const glyphIndices = this._glyphDataBuffer.getTexelIndicesOf(label.id);
       if (!glyphIndices || glyphIndices.length === 0) continue;
