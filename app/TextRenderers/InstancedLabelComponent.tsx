@@ -11,6 +11,7 @@ import {
 import type { Item } from '../Types/Item';
 import { useFrame, useThree } from '@react-three/fiber';
 import { mulberry32 } from '../Utils/SeededRandom';
+import { haloColorOf } from '../Commons/Constants';
 
 // Drawn per label so one scene mixes many font keys across the shared atlas.
 const FONTS = ['Arial', 'Georgia', 'Verdana', 'Tahoma', 'Trebuchet MS'];
@@ -18,7 +19,6 @@ const FONT_WEIGHTS = ['400', '600', '700'] as const;
 const FONT_STYLES = ['normal', 'italic'] as const;
 const FONT_SIZES = [16, 18, 22, 28, 36, 48];
 const FILL_COLORS = ['#14181c', '#1d2b36', '#2c2118', '#331c24', '#17301f'];
-const HALO_COLORS = ['#ffd9d9', '#d9e9ff', '#d9ffe4', '#fff3cc', '#ecd9ff'];
 
 function pick<T>(values: readonly T[], random: () => number): T {
   return values[Math.floor(random() * values.length)];
@@ -40,7 +40,7 @@ function makeLabel(item: Item, halo: boolean, styleSeed: number): Label {
     rotation: item.rotation,
     rotationAlignment: RotationAlignment.Map,
     color: pick(FILL_COLORS, random),
-    haloColor: pick(HALO_COLORS, random),
+    haloColor: haloColorOf(item.text),
     haloWidth: halo ? 1 : 0,
     haloBlur: halo ? 10 : 0,
     font: pick(FONTS, random),
