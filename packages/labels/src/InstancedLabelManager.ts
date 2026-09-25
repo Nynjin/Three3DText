@@ -34,14 +34,19 @@ export class InstancedLabelManager {
   /** Earliest `performance.now()` at which a pass may open. */
   private _nextPassTime = 0;
   private _lastFrameTime = 0;
+  private _updateQueued = false;
 
   /**
    * @param renderer - Renderer the labels are drawn with. Its canvas size, in
    * CSS px, sets label size and placement.
-   * @param options - Overrides merged over {@link DefaultLabelConfig}.
+   * @param options - Overrides merged over {@link DefaultLabelConfig}; an
+   * `undefined` value keeps the default.
    */
-  constructor(renderer: WebGLRenderer, options?: Partial<LabelManagerConfig>) {
-    const config: LabelManagerConfig = { ...DefaultLabelConfig, ...options };
+  constructor(renderer: WebGLRenderer, options: Partial<LabelManagerConfig> = {}) {
+    const config: LabelManagerConfig = { ...DefaultLabelConfig };
+    for (const [key, value] of Object.entries(options) as [string, unknown][]) {
+      if (value !== undefined) (config as unknown as Record<string, unknown>)[key] = value;
+    }
     this.config = config;
 
     const maxTextureSize = renderer.capabilities.maxTextureSize;
@@ -51,8 +56,12 @@ export class InstancedLabelManager {
     this.mesh = this._meshManager.mesh;
 
     this._atlasManager.onChange(() => {
-      if (!this.config.autoUpdate) return;
-      queueMicrotask(() => this.update());
+      if (!this.config.autoUpdate || this._updateQueued) return;
+      this._updateQueued = true;
+      queueMicrotask(() => {
+        this._updateQueued = false;
+        this.update();
+      });
     });
   }
 
@@ -134,7 +143,8 @@ export class InstancedLabelManager {
     if (this.collision.stepPass(this.config.placementBudgetMs)) visualNeedUpdate = true;
 
     const labels = this._atlasManager.labels;
-    const fadeDelta = frameDelta / this.config.fadeDurationMs;
+    const duration = this.config.fadeDurationMs;
+    const fadeDelta = duration > 0 ? frameDelta / duration : Infinity;
 
     for (const label of labels) {
       // A hidden label disappears at once; placement drops it on its next pass.

@@ -27,7 +27,7 @@ export interface LabelManagerConfig {
    */
   placementBudgetMs: number;
 
-  /** Time for a label to fade fully in or out, in milliseconds. */
+  /** Time for a label to fade fully in or out, in milliseconds. `0` shows and hides at once. */
   fadeDurationMs: number;
 
   /** Fade curve. 1 is linear; lower fades in faster, higher fades out faster. */

@@ -38,6 +38,7 @@ export enum TextTransform {
   None = 0,
   Uppercase = 1,
   Lowercase = 2,
+  /** First letter of each word upper-cased; an apostrophe does not start a word. */
   Capitalize = 3,
 }
 
@@ -167,6 +168,8 @@ export interface LabelOptions {
   textTransform?: TextTransform;
 }
 
+let nextLabelId = 0;
+
 /**
  * One label. Every setter notifies the manager holding it. The objects returned
  * by `position`, `rotation`, `offset`, `color`, `haloColor` and `padding` are the
@@ -231,10 +234,11 @@ export class Label {
   glyphs: GlyphInstance[] = [];
 
   constructor(options: LabelOptions) {
-    this._id = crypto.randomUUID();
+    this._id = `label-${nextLabelId++}`;
     this._apply(options);
   }
 
+  /** Unique among the labels of this module instance. */
   get id() {
     return this._id;
   }
@@ -265,7 +269,7 @@ export class Label {
       case TextTransform.Lowercase:
         return this._text.toLowerCase();
       case TextTransform.Capitalize:
-        return this._text.replace(/\b\w/g, c => c.toUpperCase());
+        return this._text.replace(/(?<![\p{L}\p{M}\p{N}'’])\p{L}/gu, c => c.toUpperCase());
       default:
         return this._text;
     }
