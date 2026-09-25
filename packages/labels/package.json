@@ -1,6 +1,6 @@
 {
   "name": "@itowns/labels",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Instanced SDF text labels for three.js: GPU glyph rendering, screen-space collision and priority-based occlusion.",
   "keywords": [
     "three",

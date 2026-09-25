@@ -25,12 +25,13 @@ const MODES = [
 
 type Mode = (typeof MODES)[number][0];
 
+/** Slider maximum per mode: the highest count the benchmark measured. */
 const MAX_INSTANCES: Record<Mode, number> = {
-  uikit: 500,
-  troika: 500,
-  'troika-batched': 10000,
-  'troika-batched-cull': 10000,
-  css3d: 1000,
+  uikit: 3000,
+  troika: 6000,
+  'troika-batched': 15000,
+  'troika-batched-cull': 30000,
+  css3d: 5000,
   'custom-instanced': 300000,
 };
 
