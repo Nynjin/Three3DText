@@ -1,13 +1,12 @@
 /**
  * Regenerate the THIRD-PARTY-NOTICES.md files from the installed dependency
- * tree, so attribution cannot drift away from what the code actually ships.
+ * tree.
  *
  *   node scripts/notices.mjs
  *
- * Notices are grouped by licence: each distinct licence text is printed once,
- * with the packages relying on it listed above. A package whose licence file
- * carries extra material, such as an upstream notice it must pass on, is printed
- * verbatim on its own instead, so grouping never drops anything.
+ * Notices are grouped by licence. A licence text two or more packages share is
+ * printed once, after them; any other text is printed whole under its package.
+ * Writes nothing, and exits 1, if a dependency is not installed.
  */
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -38,7 +37,11 @@ const TARGETS = [
 
 const readJSON = path => JSON.parse(readFileSync(path, 'utf8'));
 const strip = line => line.replace(/^[>\s*]+/, '').trim();
-const isCopyright = line => /^copyright\b/i.test(strip(line));
+/** An attribution: starts with "Copyright", or names it with a year or a (c) mark. */
+const isCopyright = (line) => {
+  const s = strip(line);
+  return /^copyright\b/i.test(s) || /\bcopyright\b.*(\(c\)|©|\b\d{4}\b)/i.test(s);
+};
 
 /** A bare "MIT License" / "The MIT License (MIT)" heading line. */
 const TITLE_LINE = /^(the\s+)?[\w\-.\d ]{0,40}licen[cs]e( \([\w\-.\d]+\))?:?$/i;
@@ -135,8 +138,7 @@ function render(target, packages) {
   for (const [id, group] of [...byLicence].sort(([a], [b]) => a.localeCompare(b))) {
     out.push(`## ${id}`, '');
 
-    // Print the text most of the group shares once. A package whose text
-    // diverges is carrying extra notices, so keep that one inline and whole.
+    // Print the text most of the group shares once, if two or more share it.
     const texts = new Map();
     for (const p of group) {
       if (!p.body) continue;
@@ -148,6 +150,7 @@ function render(target, packages) {
     for (const [key, entry] of texts) {
       if (sharedKey === null || entry.count > texts.get(sharedKey).count) sharedKey = key;
     }
+    if (sharedKey !== null && texts.get(sharedKey).count < 2) sharedKey = null;
     const shared = sharedKey === null ? null : texts.get(sharedKey).body;
 
     for (const p of group) {
@@ -168,9 +171,10 @@ function render(target, packages) {
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
 }
 
+const collected = TARGETS.map(target => ({ target, packages: collect(target) }));
+
 let missing = 0;
-for (const target of TARGETS) {
-  const packages = collect(target);
+for (const { packages } of collected) {
   for (const p of packages) {
     if (!p.version) {
       console.warn(`  ! ${p.name} is not installed; run npm install`);
@@ -179,7 +183,10 @@ for (const target of TARGETS) {
       console.warn(`  ~ ${p.name} ships no licence file; using package metadata`);
     }
   }
+}
+if (missing) process.exit(1);
+
+for (const { target, packages } of collected) {
   writeFileSync(join(ROOT, target.out), render(target, packages));
   console.log(`  wrote ${target.out} (${packages.length} packages)`);
 }
-process.exit(missing ? 1 : 0);
