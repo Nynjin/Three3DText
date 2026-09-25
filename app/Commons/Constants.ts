@@ -26,7 +26,7 @@ export const TextGroups = [
   { name: 'Japanese', halo: '#f4dbe8', texts: ['東京', '大阪', '京都', '横浜', '札幌', '名古屋'] },
   { name: 'Korean', halo: '#e2dbf2', texts: ['서울', '부산', '인천', '대전', '광주'] },
   {
-    // Letterforms join, including across spaces.
+    // Letterforms join within a word; 'الدار البيضاء' has two words.
     name: 'Arabic',
     halo: '#dbeed3',
     texts: ['القاهرة', 'بيروت', 'دمشق', 'بغداد', 'الرياض', 'تونس', 'الجزائر', 'الدار البيضاء'],

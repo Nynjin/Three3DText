@@ -49,8 +49,7 @@ vec4 computeViewportAlignedPosition(vec3 localPos, vec3 labelPos) {
 }
 
 // Clip position of a label-local point given in CSS px.
-// TODO: the symPlace fallback is unreachable while RotationAlignment has only
-// Map and Viewport.
+// TODO: the default branch is unreachable; rotAlign is 0 or 1.
 vec4 placeLocal(vec2 localPx, int rotAlign, int symPlace, vec4 rot, vec3 labelPos) {
   vec3 local = vec3(localPx * worldPerPx(labelPos), 0.0);
   switch (rotAlign) {

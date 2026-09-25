@@ -8,7 +8,7 @@ const FONT_STYLES = ['normal', 'italic'] as const;
 const FONT_SIZES = [16, 18, 22, 28, 36, 48];
 const FILL_COLORS = ['#14181c', '#1d2b36', '#2c2118', '#331c24', '#17301f'];
 
-/** Label font size, in px, that Troika, UIKit and CSS3D draw at their base size. */
+/** Label font size, in CSS px, that Troika, UIKit and CSS3D draw at their base size. */
 export const BASE_FONT_SIZE_PX = 24;
 
 function pick<T>(values: readonly T[], random: () => number): T {
@@ -41,8 +41,8 @@ export function makeItems(count: number, seed: number, styleSeed = 0): Item[] {
   const items: Item[] = new Array<Item>(count);
   const len = TextOptions.length;
   for (let i = 0; i < count; i++) {
-    // Factors are the half-extents of the 45 deg / 16:9 camera, pulled in a bit,
-    // so the cloud fills the frustum rather than a box.
+    // Half-extents per unit depth of the 45 deg, 16:9 camera, pulled in a bit:
+    // x and y scale with depth.
     const z = rand() * -100;
     const depth = 50 - z;
     const x = (rand() * 2 - 1) * 0.68 * depth;

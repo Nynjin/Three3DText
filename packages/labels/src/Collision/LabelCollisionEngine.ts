@@ -44,8 +44,8 @@ export class LabelCollisionEngine {
   private _candidates: Label[] = [];
 
   /**
-   * Sort keys parallel to `candidates`. Capacity tracks `labels.length`, so only
-   * the first `candidates.length` entries are meaningful.
+   * Sort keys parallel to `_candidates`. Capacity tracks `_labels.length`, so only
+   * the first `_candidates.length` entries are meaningful.
    */
   private _sortKeys = new Float32Array(0);
 
@@ -57,7 +57,7 @@ export class LabelCollisionEngine {
   private readonly _projector: LabelProjector;
   private readonly _sorter: RadixSorter;
 
-  /** Canvas size in CSS px, refreshed by `syncToViewport`. */
+  /** Canvas size in CSS px, refreshed by `_syncToViewport`. */
   private _screenW = 1;
   private _screenH = 1;
 
@@ -204,8 +204,7 @@ export class LabelCollisionEngine {
    *
    * @param budgetMs - Milliseconds to spend. `Infinity` finishes the pass.
    *
-   * @returns `true` if any label was reconsidered, so the draw list needs a
-   * rebuild.
+   * @returns `true` if a pass was open and advanced.
    */
   stepPass(budgetMs: number): boolean {
     const pass = this._pass;
@@ -314,8 +313,7 @@ export class LabelCollisionEngine {
         dy = p.y - ey,
         dz = p.z - ez;
 
-      // The range test uses raw distance, so the penalty reorders labels without
-      // moving them across the bounds.
+      // The penalty applies to the sort key only; the range test uses raw distance.
       const distSq = dx * dx + dy * dy + dz * dz;
       const key = label.shouldRender ? distSq : distSq * penalty;
 

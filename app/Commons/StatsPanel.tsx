@@ -21,13 +21,10 @@ export interface StatsPanelProps {
 }
 
 /**
- * FPS/CPU/GPU panels driven by stats-gl.
- *
- * stats-gl is a plain three.js panel, so it hooks the render loop directly:
- * {@link addEffect} runs ahead of every frame and {@link addAfterEffect} once
- * the frame is submitted, which brackets the actual draw calls. `end()` closes
- * the GPU query but leaves its result unread, so `update()` has to follow to
- * collect the timings and repaint the panels.
+ * FPS/CPU/GPU panels driven by stats-gl. `begin()` runs in {@link addEffect},
+ * before each frame; `end()` then `update()` run in {@link addAfterEffect},
+ * after it. `end()` closes the GPU query without reading it; `update()` reads
+ * the timings and repaints.
  */
 export function StatsPanel({
   position = 'top-left',

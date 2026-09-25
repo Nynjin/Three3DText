@@ -104,11 +104,11 @@ export interface MeshChanges {
 }
 
 /**
- * Owns the mesh every label draws through, and the data textures behind it.
- * One instance per label.
+ * Owns the mesh every label draws through, one instance per label, and the data
+ * textures behind it.
  *
- * Label and glyph data live in {@link InstancedDataTexture}s keyed by label id,
- * so {@link LabelMeshManager.update} rewrites only the labels that changed.
+ * Label and glyph data live in {@link InstancedDataTexture}s keyed by label id;
+ * {@link LabelMeshManager.update} rewrites the labels it is given.
  * The draw list is separate: {@link LabelMeshManager.cull} rebuilds it.
  *
  * The mesh's own transform is ignored: label positions are world coordinates.

@@ -12,9 +12,8 @@ export interface ScreenAABB {
 }
 
 /**
- * Projects labels to screen-aligned boxes, placing each exactly as the label
- * shader does, with sizes in CSS px of the target. Label positions are world
- * coordinates.
+ * Projects labels to screen-aligned boxes, in CSS px of the target. Label
+ * positions are world coordinates.
  *
  * Call {@link LabelProjector.setFrame} first, then
  * {@link LabelProjector.checkVisible} to reject labels by position and

@@ -4,8 +4,9 @@
  *
  *   node scripts/notices.mjs
  *
- * Notices are grouped by licence. A licence text two or more packages share is
- * printed once, after them; any other text is printed whole under its package.
+ * Notices are grouped by licence. Within a group, the most common text is
+ * printed once, after the packages, when two or more share it; any other text
+ * is printed whole under its package.
  * Writes nothing, and exits 1, if a dependency is not installed.
  */
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -63,11 +64,7 @@ function copyrights(text) {
   return text.split('\n').filter(l => isCopyright(l) && !/permission notice/i.test(l)).map(strip);
 }
 
-/**
- * Licence body with attributions and the leading title removed. Packages head
- * their MIT files differently ("MIT License", "The MIT License (MIT)"), which
- * would otherwise defeat grouping on otherwise identical text.
- */
+/** Licence body with attributions and the leading title line removed, for grouping. */
 function body(text) {
   if (!text) return '';
   const lines = text.split('\n').filter(l => !isCopyright(l));

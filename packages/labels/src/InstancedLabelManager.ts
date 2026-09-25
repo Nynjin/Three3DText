@@ -114,7 +114,7 @@ export class InstancedLabelManager {
 
   /**
    * Opens a placement pass every `config.placementIntervalMs` when the view or
-   * the labels changed, advances it within `config.placementBudgetMs`, steps
+   * the labels changed, advances it for about `config.placementBudgetMs`, steps
    * the fades, and rewrites the draw list if anything moved. Call once per
    * rendered frame, before the renderer draws.
    *
@@ -131,14 +131,12 @@ export class InstancedLabelManager {
     if (now >= this._nextPassTime) {
       const interval = this.config.placementIntervalMs;
       if (this.collision.isPassActive) {
-        // A pass still running at its own tick skips that slot, so starts stay
-        // a whole multiple of the interval apart.
+        // A pass still running at its own tick skips that slot.
         this._nextPassTime += interval;
       } else if (this.collision.beginPass(camera)) {
         this._nextPassTime = now + interval;
       }
-      // A refused pass leaves the slot open, so placement starts on the frame
-      // the view moves.
+      // A refused pass leaves the slot open.
     }
     if (this.collision.stepPass(this.config.placementBudgetMs)) visualNeedUpdate = true;
 

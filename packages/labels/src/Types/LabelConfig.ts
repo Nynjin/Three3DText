@@ -4,7 +4,7 @@
  */
 export interface LabelManagerConfig {
   /**
-   * Raster size every glyph is drawn at, in CSS px. Labels drawn at twice it or
+   * Font size every glyph is rasterized at, in raster px. Labels drawn at twice it or
    * more show lumpy edges. Read at construction.
    */
   atlasFontSize: number;

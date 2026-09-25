@@ -36,7 +36,7 @@ function atlasColumns(glyphs: number, multiplier: number, cellSize: number, maxS
 }
 
 export interface SDFAtlasOptions {
-  /** Raster font size, in CSS px. */
+  /** Raster font size, in raster px. */
   fontSize: number;
   /** Headroom on a resize, at least 1: room is made for this many times the glyphs needed. */
   capacityMultiplier: number;
@@ -66,7 +66,7 @@ export class SDFAtlas {
     return this._texture;
   }
 
-  /** Raster font size, in CSS px. */
+  /** Raster font size, in raster px. */
   readonly fontSize: number;
   /** Field distance outside the ink, in raster px. */
   readonly buffer: number;

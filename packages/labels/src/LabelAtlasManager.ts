@@ -162,7 +162,8 @@ export class LabelAtlasManager {
   /**
    * Subscribe to "something needs a sync". Fires once per `addLabels` or
    * `removeLabels` call that changed anything, once per label change
-   * notification, and once when the RTL shaper loads.
+   * notification, and once when the RTL shaper loads if a tracked label needs
+   * shaping.
    *
    * @returns Unsubscribe function.
    */

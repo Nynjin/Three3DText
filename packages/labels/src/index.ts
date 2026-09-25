@@ -28,7 +28,6 @@ export type { FontKey, FontStyle, FontWeight, FontWeightName } from './Shaping/F
 
 export type { GlyphInfo, GlyphInstance } from './Shaping/GlyphRun';
 
-/** Settles once the RTL shaper has loaded or failed to load; never rejects. */
 export { rtlReady } from './Shaping/RTL';
 
 export type { LabelMesh } from './Rendering/LabelMeshManager';

@@ -74,7 +74,7 @@ export class RadixSorter {
    * @returns Indices `0` to `n - 1` by ascending key. Reused buffer: `length`
    * is the capacity, not `n`, and the next call overwrites it.
    *
-   * @throws {RangeError} If any key is ±Infinity, or every key is NaN. A NaN
+   * @throws {RangeError} If `n > 1` and a key is ±Infinity, or every key is NaN. A NaN
    * among finite keys is tolerated, quantising to `0`.
    */
   sort(keys: ArrayLike<number>, n = keys.length): Int32Array {

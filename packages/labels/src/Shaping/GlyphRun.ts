@@ -44,8 +44,7 @@ export interface GlyphInstance {
   /**
    * Per-glyph orientation, for text following a line.
    *
-   * TODO: nothing writes or reads it yet. The label is placed as one quad, by
-   * its own rotation, so this waits on `SymbolPlacement.Line`.
+   * TODO: unused; the label draws as one quad oriented by its own rotation.
    */
   rotation?: Quaternion;
 }

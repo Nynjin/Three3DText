@@ -14,7 +14,7 @@ export class BitmapOccupancy {
   private _bits = new Uint32Array(1);
 
   /**
-   * @param downscale - Screen pixels per cell edge. Must be a power of two.
+   * @param downscale - CSS px per cell edge. Must be a power of two.
    *
    * @throws {Error} If `downscale` is not a power-of-two integer of at least 1.
    */
@@ -29,8 +29,8 @@ export class BitmapOccupancy {
    * Match the grid to a screen size, reallocating and clearing only when the
    * cell dimensions actually change.
    *
-   * @param screenW - Viewport width in pixels.
-   * @param screenH - Viewport height in pixels.
+   * @param screenW - Viewport width, in CSS px.
+   * @param screenH - Viewport height, in CSS px.
    *
    * @returns `true` if the grid was resized, meaning every previously claimed
    * region is gone and callers must re-evaluate.
@@ -63,7 +63,7 @@ export class BitmapOccupancy {
    * @throws {Error} If `tolerance` is outside `[0, 1]`, NaN included.
    */
   tryClaim(x0: number, y0: number, x1: number, y1: number, tolerance = 0): boolean {
-    // Positive form so NaN is rejected; it would otherwise reject every region.
+    // Positive form, so a NaN tolerance throws.
     if (!(tolerance >= 0 && tolerance <= 1)) {
       throw new Error(`tolerance must be in [0, 1], got ${tolerance}`);
     }

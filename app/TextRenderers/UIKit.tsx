@@ -2,7 +2,10 @@ import { Text as UIKitText } from '@react-three/uikit';
 import type { Item } from '../Types/Item';
 import { BASE_FONT_SIZE_PX } from '../Utils/MakeItems';
 
-/** UIKit font size drawn for a label of BASE_FONT_SIZE_PX. */
+/**
+ * UIKit font size drawn for a label of BASE_FONT_SIZE_PX. UIKit loads its own
+ * font, so `fontFamily` and `fontStyle` are not applied.
+ */
 const UIKIT_BASE_SIZE = 100;
 
 export function UIKitCloud({ items, halo }: { items: Item[]; halo: boolean }) {

@@ -171,7 +171,8 @@ export interface LabelOptions {
 let nextLabelId = 0;
 
 /**
- * One label. Every setter notifies the manager holding it. The objects returned
+ * One label. Every setter notifies the manager holding it, except a font, weight
+ * or style set that leaves the font unchanged. The objects returned
  * by `position`, `rotation`, `offset`, `color`, `haloColor` and `padding` are the
  * label's own: an edit in place is not detected, so assign a new value instead.
  */
@@ -214,7 +215,8 @@ export class Label {
 
   /**
    * How far the label has faded out: 0 fully drawn, 1 invisible. The manager
-   * steps it each cull, towards 0 while {@link shouldRender} holds.
+   * steps it each cull, towards 0 while {@link shouldRender} and {@link visible}
+   * hold and towards 1 otherwise; a hidden label jumps to 1.
    */
   occlusionFade: number = 1;
 
@@ -557,7 +559,7 @@ export class Label {
       changes |= LabelChangeType.Layout;
     }
 
-    // Built in one step, so a multi-property set produces a single key.
+    // An explicit `fontWeight` or `fontStyle` overrides the words parsed from `font`.
     if (options.font !== undefined || options.fontWeight !== undefined || options.fontStyle !== undefined) {
       const parsed = options.font !== undefined ? parseFontDescriptor(options.font) : undefined;
       const next: FontKey = {

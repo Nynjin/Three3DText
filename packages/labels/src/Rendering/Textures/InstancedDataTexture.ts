@@ -89,7 +89,7 @@ export class InstancedDataTexture {
 
   /**
    * Apply one batch of changes and queue the texels it touched for upload.
-   * Removals apply after allocations.
+   * A key must not appear in both `allocations` and `removals`.
    *
    * @param allocations - New contents for keys, new or held.
    * @param removals - Keys whose slots are freed; unknown keys are ignored.
@@ -217,8 +217,8 @@ export class InstancedDataTexture {
 
     this._texture.dispose();
     this._texture = new DataTexture(this._data, width, width, RGBAFormat, FloatType);
-    // Required, not a quality choice: RGBA32F is not filterable without
-    // OES_texture_float_linear, and an unfilterable texture samples as zero.
+    // RGBA32F is not filterable without OES_texture_float_linear, and an
+    // unfilterable texture samples as zero.
     this._texture.minFilter = NearestFilter;
     this._texture.magFilter = NearestFilter;
     this._texture.onUpdate = () => {
