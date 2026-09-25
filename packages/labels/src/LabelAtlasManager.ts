@@ -2,6 +2,7 @@ import { type Label, LabelChangeType } from './Label';
 import type { FontKey } from './Shaping/FontKey';
 import { FALLBACK_CHAR, SDFAtlas } from './Shaping/SDFAtlas';
 import { applyShaping, needsShaping, rtlReady } from './Shaping/RTL';
+import { charSplitter } from './Shaping/Graphemes';
 import type { LabelManagerConfig } from './Types/LabelConfig';
 
 /**
@@ -236,7 +237,8 @@ export class LabelAtlasManager {
       this._charsDirty = true;
     }
 
-    for (const char of applyShaping(label.getDisplayText())) {
+    const shaped = applyShaping(label.getDisplayText());
+    for (const char of charSplitter(shaped)(shaped)) {
       if (entry.chars.has(char)) continue;
       entry.chars.add(char);
       this._charsDirty = true;

@@ -6,14 +6,14 @@ interface RTLModule {
   processBidirectionalText: (text: string, breakIndices: number[]) => string[];
 }
 
-/**
- * The module is WASM-backed and resolves after startup. Awaiting it at the top
- * level would turn every importer into an async module, so it is assigned when
- * it lands and shaping falls back to the text as given until then.
- */
+/** The loaded shaper: `null` until {@link rtlReady} settles, and for good after a load failure. */
 let rtl: RTLModule | null = null;
 
-/** Resolves once shaping is live. Labels laid out before that need a relayout. */
+/**
+ * Settles once the WASM shaper has loaded or failed to load; never rejects.
+ * Until it loads, and for good after a failure, text is laid out unshaped and
+ * in logical order.
+ */
 export const rtlReady: Promise<void> = (rtlText as Promise<RTLModule>)
   .then((module) => {
     rtl = module;
@@ -27,17 +27,14 @@ export function applyShaping(text: string): string {
   return rtl.applyArabicShaping(text);
 }
 
+/** The lines of `text` in visual order. Text with no RTL code point is only split, keeping its joiners. */
 export function reorderParagraph(text: string, breakIndices: number[]): string[] {
   if (!text) return [''];
-  if (!rtl) return splitAtBreaks(text, breakIndices);
+  if (!rtl || !needsShaping(text)) return splitAtBreaks(text, breakIndices);
   return rtl.processBidirectionalText(text, breakIndices);
 }
 
-/**
- * Whether shaping can change this text at all: only text carrying an RTL
- * codepoint does, so anything else lays out identically before and after
- * {@link rtlReady} resolves and never needs a relayout.
- */
+/** Whether the text holds a code point from an RTL script, which shaping reorders or reshapes. */
 export function needsShaping(text: string): boolean {
   for (const char of text) {
     const cp = char.codePointAt(0);
@@ -46,28 +43,30 @@ export function needsShaping(text: string): boolean {
   return false;
 }
 
+const LETTER = /\p{L}/u;
+
+/** Whether the first strongly directional letter is from an RTL script. */
 export function isParagraphRTL(text: string): boolean {
   for (const char of text) {
     const cp = char.codePointAt(0);
     if (cp === undefined) continue;
     if (isRTLCodePoint(cp)) return true;
-    // Strongly LTR: Latin, Greek, Cyrillic, etc.
-    if (
-      (cp >= 0x0041 && cp <= 0x007A)
-      || (cp >= 0x00C0 && cp <= 0x024F)
-      || (cp >= 0x0370 && cp <= 0x03FF)
-      || (cp >= 0x0400 && cp <= 0x04FF)
-    ) return false;
+    if (LETTER.test(char)) return false;
   }
   return false;
 }
 
-/** Hebrew, Arabic, Syriac, Thaana, NKo and the Arabic presentation forms. */
+/**
+ * Hebrew, Arabic, Syriac, Thaana, NKo, Samaritan, Mandaic, their presentation
+ * forms, and the RTL scripts of U+10800-10FFF and U+1E800-1EFFF.
+ */
 function isRTLCodePoint(cp: number): boolean {
   return (
     (cp >= 0x0590 && cp <= 0x08FF)
     || (cp >= 0xFB1D && cp <= 0xFDFF)
-    || (cp >= 0xFE70 && cp <= 0xFEFF)
+    || (cp >= 0xFE70 && cp <= 0xFEFC)
+    || (cp >= 0x10800 && cp <= 0x10FFF)
+    || (cp >= 0x1E800 && cp <= 0x1EFFF)
   );
 }
 

@@ -61,7 +61,6 @@ void main() {
     if (any(greaterThan(abs(rel), g1.zw * 0.5))) continue;
 
     vec4 g2 = glyphFetch(gi, 2);
-    if (g2.z <= 0.0) continue; // a space: quad but no field
 
     // Bitmap-local, y flipped to the atlas' rows, clamped so the bilinear tap
     // cannot reach the neighbouring cell.

@@ -142,7 +142,8 @@ export class SDFAtlas {
 
   /**
    * Rasterizes glyphs into the next free slots and records their atlas metrics.
-   * Assumes the atlas already has room; entries already present are skipped.
+   * Assumes the atlas already has room; entries already present are skipped. A
+   * glyph with no ink, such as a space, takes no slot.
    *
    * @param entries - The `(font, char)` pairs to rasterize.
    *
@@ -156,24 +157,30 @@ export class SDFAtlas {
       const sdf = this._fontToSDF.get(fontKeyStr(fontKey));
       if (!sdf) throw new Error(`SDFAtlas: No TinySDF for fontKey ${fontKeyStr(fontKey)}`);
 
+      const g = sdf.draw(c);
+
+      if (g.glyphWidth === 0 || g.glyphHeight === 0) {
+        this.glyphs.set(key, { px: 0, py: 0, pw: 0, ph: 0, w: 0, h: 0, left: 0, top: 0, advance: g.glyphAdvance });
+        continue;
+      }
+
       const slot = this._slotCount++;
       const x = (slot % this._cols) * this._cellSize;
       const y = Math.floor(slot / this._cols) * this._cellSize;
-      const g = sdf.draw(c);
+      this._blit(g.data, x, y, g.width, g.height);
 
-      if (g.width > 0 && g.height > 0) {
-        this._blit(g.data, x, y, g.width, g.height);
-      }
-
+      // tiny-sdf draws the pen at column `buffer - glyphLeft` and the baseline
+      // at row `buffer + glyphTop` of the bitmap.
       this.glyphs.set(key, {
         px: x,
         py: y,
         pw: g.width,
         ph: g.height,
-        w: g.width || 1,
-        h: g.height || 1,
-        advance: g.glyphAdvance || 1,
-        top: g.glyphTop || 0,
+        w: g.width,
+        h: g.height,
+        left: g.glyphLeft - this.buffer,
+        top: g.glyphTop + this.buffer,
+        advance: g.glyphAdvance,
       });
     }
   }
@@ -216,6 +223,7 @@ export class SDFAtlas {
 
     let slot = 0;
     for (const [, g] of this.glyphs) {
+      if (g.pw === 0) continue;
       const newX = (slot % this._cols) * this._cellSize;
       const newY = Math.floor(slot / this._cols) * this._cellSize;
 

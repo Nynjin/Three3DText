@@ -12,6 +12,7 @@ export enum TextAnchorY {
   Top = 0,
   Middle = 1,
   Bottom = 2,
+  /** The first line's baseline. */
   Baseline = 3,
 }
 
@@ -68,8 +69,8 @@ export interface TextPadding {
 }
 
 /**
- * The box a label occupies in label-local space: its laid-out text plus
- * `padding`, positioned by `anchorX`/`anchorY` and `offset`.
+ * A label's collision box in label-local space, in CSS px, y up: its ink after
+ * the anchor and offset are applied, grown by `padding`.
  */
 export interface LabelBounds {
   /** Left edge. */
@@ -113,7 +114,8 @@ export interface LabelOptions {
   textAlign?: TextAlign;
   anchorX?: TextAnchorX;
   anchorY?: TextAnchorY;
-  padding?: TextPadding | number | [number, number, number, number]; // top, right, bottom, left
+  /** Space around the text reserved from other labels, in CSS px; it does not move the text. One number, or `[top, right, bottom, left]`. */
+  padding?: TextPadding | number | [number, number, number, number];
 
   // Fill
   color?: string | number | Color | Vector3;

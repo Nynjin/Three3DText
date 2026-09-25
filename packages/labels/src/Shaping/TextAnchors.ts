@@ -1,5 +1,6 @@
 import { type Label, TextAnchorX, TextAnchorY } from '../Label';
 
+/** Extent of the laid-out ink, in CSS px, y up. */
 export interface TextBounds {
   minX: number;
   maxX: number;
@@ -7,6 +8,19 @@ export interface TextBounds {
   maxY: number;
 }
 
+/**
+ * Shift that moves the label's anchor point onto its origin.
+ *
+ * {@link TextAnchorY.Baseline} anchors on the first line's baseline, which is
+ * y 0 in label-local space, so it ignores `bounds`.
+ *
+ * @param label - Label whose `anchorX` and `anchorY` are read.
+ * @param bounds - Extent to anchor within.
+ * @param offsetX - Extra shift right, in CSS px.
+ * @param offsetY - Extra shift down, in CSS px.
+ *
+ * @returns The shift to add to every glyph offset.
+ */
 export default function anchorText(
   label: Label,
   bounds: TextBounds,

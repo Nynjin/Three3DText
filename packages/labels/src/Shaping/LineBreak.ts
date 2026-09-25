@@ -1,77 +1,81 @@
 import type { Label } from '../Label';
 import type { GlyphResolver } from './GlyphRun';
+import { charSplitter } from './Graphemes';
 
 /**
- * Finds where a label's text has to break to fit its `maxWidth`.
+ * Finds where a label's text breaks: after every `\n`, and where a line would
+ * pass `maxWidth`. A width break falls after the line's last space, or between
+ * characters when the line has none. Spaces never overflow a line; they stay at
+ * its end. Measures the characters layout draws.
  *
- * Measurement walks code points, so a surrogate pair is one glyph with one
- * advance. The returned offsets stay in UTF-16 units because the bidi pass
- * consumes them that way.
- *
- * @param label - Label whose `maxWidth`, `fontSize` and `letterSpacing` are read.
+ * @param label - Label whose `maxWidth` and `letterSpacing` (in em) and `fontSize` are read.
  * @param resolve - Glyph lookup bound to the label's font.
- * @param glyphScale - Atlas raster pixels to the label's px. Must be the same
- * factor layout applies, or breaks are measured at the wrong size.
- * @param text - Text to break, already shaped. Defaults to the label's own.
+ * @param glyphScale - Raster px to CSS px, the factor layout applies.
+ * @param text - The text layout will place, already shaped.
  *
- * @returns The index just past the end of each line, in UTF-16 code units.
+ * @returns The offset just past the end of each line, in UTF-16 code units.
+ * Lines keep their trailing spaces and `\n`.
  */
 export default function lineBreak(
   label: Label,
   resolve: GlyphResolver,
   glyphScale: number,
-  text = label.getDisplayText(),
+  text: string,
 ): number[] {
   if (!text) return [0];
-  if (label.maxWidth >= Infinity) return [text.length];
 
   const letterSpacing = label.letterSpacing * label.fontSize;
   const maxWidth = label.maxWidth * label.fontSize;
+  const chars = charSplitter(text)(text);
   const breakIndices: number[] = [];
 
-  let i = 0;
-  while (i < text.length) {
-    // Skip leading spaces at the start of each line.
-    while (i < text.length && text[i] === ' ') i++;
-    if (i >= text.length) break;
-
+  // `k` indexes `chars`; `at` is the UTF-16 offset where chars[k] starts.
+  let k = 0;
+  let at = 0;
+  while (k < chars.length) {
     let lineLen = 0;
     let lineWidth = 0;
-    let overflowed = false;
+    // Just past the line's last space, where a width break goes.
+    let afterSpaceK = -1;
+    let afterSpaceAt = -1;
+    let broke = false;
 
-    // Index in `text` of the last space that fit, to break on a word boundary.
-    let lastSpaceI = -1;
-
-    while (i < text.length) {
-      // One code point: a leading surrogate takes its trailing half with it, so
-      // an astral character is measured and broken as the one glyph it is.
-      const unit = text.charCodeAt(i);
-      const isLead = unit >= 0xd800 && unit <= 0xdbff && i + 1 < text.length;
-      const c = isLead ? text.slice(i, i + 2) : text[i];
-      const adv = resolve(c).advance * glyphScale;
-      const charW = adv + (lineLen > 0 ? letterSpacing : 0);
-
-      // Overflow, but only once at least one char is on the line.
-      if (lineLen > 0 && lineWidth + charW > maxWidth) {
-        // Break just after the last word boundary, or mid-word when there is none.
-        if (lastSpaceI >= 0) i = lastSpaceI + 1;
-        breakIndices.push(i);
-        overflowed = true;
+    while (k < chars.length) {
+      const c = chars[k];
+      if (c === '\n' || c === '\r\n') {
+        at += c.length;
+        k++;
+        breakIndices.push(at);
+        broke = true;
         break;
       }
 
-      if (c === ' ') lastSpaceI = i;
+      // Without a finite maxWidth only `\n` breaks, so nothing is measured.
+      const charW = maxWidth < Infinity
+        ? resolve(c).advance * glyphScale + (lineLen > 0 ? letterSpacing : 0)
+        : 0;
+
+      if (c === ' ') {
+        afterSpaceK = k + 1;
+        afterSpaceAt = at + 1;
+      } else if (lineLen > 0 && lineWidth + charW > maxWidth) {
+        if (afterSpaceK > 0) {
+          k = afterSpaceK;
+          at = afterSpaceAt;
+        }
+        breakIndices.push(at);
+        broke = true;
+        break;
+      }
 
       lineLen++;
       lineWidth += charW;
-      i += c.length;
+      at += c.length;
+      k++;
     }
 
-    // The inner loop ran to the end of the text, so `i` closes the last line.
-    if (!overflowed && lineLen > 0) breakIndices.push(i);
+    if (!broke) breakIndices.push(at);
   }
-
-  if (breakIndices.length === 0) breakIndices.push(text.length);
 
   return breakIndices;
 }

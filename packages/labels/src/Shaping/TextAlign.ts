@@ -1,17 +1,33 @@
 import { type Label, TextAlign } from '../Label';
 
+/** One laid-out visual line, after bidi reordering and trimming. */
 interface Line {
+  /** Position in the paragraph, from 0. */
   idx: number;
   text: string;
+  /** Advance width, in CSS px. */
   width: number;
+  /** Lines in the paragraph. */
   count: number;
 }
 
+/**
+ * Horizontal placement for one line within the paragraph's width.
+ *
+ * @param label - Label whose `textAlign` is read.
+ * @param line - The line being placed.
+ * @param contentMaxWidth - Width of the widest line in the paragraph.
+ * @param paragraphIsRTL - Resolves {@link TextAlign.Auto}, and the side a
+ * justified paragraph's last line sits on.
+ *
+ * @returns `alignOffsetX`, the pen start for the line, and
+ * `extraSpacePerWordGap`, added at every space when justifying.
+ */
 export default function textAlign(
   label: Label,
   line: Line,
   contentMaxWidth: number,
-  lineIsRTL = false,
+  paragraphIsRTL: boolean,
 ) {
   let alignOffsetX = 0;
   let extraSpacePerWordGap = 0;
@@ -19,7 +35,7 @@ export default function textAlign(
   let align = label.textAlign;
 
   if (align === TextAlign.Auto) {
-    align = lineIsRTL ? TextAlign.Right : TextAlign.Left;
+    align = paragraphIsRTL ? TextAlign.Right : TextAlign.Left;
   }
 
   switch (align) {
@@ -33,17 +49,13 @@ export default function textAlign(
       alignOffsetX = contentMaxWidth - line.width;
       break;
     case TextAlign.Justify: {
-      // Justify all lines except the last one
-      if (line.idx === line.count - 1 || contentMaxWidth === 0) {
-        alignOffsetX = 0; // Last line stays left-aligned
+      // The last line, and a line with no space to widen, are not stretched;
+      // they sit on the paragraph's start side.
+      const spaceCount = line.text.split(' ').length - 1;
+      if (line.idx === line.count - 1 || spaceCount === 0) {
+        alignOffsetX = paragraphIsRTL ? contentMaxWidth - line.width : 0;
       } else {
-        // Count spaces in the line
-        const spaceCount = line.text.split(' ').length - 1;
-        if (spaceCount > 0) {
-          // Distribute extra space evenly across word gaps
-          const extraSpace = contentMaxWidth - line.width;
-          extraSpacePerWordGap = extraSpace / spaceCount;
-        }
+        extraSpacePerWordGap = (contentMaxWidth - line.width) / spaceCount;
       }
       break;
     }
