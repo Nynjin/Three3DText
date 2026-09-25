@@ -2,7 +2,7 @@ export interface LabelManagerConfig {
   // SDF atlas, shared by every font.
   /** Fixed raster size for every glyph. Labels scale from it, whatever their own fontSize. */
   atlasFontSize: number;
-  /** Slot pre-allocation growth factor on atlas resize. */
+  /** Atlas headroom on a resize, at least 1, within the device's texture size. */
   atlasCapacityMultiplier: number;
 
   /** Commit pending work on the microtask after a change. Off means calling `update()`. */

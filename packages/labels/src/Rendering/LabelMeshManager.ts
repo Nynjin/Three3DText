@@ -4,21 +4,16 @@ import {
   Mesh,
   PlaneGeometry,
   type ShaderMaterial,
-  Vector2,
+  type Vector2,
   type WebGLRenderer,
 } from 'three';
 import type { SDFAtlas } from '../Shaping/SDFAtlas';
-import {
-  createLabelMaterial,
-  updateLabelUniforms,
-} from './Materials/LabelMaterial';
+import { createLabelMaterial } from './Materials/LabelMaterial';
 import type { GlyphInstance } from '../Shaping/GlyphRun';
 import type { Label } from '../Label';
 import { InstancedDataTexture, type ItemAllocation } from './Textures/InstancedDataTexture';
 import type { LabelManagerConfig } from '../Types/LabelConfig';
 import { GLYPH_NEXT_FLOAT, GLYPH_TEXELS, LABEL_TEXELS } from './TexelLayout';
-
-// ---------- Helper functions ----------
 
 /** Floats one label occupies in the label data texture. */
 const LABEL_FLOATS = LABEL_TEXELS * 4;
@@ -65,23 +60,12 @@ function writeLabelFloats(label: Label, out: Float32Array, at: number) {
   out[at + 23] = quad.height;
 }
 
-/**
- * Writes a label's glyphs as flat floats, {@link GLYPH_FLOATS} each.
- *
- * @param labelIdx - Texel index of the owning label.
- */
-function writeGlyphFloats(
-  labelIdx: number,
-  glyphs: GlyphInstance[],
-  out: Float32Array,
-  at: number,
-) {
+/** Writes glyphs as flat floats, {@link GLYPH_FLOATS} each, from `at`. */
+function writeGlyphFloats(glyphs: GlyphInstance[], out: Float32Array, at: number) {
   let o = at;
   for (const { offset, glyph } of glyphs) {
-    out[o] = labelIdx;
-    // Next glyph of this label. The data texture rewrites it as it hands out
-    // slots, since which slot a glyph lands in is not known until then.
-    out[o + 1] = -1;
+    out[o + GLYPH_NEXT_FLOAT] = -1; // next: written on allocation
+    out[o + 1] = 0;
     out[o + 2] = 0;
     out[o + 3] = 0;
 
@@ -99,36 +83,39 @@ function writeGlyphFloats(
   }
 }
 
-/**
- * Grows a staging buffer to hold `floats`, geometrically. Contents are not
- * preserved: every caller rewrites what it reads.
- */
+/** Grows a staging buffer to hold `floats`, geometrically, without keeping its contents. */
 function growStaging(buf: Float32Array<ArrayBuffer>, floats: number): Float32Array<ArrayBuffer> {
   if (buf.length >= floats) return buf;
   return new Float32Array(Math.max(floats, buf.length * 2));
 }
 
-// ---------- Mesh Manager Class ----------
-
 export type LabelMesh = Mesh<InstancedBufferGeometry, ShaderMaterial>;
+
+/** Label work for one {@link LabelMeshManager.update}. */
+export interface MeshChanges {
+  /** Labels new to the mesh, laid out. */
+  add: Label[];
+  /** Labels laid out again: their data and glyphs are rewritten. */
+  relayout: Label[];
+  /** Labels whose data changed and glyphs did not. */
+  update: Label[];
+  /** Ids whose slots are freed. */
+  remove: string[];
+}
 
 /**
  * Owns the mesh every label draws through, and the data textures behind it.
+ * One instance per label.
  *
- * One instance per label, ink and halo in the same pass: both follow from the
- * distance to the label's nearest ink, so the fragment shader gets them out of
- * one walk over the label's glyphs.
- *
- * Label and glyph attributes live in {@link InstancedDataTexture}s keyed by
- * label id, so {@link LabelMeshManager.update} rewrites only the labels that
- * changed. The draw list is a separate pass: {@link LabelMeshManager.cull}
- * rebuilds it every frame visibility moves.
+ * Label and glyph data live in {@link InstancedDataTexture}s keyed by label id,
+ * so {@link LabelMeshManager.update} rewrites only the labels that changed.
+ * The draw list is separate: {@link LabelMeshManager.cull} rebuilds it.
  *
  * The mesh's own transform is ignored: label positions are world coordinates.
  */
 export class LabelMeshManager {
   readonly geom: InstancedBufferGeometry = new InstancedBufferGeometry();
-  readonly mesh: LabelMesh = new Mesh(this.geom);
+  readonly mesh: LabelMesh;
 
   /** `labelTexelIndex, glyphRunHead, glyphCount` per drawn label. */
   private _labelSpan: Int32Array = new Int32Array(INITIAL_INSTANCES * 3);
@@ -136,9 +123,9 @@ export class LabelMeshManager {
   private _labelSpanAttr: InstancedBufferAttribute = new InstancedBufferAttribute(this._labelSpan, 3);
   private _labelFadeAttr: InstancedBufferAttribute = new InstancedBufferAttribute(this._labelFade, 1);
 
-  private _labelDataBuffer = new InstancedDataTexture(LABEL_TEXELS);
-  // T0.y holds the link to the label's next glyph, which the shader walks.
-  private _glyphDataBuffer = new InstancedDataTexture(GLYPH_TEXELS, GLYPH_NEXT_FLOAT);
+  private readonly _labelData: InstancedDataTexture;
+  private readonly _glyphData: InstancedDataTexture;
+  private readonly _atlas: SDFAtlas;
 
   /** Staging buffers for one `update` call, reused across calls and never shrunk. */
   private _labelStaging = new Float32Array(0);
@@ -146,38 +133,38 @@ export class LabelMeshManager {
 
   private readonly _config: LabelManagerConfig;
 
-  /** Canvas size in CSS px, refreshed before every draw. */
-  private readonly _viewport = new Vector2(1, 1);
-
   /**
-   * @param config - Shared label-manager settings, held by reference so later
-   * edits take effect on the next cull.
+   * @param config - Read live.
+   * @param atlas - Atlas the shader samples.
+   * @param maxTextureSize - Largest texture side the device accepts, in texels.
    */
-  constructor(config: LabelManagerConfig) {
+  constructor(config: LabelManagerConfig, atlas: SDFAtlas, maxTextureSize: number) {
     this._config = config;
+    this._atlas = atlas;
+    this._labelData = new InstancedDataTexture(LABEL_TEXELS, -1, maxTextureSize);
+    this._glyphData = new InstancedDataTexture(GLYPH_TEXELS, GLYPH_NEXT_FLOAT, maxTextureSize);
 
     const base = new PlaneGeometry(1, 1);
     this.geom.index = base.index;
     this.geom.attributes.position = base.attributes.position;
     this.geom.attributes.uv = base.attributes.uv;
     base.dispose();
-
-    this.mesh.frustumCulled = false;
-    this.mesh.onBeforeRender = (renderer: WebGLRenderer) => {
-      renderer.getSize(this._viewport);
-    };
-
     this.geom.setAttribute('labelSpan', this._labelSpanAttr);
     this.geom.setAttribute('occlusionFade', this._labelFadeAttr);
+
+    const material = createLabelMaterial(atlas, this._labelData.texture, this._glyphData.texture);
+    this.mesh = new Mesh(this.geom, material);
+    this.mesh.frustumCulled = false;
+    const viewport = material.uniforms.uViewport.value as Vector2;
+    this.mesh.onBeforeRender = (renderer: WebGLRenderer) => {
+      renderer.getSize(viewport);
+    };
   }
 
   /**
    * Regrows the instance lists to hold `min` labels, keeping the `written`
-   * already staged by this cull.
-   *
-   * three refuses to resize a live attribute, so the attribute objects are
-   * replaced. Disposing the geometry frees the buffers they had and drops the
-   * bound state that named them; the next render rebuilds both.
+   * already staged by this cull. three refuses to resize a live attribute, so
+   * the attribute objects are replaced and the geometry disposed.
    */
   private _grow(min: number, written: number) {
     const n = Math.ceil(min * INSTANCE_SLACK);
@@ -195,145 +182,70 @@ export class LabelMeshManager {
     this.geom.setAttribute('occlusionFade', this._labelFadeAttr);
   }
 
-  /** Repoints the material at the current data textures, keeping the atlas. */
-  private _syncUniforms() {
-    updateLabelUniforms(
-      this.mesh.material,
-      this._labelDataBuffer.texture,
-      this._glyphDataBuffer.texture,
-    );
-    this.mesh.material.uniformsNeedUpdate = true;
+  /**
+   * Write label work to the data textures. Does not touch the draw list; call
+   * {@link LabelMeshManager.cull} for that.
+   *
+   * @param changes - Labels to write, and ids to free.
+   * @param atlasReplaced - The atlas grew, replacing its texture.
+   */
+  update(changes: MeshChanges, atlasReplaced: boolean) {
+    const { add, relayout, update, remove } = changes;
+
+    this._labelData.update(this._stageLabels([add, relayout, update]), remove);
+    this._glyphData.update(this._stageGlyphs([add, relayout]), remove);
+
+    const uniforms = this.mesh.material.uniforms;
+    uniforms.uLabelTex.value = this._labelData.texture;
+    uniforms.uGlyphTex.value = this._glyphData.texture;
+    if (atlasReplaced) uniforms.uAtlas.value = this._atlas.texture;
   }
 
-  /**
-   * Rebuild the material against an SDF atlas. Needed when the atlas texture
-   * itself changed, not just its contents.
-   *
-   * @param atlas - Atlas the shader samples from.
-   */
-  syncAtlas(atlas: SDFAtlas) {
-    this.mesh.material.dispose();
-    this.mesh.material = createLabelMaterial(
-      atlas,
-      this._labelDataBuffer.texture,
-      this._glyphDataBuffer.texture,
-      this._viewport,
-    );
-    this.mesh.material.uniformsNeedUpdate = true;
-  }
-
-  /**
-   * Write pending label work to the data textures. Does not touch the draw
-   * list; call {@link LabelMeshManager.cull} for that.
-   *
-   * @param toAdd - Labels needing new slots.
-   * @param toRemove - Ids whose slots are freed, for both textures.
-   * @param toUpdate - Labels whose data changed in place.
-   * @param atlas - Pass only when the atlas texture was replaced, which forces
-   * a material rebuild instead of a uniform refresh.
-   *
-   * @throws {Error} If a label has glyphs but no label-data slot.
-   */
-  update(
-    toAdd: Label[],
-    toRemove: string[],
-    toUpdate: Label[],
-    atlas?: SDFAtlas,
-  ) {
-    // Label data first: glyph texels reference the label's texel index, so the
-    // label has to own a slot before its glyphs can point at it.
-    const labelStaged = this._stageLabels(toAdd, toUpdate);
-    this._labelDataBuffer.update(labelStaged.add, toRemove, labelStaged.update);
-
-    const glyphStaged = this._stageGlyphs(toAdd, toUpdate);
-    this._glyphDataBuffer.update(glyphStaged.add, toRemove, glyphStaged.update);
-
-    if (atlas) {
-      this.syncAtlas(atlas);
-    } else {
-      this._syncUniforms();
-    }
-  }
-
-  /**
-   * Serializes both label lists into the label staging buffer.
-   *
-   * Both lists share one buffer at distinct offsets, because
-   * {@link InstancedDataTexture.update} reads add and update allocations in the
-   * same call.
-   *
-   * @param toAdd - Labels needing new slots.
-   * @param toUpdate - Labels whose data changed.
-   *
-   * @returns Allocations viewing the staging buffer, valid until the next call.
-   */
-  private _stageLabels(toAdd: Label[], toUpdate: Label[]) {
-    const total = (toAdd.length + toUpdate.length) * LABEL_FLOATS;
-    this._labelStaging = growStaging(this._labelStaging, total);
+  /** @returns One allocation per label, viewing the staging buffer until the next call. */
+  private _stageLabels(lists: Label[][]): ItemAllocation[] {
+    let total = 0;
+    for (const labels of lists) total += labels.length;
+    this._labelStaging = growStaging(this._labelStaging, total * LABEL_FLOATS);
     const buf = this._labelStaging;
 
+    const allocs: ItemAllocation[] = [];
     let at = 0;
-    const stage = (labels: Label[]) => {
-      const allocs: ItemAllocation[] = [];
+    for (const labels of lists) {
       for (const label of labels) {
         writeLabelFloats(label, buf, at);
         allocs.push({ key: label.id, data: buf.subarray(at, at + LABEL_FLOATS) });
         at += LABEL_FLOATS;
       }
-      return allocs;
-    };
-
-    return { add: stage(toAdd), update: stage(toUpdate) };
+    }
+    return allocs;
   }
 
   /**
-   * Serializes both label lists' glyphs into the glyph staging buffer.
-   *
-   * Labels with no glyphs are skipped. A style-only update carries
-   * `glyphs: []`, and staging that frees glyph slots the label still needs.
-   *
-   * @param toAdd - Labels needing new slots.
-   * @param toUpdate - Labels whose data changed.
-   *
-   * @returns Allocations viewing the staging buffer, valid until the next call.
-   *
-   * @throws {Error} If a label has glyphs but no label-data slot.
+   * @returns One allocation per label, viewing the staging buffer until the
+   * next call. A label with no glyphs gets an empty one, which frees its glyphs.
    */
-  private _stageGlyphs(toAdd: Label[], toUpdate: Label[]) {
+  private _stageGlyphs(lists: Label[][]): ItemAllocation[] {
     let total = 0;
-    for (const label of toAdd) total += label.glyphs.length;
-    for (const label of toUpdate) total += label.glyphs.length;
-
+    for (const labels of lists) for (const label of labels) total += label.glyphs.length;
     this._glyphStaging = growStaging(this._glyphStaging, total * GLYPH_FLOATS);
     const buf = this._glyphStaging;
 
+    const allocs: ItemAllocation[] = [];
     let at = 0;
-    const stage = (labels: Label[]) => {
-      const allocs: ItemAllocation[] = [];
+    for (const labels of lists) {
       for (const label of labels) {
-        const count = label.glyphs.length;
-        if (count === 0) continue;
-
-        const labelIdx = this._labelDataBuffer.getFirstTexelIndexOf(label.id);
-        if (labelIdx === undefined) {
-          throw new Error(`Missing label data for ${label.id}`);
-        }
-
-        const floats = count * GLYPH_FLOATS;
-        writeGlyphFloats(labelIdx, label.glyphs, buf, at);
+        const floats = label.glyphs.length * GLYPH_FLOATS;
+        writeGlyphFloats(label.glyphs, buf, at);
         allocs.push({ key: label.id, data: buf.subarray(at, at + floats) });
         at += floats;
       }
-      return allocs;
-    };
-
-    return { add: stage(toAdd), update: stage(toUpdate) };
+    }
+    return allocs;
   }
 
   /**
-   * Rewrite the draw list: one instance per visible label, carrying its glyph
-   * run and its eased fade. A fully faded out label is skipped; one mid-fade is
-   * kept so it can finish fading.
+   * Rewrite the draw list: one instance per label that is placed or still
+   * fading out, carrying its glyph run and eased fade.
    *
    * @param labels - Every label the manager owns, in any order.
    */
@@ -344,31 +256,28 @@ export class LabelMeshManager {
     for (const label of labels) {
       if (label.occlusionFade === 1 && !(label.shouldRender && label.visible)) continue;
 
-      const glyphIndices = this._glyphDataBuffer.getTexelIndicesOf(label.id);
+      const glyphIndices = this._glyphData.getTexelIndicesOf(label.id);
       if (!glyphIndices || glyphIndices.length === 0) continue;
 
-      const labelIdx = this._labelDataBuffer.getFirstTexelIndexOf(label.id);
+      const labelIdx = this._labelData.getFirstTexelIndexOf(label.id);
       if (labelIdx === undefined) continue;
 
-      // Shaped once per label, not per glyph: every glyph shares the value.
-      const fade = gamma === 1
+      const eased = gamma === 1
         ? label.occlusionFade
         : 1 - (1 - label.occlusionFade) ** gamma;
 
       if (pos === this._labelFade.length) this._grow(pos + 1, pos);
 
-      // The shader walks the glyph run from its head; the count only bounds
-      // the walk, so a broken link cannot hang it.
       const s = pos * 3;
       this._labelSpan[s] = labelIdx;
       this._labelSpan[s + 1] = glyphIndices[0];
       this._labelSpan[s + 2] = glyphIndices.length;
-      this._labelFade[pos] = fade;
+      this._labelFade[pos] = eased;
       pos++;
     }
 
-    // Upload only the slice actually drawn: the lists keep the high-water mark
-    // of every cull so far.
+    // Upload only the slice drawn: the lists keep the high-water mark of every
+    // cull so far.
     this.geom.instanceCount = pos;
     this._labelSpanAttr.addUpdateRange(0, pos * 3);
     this._labelSpanAttr.needsUpdate = true;
@@ -381,8 +290,8 @@ export class LabelMeshManager {
   /** Releases the geometry, both data textures and the material. */
   dispose() {
     this.geom.dispose();
-    this._labelDataBuffer.dispose();
-    this._glyphDataBuffer.dispose();
+    this._labelData.dispose();
+    this._glyphData.dispose();
     this.mesh.material.dispose();
   }
 }

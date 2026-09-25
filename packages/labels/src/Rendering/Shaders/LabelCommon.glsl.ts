@@ -1,25 +1,24 @@
 /**
- * Data-texture access, for either shader stage. `texel` indexes the layouts
- * LABEL_TEXELS and GLYPH_TEXELS describe.
+ * Data-texture access, for either shader stage. `base` is an item's first
+ * texel; `texel` is the offset within it.
  */
 export const TEXEL_FETCH = /* glsl */ `
 precision highp float;
+precision highp int;
 
 uniform highp sampler2D uLabelTex;
-uniform int uLabelTexWidth;
 uniform highp sampler2D uGlyphTex;
-uniform int uGlyphTexWidth;
 
-vec4 labelFetch(int instanceId, int texel) {
-  int li = instanceId + texel;
-  int w = max(uLabelTexWidth, 1);
-  return texelFetch(uLabelTex, ivec2(li % w, li / w), 0);
+vec4 labelFetch(int base, int texel) {
+  int i = base + texel;
+  int w = textureSize(uLabelTex, 0).x;
+  return texelFetch(uLabelTex, ivec2(i % w, i / w), 0);
 }
 
-vec4 glyphFetch(int instanceId, int texel) {
-  int li = instanceId + texel;
-  int w = max(uGlyphTexWidth, 1);
-  return texelFetch(uGlyphTex, ivec2(li % w, li / w), 0);
+vec4 glyphFetch(int base, int texel) {
+  int i = base + texel;
+  int w = textureSize(uGlyphTex, 0).x;
+  return texelFetch(uGlyphTex, ivec2(i % w, i / w), 0);
 }
 `;
 

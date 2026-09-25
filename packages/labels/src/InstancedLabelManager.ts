@@ -33,9 +33,10 @@ export class InstancedLabelManager {
    */
   constructor(renderer: WebGLRenderer, options?: Partial<LabelManagerConfig>) {
     this.config = { ...DefaultLabelConfig, ...options };
+    const maxTextureSize = renderer.capabilities.maxTextureSize;
     this.collision = new LabelCollisionEngine(renderer, this.config);
-    this._atlasManager = new LabelAtlasManager(this.config);
-    this._meshManager = new LabelMeshManager(this.config);
+    this._atlasManager = new LabelAtlasManager(this.config, maxTextureSize);
+    this._meshManager = new LabelMeshManager(this.config, this._atlasManager.atlas, maxTextureSize);
     this.mesh = this._meshManager.mesh;
 
     this._atlasManager.onChange(() => {
@@ -83,6 +84,8 @@ export class InstancedLabelManager {
    * Flush pending label work to the GPU. Runs automatically on the microtask
    * after any change while `config.autoUpdate` is on, and has to be called
    * explicitly when it is off.
+   *
+   * @throws {RangeError} If the label data outgrows the device's texture size.
    */
   update() {
     if (!this._atlasManager.hasDirty) return;
@@ -161,7 +164,7 @@ export class InstancedLabelManager {
    */
   private _sync() {
     const { atlas } = this._atlasManager;
-    const { dirty } = this._atlasManager.syncAtlas();
+    const { resize } = this._atlasManager.syncAtlas();
     const { add, relayout, update, dispose } = this._atlasManager.flushDirty();
 
     // Both consumers key removals by id, so build the list once.
@@ -185,24 +188,12 @@ export class InstancedLabelManager {
         resolve = atlas.resolverFor(label.fontKey);
         resolvers.set(label.fontKeyStr, resolve);
       }
-      return layoutText(label, resolve, atlas.metrics);
+      layoutText(label, resolve, atlas.metrics);
     };
-
-    // Layout writes back onto the label, so both arrays stay valid. Relaid-out
-    // labels are appended to `update`, which flushDirty returns fresh.
     for (const label of add) layout(label);
-    for (const label of relayout) {
-      layout(label);
-      update.push(label);
-    }
+    for (const label of relayout) layout(label);
 
-    this._meshManager.update(
-      add,
-      disposedIds,
-      update,
-      dirty ? atlas : undefined,
-    );
-
+    this._meshManager.update({ add, relayout, update, remove: disposedIds }, resize);
     this._meshManager.cull(this._atlasManager.labels);
   }
 }
