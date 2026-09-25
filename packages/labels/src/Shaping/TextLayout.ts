@@ -42,16 +42,19 @@ export default function layoutText(
   const offsetX = label.offset.x * label.fontSize;
   const offsetY = label.offset.y * label.fontSize;
 
-  // Resolve each visual line's glyphs
-  const resolvedLines: GlyphInfo[][] = visualLines.map((line) => {
-    const resolved: GlyphInfo[] = new Array<GlyphInfo>(line.length);
-    for (let i = 0; i < line.length; i++) {
-      resolved[i] = resolve(line[i]);
+  // Split to code points first: indexing the string would hand each half of a
+  // surrogate pair to the resolver on its own, and neither half is an atlas
+  // key, so an astral character would resolve to two fallback glyphs.
+  const lineChars: string[][] = visualLines.map(line => Array.from(line));
+
+  const resolvedLines: GlyphInfo[][] = lineChars.map((cps) => {
+    const resolved: GlyphInfo[] = new Array<GlyphInfo>(cps.length);
+    for (let i = 0; i < cps.length; i++) {
+      resolved[i] = resolve(cps[i]);
     }
     return resolved;
   });
 
-  // Calculate line widths from resolved glyphs
   const lineWidths: number[] = resolvedLines.map((resolved) => {
     if (resolved.length === 0) return 0;
     let w = 0;
@@ -65,14 +68,13 @@ export default function layoutText(
 
   const maxLineWidth = lineWidths.length > 0 ? Math.max(...lineWidths) : 0;
 
-  // Layout each character
   for (let lineIdx = 0; lineIdx < visualLines.length; lineIdx++) {
     const line = visualLines[lineIdx];
+    const cps = lineChars[lineIdx];
     const resolved = resolvedLines[lineIdx];
     if (resolved.length === 0) continue;
     const last = resolved.length - 1;
 
-    // Text alignment uses paragraph direction
     const { alignOffsetX, extraSpacePerWordGap } = textAlign(
       label,
       { idx: lineIdx, text: line, width: lineWidths[lineIdx], count: visualLines.length },
@@ -105,7 +107,7 @@ export default function layoutText(
 
       cursor += g.advance + letterSpacing;
 
-      if (line[i] === ' ') {
+      if (cps[i] === ' ') {
         cursor += extraSpacePerWordGap;
       }
     }
