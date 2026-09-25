@@ -4,98 +4,83 @@ import {
   InstancedLabelManager,
   Label,
   RotationAlignment,
-  TextAlign,
   TextAnchorX,
   TextAnchorY,
+  rtlReady,
 } from '@itowns/labels';
 import type { Item } from '../Types/Item';
 import { useFrame, useThree } from '@react-three/fiber';
-import { mulberry32 } from '../Utils/SeededRandom';
-import { haloColorOf } from '../Commons/Constants';
 
-// Drawn per label so one scene mixes many font keys across the shared atlas.
-const FONTS = ['Arial', 'Georgia', 'Verdana', 'Tahoma', 'Trebuchet MS'];
-const FONT_WEIGHTS = ['400', '600', '700'] as const;
-const FONT_STYLES = ['normal', 'italic'] as const;
-const FONT_SIZES = [16, 18, 22, 28, 36, 48];
-const FILL_COLORS = ['#14181c', '#1d2b36', '#2c2118', '#331c24', '#17301f'];
-
-function pick<T>(values: readonly T[], random: () => number): T {
-  return values[Math.floor(random() * values.length)];
-}
+/** Halo distance and fade-out, in CSS px. */
+const HALO_WIDTH = 1;
+const HALO_BLUR = 10;
 
 export interface InstancedLabelsProps {
   items: Item[];
   halo: boolean;
-  /** Seed for the per-item style draw; same seed and key give the same style. */
-  styleSeed?: number;
 }
 
-function makeLabel(item: Item, halo: boolean, styleSeed: number): Label {
-  const random = mulberry32(item.key + styleSeed);
+function makeLabel(item: Item, halo: boolean): Label {
+  const style = item.style;
 
   return new Label({
     text: item.text,
     position: item.position,
     rotation: item.rotation,
     rotationAlignment: RotationAlignment.Map,
-    color: pick(FILL_COLORS, random),
-    haloColor: haloColorOf(item.text),
-    haloWidth: halo ? 1 : 0,
-    haloBlur: halo ? 10 : 0,
-    font: pick(FONTS, random),
-    fontWeight: pick(FONT_WEIGHTS, random),
-    fontStyle: pick(FONT_STYLES, random),
-    fontSize: pick(FONT_SIZES, random),
-    // Wide enough that place names stay on one line; the longest few wrap.
+    color: style.fillColor,
+    haloColor: style.haloColor,
+    haloWidth: halo ? HALO_WIDTH : 0,
+    haloBlur: halo ? HALO_BLUR : 0,
+    font: style.fontFamily,
+    fontWeight: style.fontWeight,
+    fontStyle: style.fontStyle,
+    fontSize: style.fontSizePx,
     maxWidth: 24,
-    textAlign: TextAlign.Left,
-    lineHeight: 1.2,
-    offset: [0, 0],
-    anchorX: TextAnchorX.Left,
-    anchorY: TextAnchorY.Top,
-    // Keeps air between neighbours.
-    padding: [10, 10, 10, 10],
+    anchorX: TextAnchorX.Center,
+    anchorY: TextAnchorY.Middle,
+    padding: 10,
   });
 }
 
-export function InstancedLabelComponent({
-  items,
-  halo,
-  styleSeed = 0,
-}: InstancedLabelsProps) {
+export function InstancedLabelComponent({ items, halo }: InstancedLabelsProps) {
   const groupRef = useRef<Group>(null);
   const camera = useThree(state => state.camera);
   const renderer = useThree(state => state.gl);
 
-  // Map of item.key to Label
-  const labelMapRef = useRef<Map<number, Label>>(new Map());
-  // Whether the manager's mesh pair is attached to the group
-  const attachedRef = useRef(false);
-
   const managerRef = useRef<InstancedLabelManager | null>(null);
+  const labelMapRef = useRef(new Map<number, Label>());
+  /** The halo setting the labels were last built or updated with. */
+  const haloRef = useRef(halo);
 
-  managerRef.current ??= new InstancedLabelManager(renderer, {
-    autoUpdate: false,
-    labelFar: Infinity,
-  });
-  const manager = managerRef.current;
-
-  useEffect(() => {
-    return () => {
-      managerRef.current?.dispose();
-      managerRef.current = null;
-    };
-  }, []); // dispose only on real unmount
-
+  // Created, attached and disposed together, so a remount starts from a new
+  // manager and an empty label map. Declared first: the effects below run after
+  // it in the same commit, and list `renderer` to follow a new manager.
   useEffect(() => {
     const group = groupRef.current;
     if (!group) return;
 
+    const manager = new InstancedLabelManager(renderer, { autoUpdate: false });
+    group.add(manager.mesh);
+    managerRef.current = manager;
+    labelMapRef.current = new Map();
+    // autoUpdate is off, so the relayout the RTL shaper queues needs a commit.
+    void rtlReady.then(() => manager.update());
+
+    return () => {
+      group.remove(manager.mesh);
+      manager.dispose();
+      managerRef.current = null;
+    };
+  }, [renderer]);
+
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (!manager) return;
+
     const labelMap = labelMapRef.current;
     const currentKeys = new Set(items.map(i => i.key));
 
-    // Remove labels whose items are gone
     const toRemove: Label[] = [];
     for (const [key, label] of labelMap) {
       if (!currentKeys.has(key)) {
@@ -103,44 +88,33 @@ export function InstancedLabelComponent({
         labelMap.delete(key);
       }
     }
-    if (toRemove.length > 0) {
-      manager.removeLabels(toRemove);
-    }
 
-    // Add labels that are new
     const toAdd: Label[] = [];
     for (const item of items) {
       if (!labelMap.has(item.key)) {
-        const label = makeLabel(item, halo, styleSeed);
+        const label = makeLabel(item, haloRef.current);
         labelMap.set(item.key, label);
         toAdd.push(label);
       }
     }
-    if (toAdd.length > 0) {
-      manager.addLabels(toAdd);
-    }
 
-    if (toAdd.length > 0 || toRemove.length > 0) {
-      manager.update();
-    }
-
-    if (!attachedRef.current) {
-      group.add(manager.mesh);
-      attachedRef.current = true;
-    }
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, manager, styleSeed]);
+    manager.removeLabels(toRemove);
+    manager.addLabels(toAdd);
+    manager.update();
+  }, [items, renderer]);
 
   useEffect(() => {
+    const manager = managerRef.current;
+    if (!manager || haloRef.current === halo) return;
+    haloRef.current = halo;
     for (const label of labelMapRef.current.values()) {
-      label.set({ haloWidth: halo ? 1 : 0, haloBlur: halo ? 10 : 0 });
+      label.set({ haloWidth: halo ? HALO_WIDTH : 0, haloBlur: halo ? HALO_BLUR : 0 });
     }
     manager.update();
-  }, [halo, manager]);
+  }, [halo, renderer]);
 
   useFrame(() => {
-    manager.cull(camera);
+    managerRef.current?.cull(camera);
   });
 
   return <group ref={groupRef} />;

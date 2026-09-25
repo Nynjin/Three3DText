@@ -47,4 +47,5 @@ export function haloColorOf(text: string): string {
   return HALO_BY_TEXT.get(text) ?? '#ffffff';
 }
 
-export const FrustumCullRate = 0.01;
+/** Seconds between frustum culls of the culled batched Troika mode. */
+export const FRUSTUM_CULL_INTERVAL_S = 0.01;
