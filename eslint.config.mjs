@@ -14,6 +14,13 @@ const eslintConfig = defineConfig([
     'out/**',
     'build/**',
     'next-env.d.ts',
+
+    // Build output of the workspace packages.
+    'packages/*/dist/**',
+
+    // Agent workflow kit and its scratch evidence: not project sources.
+    '.claude/**',
+    '.workflow/**',
   ]),
 
   js.configs.recommended,
@@ -157,7 +164,7 @@ const eslintConfig = defineConfig([
     name: 'bench/untyped-deps',
     files: [
       'app/TextRenderers/Troika.tsx',
-      'app/Core/Shaping/RTL.ts',
+      'packages/labels/src/Shaping/RTL.ts',
       'next.config.ts',
     ],
     rules: {

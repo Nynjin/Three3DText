@@ -4,16 +4,32 @@ import {
   CSS3DRenderer,
   CSS3DObject,
 } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
-import type { Item } from '../Types/Item';
+import type { Item, ItemStyle } from '../Types/Item';
+import { BASE_FONT_SIZE_PX } from '../Utils/MakeItems';
 
-function createDiv(text: Item['text']) {
+/** CSS3D draws at 1 px per world unit, standing for BASE_FONT_SIZE_PX. */
+const cssSize = (style: ItemStyle) => style.fontSizePx / BASE_FONT_SIZE_PX;
+
+/** Four offset shadows in the halo colour, each blurred by the same radius. */
+function haloShadow(style: ItemStyle): string {
+  const r = cssSize(style) * 0.08;
+  const c = style.haloColor;
+  return [
+    `${r}px 0 ${r}px ${c}`,
+    `-${r}px 0 ${r}px ${c}`,
+    `0 ${r}px ${r}px ${c}`,
+    `0 -${r}px ${r}px ${c}`,
+  ].join(', ');
+}
+
+function createDiv(text: Item['text'], style: ItemStyle) {
   const div = document.createElement('div');
   div.textContent = text;
   div.style.cssText = `
-        color: black;
-        font: 1px sans-serif;
+        color: ${style.fillColor};
+        font: ${style.fontStyle} ${style.fontWeight} ${cssSize(style)}px ${style.fontFamily}, sans-serif;
+        white-space: nowrap;
         will-change: transform;
-        anchor = center;
       `;
 
   return div;
@@ -48,14 +64,15 @@ export function CSS3DCloud({ items, halo }: { items: Item[]; halo: boolean }) {
         map.delete(key);
       }
     }
-    for (const { key, text, position, rotation } of items) {
+    for (const { key, text, position, rotation, style } of items) {
       if (!map.has(key)) {
-        const div = createDiv(text);
-        div.style.backgroundColor = halo ? '#cccccc' : '';
+        const div = createDiv(text, style);
+        div.style.textShadow = halo ? haloShadow(style) : '';
         const obj = new CSS3DObject(div);
-        div.remove();
         obj.position.set(...position);
         obj.rotation.set(...rotation);
+        // The halo toggle runs over objects, not items, so the style rides along.
+        obj.userData.itemStyle = style;
         scene.add(obj);
         map.set(key, obj);
       }
@@ -65,7 +82,8 @@ export function CSS3DCloud({ items, halo }: { items: Item[]; halo: boolean }) {
 
   useEffect(() => {
     for (const obj of mapRef.current.values()) {
-      obj.element.style.backgroundColor = halo ? '#cccccc' : '';
+      const style = obj.userData.itemStyle as ItemStyle | undefined;
+      obj.element.style.textShadow = halo && style ? haloShadow(style) : '';
     }
   }, [halo]);
 
