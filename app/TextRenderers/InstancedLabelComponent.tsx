@@ -1,80 +1,86 @@
-import { useEffect, useMemo, useRef } from "react";
-import { Group } from "three";
+import { useEffect, useRef } from 'react';
+import type { Group } from 'three';
 import {
+  InstancedLabelManager,
   Label,
   RotationAlignment,
-  TextAlign,
   TextAnchorX,
   TextAnchorY,
-} from "../Labels/Core/Label";
-import { InstancedLabelManager } from "../Labels/Core/InstancedLabelManager";
-import { Item } from "../Types/Item";
-import { useFrame, useThree } from "@react-three/fiber";
+  rtlReady,
+} from '@itowns/labels';
+import type { Item } from '../Types/Item';
+import { useFrame, useThree } from '@react-three/fiber';
+
+/** Halo distance and fade-out, in CSS px. */
+const HALO_WIDTH = 1;
+const HALO_BLUR = 10;
 
 export interface InstancedLabelsProps {
   items: Item[];
   halo: boolean;
-  viewportPredicate: (item: Item) => boolean;
-  fontSize?: number;
-  pxPerUnit?: number;
 }
 
-function makeLabel(
-  item: Item,
-  halo: boolean,
-  viewportPredicate: (item: Item) => boolean,
-  fontSize: number,
-): Label {
+function makeLabel(item: Item, halo: boolean): Label {
+  const style = item.style;
+
   return new Label({
     text: item.text,
     position: item.position,
     rotation: item.rotation,
     rotationAlignment: RotationAlignment.Map,
-    color: "#000000",
-    haloColor: viewportPredicate(item) ? "#ffcccc" : "#cce5ff",
-    haloWidth: halo ? 1 : 0,
-    haloBlur: halo ? 10 : 0,
-    font: "Arial",
-    fontSize,
-    maxWidth: 5,
-    textAlign: TextAlign.Justify,
-    lineHeight: 1.2,
-    offset: [0, 0],
+    color: style.fillColor,
+    haloColor: style.haloColor,
+    haloWidth: halo ? HALO_WIDTH : 0,
+    haloBlur: halo ? HALO_BLUR : 0,
+    font: style.fontFamily,
+    fontWeight: style.fontWeight,
+    fontStyle: style.fontStyle,
+    fontSize: style.fontSizePx,
+    maxWidth: 24,
     anchorX: TextAnchorX.Center,
     anchorY: TextAnchorY.Middle,
+    padding: 10,
   });
 }
 
-export function InstancedLabelComponent({
-  items,
-  halo,
-  viewportPredicate,
-  fontSize = 20,
-  pxPerUnit = 96,
-}: InstancedLabelsProps) {
+export function InstancedLabelComponent({ items, halo }: InstancedLabelsProps) {
   const groupRef = useRef<Group>(null);
-  const camera = useThree((state) => state.camera);
+  const camera = useThree(state => state.camera);
+  const renderer = useThree(state => state.gl);
 
-  // Map of item.key to Label
-  const labelMapRef = useRef<Map<number, Label>>(new Map());
-  // How many mesh pairs are already attached to the group
-  const attachedMeshCountRef = useRef(0);
+  const managerRef = useRef<InstancedLabelManager | null>(null);
+  const labelMapRef = useRef(new Map<number, Label>());
+  /** The halo setting the labels were last built or updated with. */
+  const haloRef = useRef(halo);
 
-  // Manager created once per pxPerUnit change only
-  const manager = useMemo(() => {
-    const m = new InstancedLabelManager(pxPerUnit);
-    m.autoUpdate = false;
-    return m;
-  }, [pxPerUnit]);
-
+  // Created, attached and disposed together, so a remount starts from a new
+  // manager and an empty label map. Declared first: the effects below run after
+  // it in the same commit, and list `renderer` to follow a new manager.
   useEffect(() => {
     const group = groupRef.current;
     if (!group) return;
 
-    const labelMap = labelMapRef.current;
-    const currentKeys = new Set(items.map((i) => i.key));
+    const manager = new InstancedLabelManager(renderer, { autoUpdate: false });
+    group.add(manager.mesh);
+    managerRef.current = manager;
+    labelMapRef.current = new Map();
+    // autoUpdate is off, so the relayout the RTL shaper queues needs a commit.
+    void rtlReady.then(() => manager.update());
 
-    // Remove labels whose items are gone
+    return () => {
+      group.remove(manager.mesh);
+      manager.dispose();
+      managerRef.current = null;
+    };
+  }, [renderer]);
+
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (!manager) return;
+
+    const labelMap = labelMapRef.current;
+    const currentKeys = new Set(items.map(i => i.key));
+
     const toRemove: Label[] = [];
     for (const [key, label] of labelMap) {
       if (!currentKeys.has(key)) {
@@ -82,47 +88,33 @@ export function InstancedLabelComponent({
         labelMap.delete(key);
       }
     }
-    if (toRemove.length > 0) {
-      manager.removeLabels(toRemove);
-    }
 
-    // Add labels that are new
     const toAdd: Label[] = [];
     for (const item of items) {
       if (!labelMap.has(item.key)) {
-        const label = makeLabel(item, halo, viewportPredicate, fontSize);
+        const label = makeLabel(item, haloRef.current);
         labelMap.set(item.key, label);
         toAdd.push(label);
       }
     }
-    if (toAdd.length > 0) {
-      manager.addLabels(toAdd);
-    }
 
-    // Always flush dirty state so removes + adds are both committed.
-    if (toAdd.length > 0 || toRemove.length > 0) {
-      manager.update();
-    }
+    manager.removeLabels(toRemove);
+    manager.addLabels(toAdd);
+    manager.update();
+  }, [items, renderer]);
 
-    // Attach any mesh pairs created by new font groups (lazy, incremental)
-    for (let i = attachedMeshCountRef.current; i < manager.meshes.length; i++) {
-      const { fill, halo: haloMesh } = manager.meshes[i];
-      group.add(haloMesh, fill);
-    }
-    attachedMeshCountRef.current = manager.meshes.length;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, manager, fontSize]);
-
-  // Halo toggle — mutate labels in-place, no rebuild, no re-layout
   useEffect(() => {
+    const manager = managerRef.current;
+    if (!manager || haloRef.current === halo) return;
+    haloRef.current = halo;
     for (const label of labelMapRef.current.values()) {
-      label.set({ haloWidth: halo ? 1 : 0, haloBlur: halo ? 10 : 0 });
+      label.set({ haloWidth: halo ? HALO_WIDTH : 0, haloBlur: halo ? HALO_BLUR : 0 });
     }
     manager.update();
-  }, [halo, manager]);
+  }, [halo, renderer]);
 
   useFrame(() => {
-    manager.cull(camera);
+    managerRef.current?.cull(camera);
   });
 
   return <group ref={groupRef} />;

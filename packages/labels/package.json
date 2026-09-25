@@ -1,0 +1,67 @@
+{
+  "name": "@itowns/labels",
+  "version": "0.2.0",
+  "description": "Instanced SDF text labels for three.js: GPU glyph rendering, screen-space collision and priority-based occlusion.",
+  "keywords": [
+    "three",
+    "threejs",
+    "labels",
+    "text",
+    "sdf",
+    "instancing",
+    "collision",
+    "occlusion",
+    "webgl"
+  ],
+  "license": "(CECILL-B OR MIT)",
+  "author": "Moncef Hassani (https://github.com/nynjin)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nynjin/Three3DText.git",
+    "directory": "packages/labels"
+  },
+  "bugs": {
+    "url": "https://github.com/Nynjin/Three3DText/issues"
+  },
+  "homepage": "https://github.com/Nynjin/Three3DText/tree/main/packages/labels#readme",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/index.d.ts",
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE",
+    "THIRD-PARTY-NOTICES.md"
+  ],
+  "scripts": {
+    "build": "tsc --build && esbuild src/index.ts --bundle --format=esm --platform=browser --target=es2022 --packages=external --sourcemap --outfile=dist/index.js",
+    "watch": "esbuild src/index.ts --bundle --format=esm --platform=browser --target=es2022 --packages=external --sourcemap --outfile=dist/index.js --watch",
+    "clean": "tsc --build --clean && node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "dependencies": {
+    "@mapbox/mapbox-gl-rtl-text": "^0.3.0",
+    "@mapbox/tiny-sdf": "^2.0.7"
+  },
+  "peerDependencies": {
+    "three": ">=0.182.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.182.0",
+    "esbuild": "^0.28.2",
+    "three": "^0.182.0",
+    "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

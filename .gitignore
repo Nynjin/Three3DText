@@ -20,6 +20,12 @@
 # production
 /build
 
+# workspace package build output
+/packages/*/dist/
+
+# local `npm pack` tarballs
+*.tgz
+
 # misc
 .DS_Store
 *.pem
