@@ -1,5 +1,4 @@
 /**
-/**
  * Data-texture access, for either shader stage. `texel` indexes the layouts
  * LABEL_TEXELS and GLYPH_TEXELS describe.
  */
@@ -24,37 +23,37 @@ vec4 glyphFetch(int instanceId, int texel) {
 }
 `;
 
-/**
- * Vertex-only placement, shared so any consumer positions a label identically.
- */
+/** Vertex-stage placement of a label-local point. Label positions are world coordinates. */
 export const LABEL_PLACEMENT = /* glsl */ `
 ${TEXEL_FETCH}
+
+// Canvas size, in CSS px.
+uniform vec2 uViewport;
 
 vec3 rotateByQuat(vec3 v, vec4 q) {
   return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
 }
 
+// World units covering one CSS px of the canvas at the label's depth.
+float worldPerPx(vec3 labelPos) {
+  float w = abs((projectionMatrix * viewMatrix * vec4(labelPos, 1.0)).w);
+  return 2.0 * w / (projectionMatrix[1][1] * uViewport.y);
+}
+
 vec4 computeMapAlignedPosition(vec3 localPos, vec4 rot, vec3 labelPos) {
-  vec3 rotated = rotateByQuat(localPos, rot);
-  vec4 worldPos = modelMatrix * vec4(labelPos + rotated, 1.0);
-  return projectionMatrix * viewMatrix * worldPos;
+  return projectionMatrix * viewMatrix * vec4(labelPos + rotateByQuat(localPos, rot), 1.0);
 }
 
 vec4 computeViewportAlignedPosition(vec3 localPos, vec3 labelPos) {
-  vec4 centerVS = modelViewMatrix * vec4(labelPos, 1.0);
-  vec3 posVS = centerVS.xyz + vec3(localPos.xy, 0.0);
-  return projectionMatrix * vec4(posVS, 1.0);
+  vec4 centerVS = viewMatrix * vec4(labelPos, 1.0);
+  return projectionMatrix * vec4(centerVS.xyz + localPos, 1.0);
 }
 
-// Clip-space w of the label origin, which cancels the perspective divide.
-float getScreenSizeScale(vec3 labelPos) {
-  vec4 viewPos = modelViewMatrix * vec4(labelPos, 1.0);
-  return abs((projectionMatrix * viewPos).w);
-}
-
+// Clip position of a label-local point given in CSS px.
 // TODO: the symPlace fallback is unreachable while RotationAlignment has only
 // Map and Viewport.
-vec4 placeLocal(vec3 local, int rotAlign, int symPlace, vec4 rot, vec3 labelPos) {
+vec4 placeLocal(vec2 localPx, int rotAlign, int symPlace, vec4 rot, vec3 labelPos) {
+  vec3 local = vec3(localPx * worldPerPx(labelPos), 0.0);
   switch (rotAlign) {
     case 0: return computeMapAlignedPosition(local, rot, labelPos);
     case 1: return computeViewportAlignedPosition(local, labelPos);

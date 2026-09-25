@@ -13,7 +13,7 @@ ${LABEL_PLACEMENT}
 attribute ivec3 labelSpan;
 attribute float occlusionFade;
 
-// Fragment position in the label's frame, before the screen-size scale.
+// Fragment position in the label's frame, in CSS px.
 out vec2 vLocal;
 flat out int vLabelId;
 flat out int vGlyphBase;
@@ -32,10 +32,6 @@ void main() {
   vec4 t5 = labelFetch(vLabelId, 5);
 
   vLocal = t4.zw + position.xy * t5.zw;
-
-  float sizeScale = getScreenSizeScale(labelPos);
-  vec3 local = vec3(vLocal * sizeScale, 0.0);
-
-  gl_Position = placeLocal(local, int(t5.x), int(t5.y), rot, labelPos);
+  gl_Position = placeLocal(vLocal, int(t5.x), int(t5.y), rot, labelPos);
 }
 `;

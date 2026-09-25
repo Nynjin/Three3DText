@@ -4,6 +4,8 @@ import {
   Mesh,
   PlaneGeometry,
   type ShaderMaterial,
+  Vector2,
+  type WebGLRenderer,
 } from 'three';
 import type { SDFAtlas } from '../Shaping/SDFAtlas';
 import {
@@ -121,6 +123,8 @@ export type LabelMesh = Mesh<InstancedBufferGeometry, ShaderMaterial>;
  * label id, so {@link LabelMeshManager.update} rewrites only the labels that
  * changed. The draw list is a separate pass: {@link LabelMeshManager.cull}
  * rebuilds it every frame visibility moves.
+ *
+ * The mesh's own transform is ignored: label positions are world coordinates.
  */
 export class LabelMeshManager {
   readonly geom: InstancedBufferGeometry = new InstancedBufferGeometry();
@@ -142,6 +146,9 @@ export class LabelMeshManager {
 
   private readonly _config: LabelManagerConfig;
 
+  /** Canvas size in CSS px, refreshed before every draw. */
+  private readonly _viewport = new Vector2(1, 1);
+
   /**
    * @param config - Shared label-manager settings, held by reference so later
    * edits take effect on the next cull.
@@ -156,7 +163,9 @@ export class LabelMeshManager {
     base.dispose();
 
     this.mesh.frustumCulled = false;
-    this.mesh.matrixAutoUpdate = false;
+    this.mesh.onBeforeRender = (renderer: WebGLRenderer) => {
+      renderer.getSize(this._viewport);
+    };
 
     this.geom.setAttribute('labelSpan', this._labelSpanAttr);
     this.geom.setAttribute('occlusionFade', this._labelFadeAttr);
@@ -208,6 +217,7 @@ export class LabelMeshManager {
       atlas,
       this._labelDataBuffer.texture,
       this._glyphDataBuffer.texture,
+      this._viewport,
     );
     this.mesh.material.uniformsNeedUpdate = true;
   }

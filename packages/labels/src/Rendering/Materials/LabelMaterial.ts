@@ -1,4 +1,4 @@
-import { type DataTexture, GLSL3, ShaderMaterial } from 'three';
+import { type DataTexture, GLSL3, ShaderMaterial, type Vector2 } from 'three';
 import { LABEL_QUAD_VERT } from '../Shaders/LabelQuad.vert.glsl';
 import { LABEL_FRAG } from '../Shaders/Label.frag.glsl';
 import type { SDFAtlas } from '../../Shaping/SDFAtlas';
@@ -10,11 +10,13 @@ import type { SDFAtlas } from '../../Shaping/SDFAtlas';
  * @param atlas - Atlas the shader samples the distance field from.
  * @param labelTex - Per-label data texture.
  * @param glyphTex - Per-glyph data texture.
+ * @param viewport - Canvas size in CSS px, kept current by the caller.
  */
 export function createLabelMaterial(
   atlas: SDFAtlas,
   labelTex: DataTexture,
   glyphTex: DataTexture,
+  viewport: Vector2,
 ): ShaderMaterial {
   return new ShaderMaterial({
     glslVersion: GLSL3,
@@ -29,6 +31,7 @@ export function createLabelMaterial(
       uGlyphTex: { value: glyphTex },
       uLabelTexWidth: { value: labelTex.width },
       uGlyphTexWidth: { value: glyphTex.width },
+      uViewport: { value: viewport },
     },
     transparent: true,
     // Blended surfaces do not write depth. The test stays on, so a label is

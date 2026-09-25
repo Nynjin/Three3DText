@@ -77,7 +77,9 @@ void main() {
   // fwidth is undefined in the loop's divergent flow, so take the gradient from
   // the quad's own interpolant. sdf moves 1/uRadius per atlas pixel.
   float localPerPx = 0.5 * (length(dFdx(vLocal)) + length(dFdy(vLocal)));
-  float fw = max(localPerPx / (uRadius * localPerAtlasPx), MIN_FWIDTH);
+  // Field change per px, the unit of haloWidth and haloBlur.
+  float sdfPerLocal = 1.0 / (uRadius * localPerAtlasPx);
+  float fw = max(localPerPx * sdfPerLocal, MIN_FWIDTH);
 
   // The field stores (1 - cutoff) - distance / radius: ink boundary at edge,
   // running out at sdf 0.
@@ -94,9 +96,9 @@ void main() {
 
     // Clamp the solid band short of the field's limit, or the halo would end on
     // the bitmap's square border; the falloff takes what is left.
-    float haloWidthSDF = min(haloWidth * fw, edge - MIN_FALLOFF);
+    float haloWidthSDF = min(haloWidth * sdfPerLocal, edge - MIN_FALLOFF);
     float haloBlurSDF = min(
-      max(haloBlur * fw, fw * MIN_BLUR_PX),
+      max(haloBlur * sdfPerLocal, fw * MIN_BLUR_PX),
       max(edge - haloWidthSDF, MIN_FALLOFF)
     );
 

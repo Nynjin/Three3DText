@@ -27,8 +27,8 @@ export class InstancedLabelManager {
   private _lastFrameTime = 0;
 
   /**
-   * @param renderer - Renderer whose drawing-buffer size drives the collision
-   * resolution.
+   * @param renderer - Renderer the labels are drawn with. Its canvas size, in
+   * CSS px, sets label size and placement.
    * @param options - Overrides merged over {@link DefaultLabelConfig}.
    */
   constructor(renderer: WebGLRenderer, options?: Partial<LabelManagerConfig>) {
@@ -175,7 +175,7 @@ export class InstancedLabelManager {
         resolve = atlas.resolverFor(label.fontKey);
         resolvers.set(label.fontKeyStr, resolve);
       }
-      return layoutText(label, resolve, atlas.metrics, this.config.pxPerUnit);
+      return layoutText(label, resolve, atlas.metrics);
     };
 
     // Layout writes back onto the label, so both arrays stay valid. Relaid-out

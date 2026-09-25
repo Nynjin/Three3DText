@@ -16,8 +16,6 @@ import anchorText from './TextAnchors';
  * @param label - Label to lay out. Mutated in place.
  * @param resolve - Glyph lookup bound to the label's font.
  * @param metrics - Metrics of the atlas the resolver reads from.
- * @param pxPerUnit - Label pixels per world unit; see
- * `LabelManagerConfig.pxPerUnit`.
  *
  * @returns The same label.
  */
@@ -25,7 +23,6 @@ export default function layoutText(
   label: Label,
   resolve: GlyphResolver,
   metrics: AtlasMetrics,
-  pxPerUnit: number,
 ): Label {
   const chars: GlyphInstance[] = [];
 
@@ -91,8 +88,8 @@ export default function layoutText(
         py: resolved[i].py,
         pw: resolved[i].pw,
         ph: resolved[i].ph,
-        w: (resolved[i].w * glyphScale) / pxPerUnit,
-        h: (resolved[i].h * glyphScale) / pxPerUnit,
+        w: resolved[i].w * glyphScale,
+        h: resolved[i].h * glyphScale,
         advance: resolved[i].advance * glyphScale,
         top: resolved[i].top * glyphScale,
       };
@@ -100,8 +97,8 @@ export default function layoutText(
       chars.push({
         glyph: g,
         offset: new Vector2(
-          cursor / pxPerUnit + g.w / 2,
-          (g.top + y) / pxPerUnit - g.h / 2,
+          cursor + g.w / 2,
+          g.top + y - g.h / 2,
         ),
       });
 
@@ -113,8 +110,8 @@ export default function layoutText(
     }
 
     const g = resolved[last];
-    const gW = (g.w * glyphScale) / pxPerUnit;
-    const gH = (g.h * glyphScale) / pxPerUnit;
+    const gW = g.w * glyphScale;
+    const gH = g.h * glyphScale;
     const gTop = g.top * glyphScale;
 
     chars.push({
@@ -129,8 +126,8 @@ export default function layoutText(
         top: gTop,
       },
       offset: new Vector2(
-        cursor / pxPerUnit + gW / 2,
-        (gTop + y) / pxPerUnit - gH / 2,
+        cursor + gW / 2,
+        gTop + y - gH / 2,
       ),
     });
   }
@@ -148,7 +145,7 @@ export default function layoutText(
     let quadMinY = Infinity;
     let quadMaxY = -Infinity;
 
-    const glyphPadding = (metrics.padding * glyphScale) / pxPerUnit;
+    const glyphPadding = metrics.padding * glyphScale;
 
     for (const ch of chars) {
       const halfW = Math.max(0, ch.glyph.w - glyphPadding) / 2;
@@ -167,16 +164,16 @@ export default function layoutText(
       quadMaxY = Math.max(quadMaxY, ch.offset.y + quadHalfH);
     }
 
-    maxX += label.padding.right / pxPerUnit;
-    minX -= label.padding.left / pxPerUnit;
-    maxY += label.padding.top / pxPerUnit;
-    minY -= label.padding.bottom / pxPerUnit;
+    maxX += label.padding.right;
+    minX -= label.padding.left;
+    maxY += label.padding.top;
+    minY -= label.padding.bottom;
 
     const { shiftX, shiftY } = anchorText(
       label,
       { minX, maxX, minY, maxY },
-      offsetX / pxPerUnit,
-      offsetY / pxPerUnit,
+      offsetX,
+      offsetY,
     );
 
     for (const ch of chars) {
@@ -207,8 +204,8 @@ export default function layoutText(
     label.bounds = {
       minX: 0,
       minY: 0,
-      width: maxLineWidth / pxPerUnit,
-      height: (visualLines.length * lineHeight) / pxPerUnit,
+      width: maxLineWidth,
+      height: visualLines.length * lineHeight,
     };
     label.quad = { cx: 0, cy: 0, width: 0, height: 0 };
   }

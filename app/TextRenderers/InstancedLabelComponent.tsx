@@ -29,7 +29,6 @@ export interface InstancedLabelsProps {
   halo: boolean;
   /** Seed for the per-item style draw; same seed and key give the same style. */
   styleSeed?: number;
-  pxPerUnit?: number;
 }
 
 function makeLabel(item: Item, halo: boolean, styleSeed: number): Label {
@@ -64,7 +63,6 @@ export function InstancedLabelComponent({
   items,
   halo,
   styleSeed = 0,
-  pxPerUnit = 1024,
 }: InstancedLabelsProps) {
   const groupRef = useRef<Group>(null);
   const camera = useThree(state => state.camera);
@@ -78,7 +76,6 @@ export function InstancedLabelComponent({
   const managerRef = useRef<InstancedLabelManager | null>(null);
 
   managerRef.current ??= new InstancedLabelManager(renderer, {
-    pxPerUnit,
     autoUpdate: false,
     labelFar: Infinity,
   });

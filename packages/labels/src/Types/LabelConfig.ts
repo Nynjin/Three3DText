@@ -1,10 +1,4 @@
 export interface LabelManagerConfig {
-  /**
-   * Label pixels per world unit. Labels hold their size on screen at any depth;
-   * 1024 is about 1:1 for a 45 deg camera on a 900 px buffer.
-   */
-  pxPerUnit: number;
-
   // SDF atlas, shared by every font.
   /** Fixed raster size for every glyph. Labels scale from it, whatever their own fontSize. */
   atlasFontSize: number;
@@ -66,8 +60,6 @@ export interface LabelManagerConfig {
 }
 
 export const DefaultLabelConfig: LabelManagerConfig = {
-  pxPerUnit: 48,
-
   atlasFontSize: 24,
   atlasCapacityMultiplier: 1.5,
 

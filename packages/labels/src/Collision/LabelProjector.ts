@@ -3,6 +3,7 @@ import { type Label, RotationAlignment } from '../Label';
 import type { LabelManagerConfig } from '../Types/LabelConfig';
 import { sdfBuffer } from '../Shaping/SDFAtlas';
 
+/** Pixel bounds in `setFrame`'s target space, inclusive on both ends, y down. */
 export interface ScreenAABB {
   x0: number;
   y0: number;
@@ -11,12 +12,13 @@ export interface ScreenAABB {
 }
 
 /**
- * Projects a Label's 4 corners into a screen-aligned bounding box, in whatever
- * pixel resolution `setFrame` was given. The collision engine passes the
- * viewport size, so boxes come out in screen pixels.
+ * Projects labels to screen-aligned boxes, placing each exactly as the label
+ * shader does, with sizes in CSS px of the target. Label positions are world
+ * coordinates.
  *
- * Set the frame once per frame, then use {@link LabelProjector.checkVisible} to
- * reject labels cheaply and {@link LabelProjector.project} on the survivors.
+ * Call {@link LabelProjector.setFrame} first, then
+ * {@link LabelProjector.checkVisible} to reject labels by position and
+ * {@link LabelProjector.project} on the rest.
  */
 export class LabelProjector {
   private readonly _view = new Matrix4();
@@ -24,12 +26,16 @@ export class LabelProjector {
   private _targetW = 1;
   private _targetH = 1;
   private readonly _config: LabelManagerConfig;
+  /** How far the distance field reaches past the ink, in em. */
+  private readonly _haloReachEm: number;
 
   private readonly _q = new Quaternion();
   private readonly _v3 = new Vector3();
 
+  /** @param config - Read live, except `atlasFontSize`, read once. */
   constructor(config: LabelManagerConfig) {
     this._config = config;
+    this._haloReachEm = sdfBuffer(config.atlasFontSize) / config.atlasFontSize;
   }
 
   /**
@@ -38,8 +44,8 @@ export class LabelProjector {
    *
    * @param view - Camera `matrixWorldInverse`.
    * @param proj - Camera `projectionMatrix`.
-   * @param targetW - Width of the pixel space boxes come out in.
-   * @param targetH - Height of that space.
+   * @param targetW - Width of the target, in CSS px.
+   * @param targetH - Height of the target, in CSS px.
    */
   setFrame(
     view: Matrix4,
@@ -54,13 +60,10 @@ export class LabelProjector {
   }
 
   /**
-   * Cheap rejection test to run before the much costlier
-   * {@link LabelProjector.project}.
-   *
-   * Transforms the label's position only, against the frustum widened by
-   * `config.ndcCullMargin`, so it over-accepts: passing means "worth projecting",
-   * not "on screen". A NaN position passes too, since every comparison against
-   * NaN is false.
+   * Whether the label's position lies in front of the camera and inside the
+   * frustum widened by `config.ndcCullMargin`. The label's extent is not
+   * considered, so passing means worth projecting, not on screen. A NaN
+   * position fails.
    */
   checkVisible(label: Label): boolean {
     const ve = this._view.elements;
@@ -72,9 +75,6 @@ export class LabelProjector {
     const cvz = ve[2] * p.x + ve[6] * p.y + ve[10] * p.z + ve[14];
     if (cvz >= 0) return false;
 
-    // Off-screen cull on the label position, widened by `ndcCullMargin`. The
-    // label's own extent is not accounted for, so `project` still has to test
-    // the box this admits.
     const ccx = pe[0] * cvx + pe[4] * cvy + pe[8] * cvz + pe[12];
     const ccy = pe[1] * cvx + pe[5] * cvy + pe[9] * cvz + pe[13];
     const ccw = pe[3] * cvx + pe[7] * cvy + pe[11] * cvz + pe[15];
@@ -85,23 +85,29 @@ export class LabelProjector {
   }
 
   /**
-   * Project a label's quad to a screen-aligned bounding box, written into `out`
-   * in `setFrame`'s pixel space only when this returns `true`, so one scratch
-   * object can serve every label.
-   *
-   * The box covers the label's bounds plus however far the halo reaches past
-   * the padding.
-   *
-   * The box is not clamped to the target: it may fall partly or wholly outside
-   * it, and what to do about that is the caller's policy.
+   * Project a label's bounds, grown by however far its halo reaches past the
+   * padding, into `out`. `out` is written only when this returns `true`, and is
+   * not clamped to the target.
    *
    * @returns `true` if the label has bounds and every corner lies in front of
-   * the eye, `false` otherwise.
+   * the eye.
    */
   project(label: Label, out: ScreenAABB): boolean {
-    const bw = label.bounds.width;
-    const bh = label.bounds.height;
+    let { minX: bx, minY: by, width: bw, height: bh } = label.bounds;
     if (bw === 0 || bh === 0) return false;
+
+    if (label.hasHalo()) {
+      const halo = Math.min(label.haloWidth + label.haloBlur, label.fontSize * this._haloReachEm);
+      const pad = label.padding;
+      const left = Math.max(0, halo - pad.left);
+      const right = Math.max(0, halo - pad.right);
+      const bottom = Math.max(0, halo - pad.bottom);
+      const top = Math.max(0, halo - pad.top);
+      bx -= left;
+      bw += left + right;
+      by -= bottom;
+      bh += bottom + top;
+    }
 
     const ve = this._view.elements;
     const pe = this._proj.elements;
@@ -110,23 +116,12 @@ export class LabelProjector {
     const cvy = ve[1] * p.x + ve[5] * p.y + ve[9] * p.z + ve[13];
     const cvz = ve[2] * p.x + ve[6] * p.y + ve[10] * p.z + ve[14];
 
-    // Layout already anchored the box and applied the label's offset.
-    const bx = label.bounds.minX;
-    const by = label.bounds.minY;
+    // World units per CSS px at the label's depth.
+    const w = Math.abs(pe[3] * cvx + pe[7] * cvy + pe[11] * cvz + pe[15]);
+    const worldPerPx = (2 * w) / (pe[5] * this._targetH);
 
-    // Clip-space w of the label centre, which the perspective divide undoes.
-    const sizeScale = Math.abs(
-      pe[3] * cvx + pe[7] * cvy + pe[11] * cvz + pe[15],
-    );
     const isViewport = label.rotationAlignment === RotationAlignment.Viewport;
-    if (!isViewport) {
-      this._q.set(
-        label.rotation.x,
-        label.rotation.y,
-        label.rotation.z,
-        label.rotation.w,
-      );
-    }
+    if (!isViewport) this._q.copy(label.rotation);
 
     const W = this._targetW,
       H = this._targetH;
@@ -137,10 +132,8 @@ export class LabelProjector {
 
     // The 4 corners as a 2-bit code; only their min/max matters, not the order.
     for (let i = 0; i < 4; i++) {
-      const ux = i & 1;
-      const uy = (i >> 1) & 1;
-      const localX = (bx + ux * bw) * sizeScale;
-      const localY = (by + uy * bh) * sizeScale;
+      const localX = (bx + (i & 1) * bw) * worldPerPx;
+      const localY = (by + ((i >> 1) & 1) * bh) * worldPerPx;
       let vx: number, vy: number, vz: number;
       if (isViewport) {
         vx = cvx + localX;
@@ -159,29 +152,12 @@ export class LabelProjector {
       const cy = pe[1] * vx + pe[5] * vy + pe[9] * vz + pe[13];
       const cw = pe[3] * vx + pe[7] * vy + pe[11] * vz + pe[15];
       if (cw <= 0) return false;
-      const ndcX = cx / cw,
-        ndcY = cy / cw;
-      const px = (ndcX * 0.5 + 0.5) * W;
-      const py = (ndcY * -0.5 + 0.5) * H;
+      const px = (cx / cw * 0.5 + 0.5) * W;
+      const py = (cy / cw * -0.5 + 0.5) * H;
       if (px < minX) minX = px;
       if (px > maxX) maxX = px;
       if (py < minY) minY = py;
       if (py > maxY) maxY = py;
-    }
-
-    // The halo reaches haloWidth + haloBlur past the ink, in the screen pixels
-    // the box is already in, and the padding covers part of that.
-    if (label.hasHalo()) {
-      // Capped at the field's own reach; a wider halo draws no further.
-      const raster = this._config.atlasFontSize;
-      const reach = (label.fontSize * sdfBuffer(raster)) / raster;
-      const halo = Math.min(label.haloWidth + label.haloBlur, reach);
-      const pad = label.padding;
-      minX -= Math.max(0, halo - pad.left);
-      maxX += Math.max(0, halo - pad.right);
-      // y grows downward here, so minY is the label's top edge.
-      minY -= Math.max(0, halo - pad.top);
-      maxY += Math.max(0, halo - pad.bottom);
     }
 
     out.x0 = Math.floor(minX);
