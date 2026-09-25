@@ -37,12 +37,8 @@ interface FontCharSet {
 }
 
 /**
- * Owns the single SDF atlas shared by every font, and tracks which labels need
- * work before the next draw.
- *
- * Glyphs are keyed by font *and* character, so one atlas serves every font. A
- * label changing weight asks for glyphs under a different key and re-runs
- * layout.
+ * Owns the SDF atlas shared by every font, and tracks which labels need work
+ * before the next draw.
  */
 export class LabelAtlasManager {
   readonly atlas: SDFAtlas;
@@ -68,8 +64,7 @@ export class LabelAtlasManager {
       maxSize: maxTextureSize,
     });
 
-    // The shaper loads asynchronously, so labels added before it lands were
-    // laid out from unshaped text and have to be redone once it is live.
+    // Labels added before the shaper loaded were laid out from unshaped text.
     void rtlReady.then(() => this._relayoutShaped());
   }
 
@@ -78,18 +73,13 @@ export class LabelAtlasManager {
     return this._dirty.size > 0;
   }
 
-  /** Adds one label. See {@link LabelAtlasManager.addLabels}. */
-  addLabel(label: Label) {
-    this.addLabels([label]);
-  }
-
   /**
    * Start tracking labels: request their characters, mark them for a first
    * layout, and subscribe to their changes.
    *
    * @param labels - Labels to add; any already tracked are ignored.
    */
-  addLabels(labels: Label[]) {
+  addLabels(labels: Iterable<Label>) {
     let added = false;
 
     for (const label of labels) {
@@ -111,19 +101,13 @@ export class LabelAtlasManager {
     if (added) this._emit();
   }
 
-  /** Removes one label. See {@link LabelAtlasManager.removeLabels}. */
-  removeLabel(label: Label) {
-    this.removeLabels([label]);
-  }
-
   /**
    * Stop tracking labels and mark them for disposal, so the next flush frees
-   * their buffer slots. Their atlas glyphs stay, since the atlas never frees a
-   * slot.
+   * their buffer slots. Their atlas glyphs stay.
    *
    * @param labels - Labels to remove; any not tracked are ignored.
    */
-  removeLabels(labels: Label[]) {
+  removeLabels(labels: Iterable<Label>) {
     let removed = false;
 
     for (const label of labels) {
@@ -159,7 +143,7 @@ export class LabelAtlasManager {
     return result;
   }
 
-  /** Takes the pending work, grouped by level, and clears it. */
+  /** Takes the pending work, grouped by level, and clears it. The arrays are the caller's. */
   flushDirty(): DirtyLabels {
     const flushed: DirtyLabels = { add: [], relayout: [], update: [], dispose: [] };
     const byLevel = new Map<DirtyLevel, Label[]>([
@@ -176,10 +160,9 @@ export class LabelAtlasManager {
   }
 
   /**
-   * Subscribe to "something needs a sync". Fires once per mutation batch, not
-   * once per label.
-   *
-   * @param listener - Called after any change that leaves work pending.
+   * Subscribe to "something needs a sync". Fires once per `addLabels` or
+   * `removeLabels` call that changed anything, once per label change
+   * notification, and once when the RTL shaper loads.
    *
    * @returns Unsubscribe function.
    */
@@ -207,7 +190,6 @@ export class LabelAtlasManager {
       return;
     }
 
-    // A font change leaves the label here; only its glyph keys change.
     if (changes & (LabelChangeType.Font | LabelChangeType.Text)) {
       this._requestChars(label);
     }
@@ -217,11 +199,7 @@ export class LabelAtlasManager {
     this._emit();
   }
 
-  /**
-   * Re-request characters and force a relayout for the labels whose text the
-   * newly-loaded shaper can actually change. Pure-LTR text shapes to itself and
-   * is skipped.
-   */
+  /** Re-requests characters and relays out the labels the shaper changes. */
   private _relayoutShaped() {
     let marked = false;
 
@@ -265,10 +243,7 @@ export class LabelAtlasManager {
     return pending;
   }
 
-  /**
-   * Raise the label's pending work to `level`. Never lowers it, so the highest
-   * level marked before a flush is the one that runs.
-   */
+  /** Raise the label's pending work to `level`; never lowers it. */
   private _markDirty(label: Label, level: DirtyLevel) {
     const current = this._dirty.get(label) ?? DirtyLevel.None;
     if (level > current) this._dirty.set(label, level);

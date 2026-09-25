@@ -3,27 +3,36 @@ import layoutText from './Shaping/TextLayout';
 import { LabelAtlasManager } from './LabelAtlasManager';
 import type { Label } from './Label';
 import type { GlyphResolver } from './Shaping/GlyphRun';
-import { LabelMeshManager } from './Rendering/LabelMeshManager';
-import type { LabelMesh } from './Rendering/LabelMeshManager';
+import { LabelMeshManager, type LabelMesh } from './Rendering/LabelMeshManager';
 import { LabelCollisionEngine } from './Collision/LabelCollisionEngine';
 import { type LabelManagerConfig, DefaultLabelConfig } from './Types/LabelConfig';
 
+/**
+ * Draws a set of labels through one mesh, placing them so they do not overlap.
+ *
+ * Add {@link mesh} to the scene, add labels, and call {@link cull} once per
+ * frame before rendering. Label changes are committed by {@link update}, which
+ * runs by itself while `config.autoUpdate` is on. {@link dispose} releases GPU
+ * resources; it does not remove the mesh from its parent.
+ */
 export class InstancedLabelManager {
-  /** Live settings: edits land on the next pass. */
+  /** Settings, read live except where their docs say otherwise. */
   readonly config: LabelManagerConfig;
 
-  /** The mesh to add to the scene. Labels draw ink and halo through it. */
+  /** The mesh to add to the scene. Its own transform is ignored. */
   readonly mesh: LabelMesh;
 
-  /** Placement pass, driven by {@link cull} and exposed for custom cadences. */
+  /**
+   * Placement pass, driven by {@link cull}. Its label set belongs to this
+   * manager: call only its pass methods.
+   */
   readonly collision: LabelCollisionEngine;
 
-  /** All labels share one atlas and one mesh. */
   private readonly _atlasManager: LabelAtlasManager;
   private readonly _meshManager: LabelMeshManager;
 
   /** Earliest `performance.now()` at which a pass may open. */
-  private _nextCullTime = 0;
+  private _nextPassTime = 0;
   private _lastFrameTime = 0;
 
   /**
@@ -32,11 +41,13 @@ export class InstancedLabelManager {
    * @param options - Overrides merged over {@link DefaultLabelConfig}.
    */
   constructor(renderer: WebGLRenderer, options?: Partial<LabelManagerConfig>) {
-    this.config = { ...DefaultLabelConfig, ...options };
+    const config: LabelManagerConfig = { ...DefaultLabelConfig, ...options };
+    this.config = config;
+
     const maxTextureSize = renderer.capabilities.maxTextureSize;
-    this.collision = new LabelCollisionEngine(renderer, this.config);
-    this._atlasManager = new LabelAtlasManager(this.config, maxTextureSize);
-    this._meshManager = new LabelMeshManager(this.config, this._atlasManager.atlas, maxTextureSize);
+    this.collision = new LabelCollisionEngine(renderer, config);
+    this._atlasManager = new LabelAtlasManager(config, maxTextureSize);
+    this._meshManager = new LabelMeshManager(config, this._atlasManager.atlas, maxTextureSize);
     this.mesh = this._meshManager.mesh;
 
     this._atlasManager.onChange(() => {
@@ -52,11 +63,11 @@ export class InstancedLabelManager {
 
   /**
    * Take ownership of labels: they get glyphs, buffer slots and a first layout
-   * on the next sync, and are placed by the next placement pass.
+   * on the next update, and are placed by the next placement pass.
    *
    * @param labels - Labels to add; any already owned are ignored.
    */
-  addLabels(labels: Label[]) {
+  addLabels(labels: Iterable<Label>) {
     this._atlasManager.addLabels(labels);
   }
 
@@ -66,12 +77,12 @@ export class InstancedLabelManager {
   }
 
   /**
-   * Release labels: their buffer slots are freed on the next sync. The label
-   * objects themselves are left alone, so they can be added again later.
+   * Release labels: their buffer slots are freed on the next update. The label
+   * objects are left usable and can be added again.
    *
    * @param labels - Labels to remove; any not owned are ignored.
    */
-  removeLabels(labels: Label[]) {
+  removeLabels(labels: Iterable<Label>) {
     this._atlasManager.removeLabels(labels);
   }
 
@@ -81,9 +92,9 @@ export class InstancedLabelManager {
   }
 
   /**
-   * Flush pending label work to the GPU. Runs automatically on the microtask
-   * after any change while `config.autoUpdate` is on, and has to be called
-   * explicitly when it is off.
+   * Commit pending label work to the GPU. Runs on the microtask after a change
+   * while `config.autoUpdate` is on. With it off, call it after changes, and
+   * after `rtlReady` settles: the shaper queues a relayout of RTL labels.
    *
    * @throws {RangeError} If the label data outgrows the device's texture size.
    */
@@ -93,9 +104,10 @@ export class InstancedLabelManager {
   }
 
   /**
-   * Re-place labels at `config.cullingRate`, step the fades,
-   * and rewrite the draw list if anything changed. Call once per rendered frame,
-   * before the renderer draws.
+   * Opens a placement pass every `config.placementIntervalMs` when the view or
+   * the labels changed, advances it within `config.placementBudgetMs`, steps
+   * the fades, and rewrites the draw list if anything moved. Call once per
+   * rendered frame, before the renderer draws.
    *
    * @param camera - Its `projectionMatrix`, `matrixWorld` and
    * `matrixWorldInverse` must be up to date.
@@ -107,14 +119,14 @@ export class InstancedLabelManager {
 
     let visualNeedUpdate = false;
 
-    if (now >= this._nextCullTime) {
-      const interval = this.config.cullingRate * 1000;
+    if (now >= this._nextPassTime) {
+      const interval = this.config.placementIntervalMs;
       if (this.collision.isPassActive) {
         // A pass still running at its own tick skips that slot, so starts stay
-        // a whole multiple of the rate apart.
-        this._nextCullTime += interval;
+        // a whole multiple of the interval apart.
+        this._nextPassTime += interval;
       } else if (this.collision.beginPass(camera)) {
-        this._nextCullTime = now + interval;
+        this._nextPassTime = now + interval;
       }
       // A refused pass leaves the slot open, so placement starts on the frame
       // the view moves.
@@ -122,13 +134,10 @@ export class InstancedLabelManager {
     if (this.collision.stepPass(this.config.placementBudgetMs)) visualNeedUpdate = true;
 
     const labels = this._atlasManager.labels;
-
-    // Fades step every frame, independently of the placement cadence above.
     const fadeDelta = frameDelta / this.config.fadeDurationMs;
 
     for (const label of labels) {
-      // 0 is fully drawn. A hidden label disappears at once; placement drops it
-      // on its next pass.
+      // A hidden label disappears at once; placement drops it on its next pass.
       const target = label.shouldRender && label.visible ? 0 : 1;
       if (label.occlusionFade === target) continue;
 
@@ -143,14 +152,10 @@ export class InstancedLabelManager {
       }
     }
 
-    if (!visualNeedUpdate) return;
-
-    this._meshManager.cull(labels);
+    if (visualNeedUpdate) this._meshManager.cull(labels);
   }
 
-  /**
-   * Release every resource.
-   */
+  /** Releases every GPU resource. The mesh stays in its parent. */
   dispose() {
     this._atlasManager.dispose();
     this._meshManager.dispose();
@@ -158,16 +163,15 @@ export class InstancedLabelManager {
   }
 
   /**
-   * Rasterizes pending glyphs, then pushes pending label work to the mesh. The
-   * atlas syncs first: a resize moves existing glyphs, which promotes every label
-   * to a relayout.
+   * Rasterizes pending glyphs, then lays out and writes pending label work. The
+   * atlas syncs first: a resize moves existing glyphs, which promotes every
+   * label to a relayout.
    */
   private _sync() {
     const { atlas } = this._atlasManager;
     const { resize } = this._atlasManager.syncAtlas();
     const { add, relayout, update, dispose } = this._atlasManager.flushDirty();
 
-    // Both consumers key removals by id, so build the list once.
     const disposedIds = dispose.map(label => label.id);
     for (const label of dispose) {
       label.shouldRender = false;
@@ -180,7 +184,6 @@ export class InstancedLabelManager {
     this.collision.addLabels(relayout);
     if (relayout.length > 0 || update.length > 0) this.collision.invalidate();
 
-    // One resolver per distinct font, not per label.
     const resolvers = new Map<string, GlyphResolver>();
     const layout = (label: Label) => {
       let resolve = resolvers.get(label.fontKeyStr);

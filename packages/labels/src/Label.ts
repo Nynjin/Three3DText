@@ -1,6 +1,14 @@
 import { Color, Euler, Quaternion, Vector2, Vector3 } from 'three';
 import type { GlyphInstance } from './Shaping/GlyphRun';
-import { DEFAULT_FONT_KEY, fontKeyStr, normalizeFontWeight, type FontKey, type FontStyle, type FontWeight, type FontWeightName } from './Shaping/FontKey';
+import {
+  DEFAULT_FONT_KEY,
+  fontKeyStr,
+  normalizeFontWeight,
+  type FontKey,
+  type FontStyle,
+  type FontWeight,
+  type FontWeightName,
+} from './Shaping/FontKey';
 
 export enum TextAnchorX {
   Left = 0,
@@ -17,6 +25,7 @@ export enum TextAnchorY {
 }
 
 export enum TextAlign {
+  /** Left, or Right when the text's first strong letter is from an RTL script. */
   Auto = 0,
   Left = 1,
   Center = 2,
@@ -32,7 +41,9 @@ export enum TextTransform {
 }
 
 export enum RotationAlignment {
+  /** Oriented in world space by `rotation`. */
   Map = 0,
+  /** Faces the camera; `rotation` is ignored. */
   Viewport = 1,
 }
 
@@ -48,6 +59,7 @@ export enum SymbolPlacement {
   'Line-Center' = 2,
 }
 
+/** Bits of a label's change notification: what changed since the last one. */
 export const LabelChangeType = {
   None: 0,
   Font: 1 << 0,
@@ -61,6 +73,7 @@ export const LabelChangeType = {
 
 export type LabelChangeMask = number;
 
+/** Per-side padding, in CSS px. */
 export interface TextPadding {
   top: number;
   right: number;
@@ -75,13 +88,13 @@ export interface TextPadding {
 export interface LabelBounds {
   /** Left edge. */
   minX: number;
-  /** Bottom edge, y growing upwards. */
+  /** Bottom edge. */
   minY: number;
   width: number;
   height: number;
 }
 
-/** Centre and size, in label-local units, of the area a label draws over. */
+/** Centre and size, in CSS px, of the area a label draws over: the union of its glyph bitmaps. */
 export interface LabelQuad {
   cx: number;
   cy: number;
@@ -91,25 +104,34 @@ export interface LabelQuad {
 
 export type LabelChangeListener = (changes: LabelChangeMask) => void;
 
+/**
+ * A label's properties. Units follow the Mapbox style specification: sizes in
+ * CSS px of the renderer's canvas, spacing and offsets in em (multiples of
+ * `fontSize`). Sizes hold on a label facing the camera; a map-aligned label
+ * seen at an angle is foreshortened.
+ */
 export interface LabelOptions {
-  // Content
   text: string;
 
-  // Position & Transform
+  /** Anchor point, in world units. */
   position?: [number, number, number] | Vector3;
+  /** Orientation under {@link RotationAlignment.Map}. A tuple is XYZ Euler angles, in radians. */
   rotation?: [number, number, number] | Euler | Quaternion;
+  /** Shift from the anchor, in em; +x right, +y down. */
   offset?: [number, number] | Vector2;
 
-  // Font
+  /** CSS family name, or a comma-separated list. */
   font?: string;
   /** Text height, in CSS px. */
   fontSize?: number;
   fontWeight?: FontWeight | FontWeightName;
   fontStyle?: FontStyle;
+  /** Extra space between glyphs, in em. */
   letterSpacing?: number;
+  /** Distance between baselines, in em. */
   lineHeight?: number;
 
-  // Layout
+  /** Wrap width, in em. `Infinity` breaks only at `\n`. */
   maxWidth?: number;
   textAlign?: TextAlign;
   anchorX?: TextAnchorX;
@@ -117,88 +139,70 @@ export interface LabelOptions {
   /** Space around the text reserved from other labels, in CSS px; it does not move the text. One number, or `[top, right, bottom, left]`. */
   padding?: TextPadding | number | [number, number, number, number];
 
-  // Fill
   color?: string | number | Color | Vector3;
+  /** From 0 to 1. */
   opacity?: number;
 
-  // Halo
   haloColor?: string | number | Color | Vector3;
-
   /**
-   * Halo thickness, in CSS px. It reaches `haloWidth + haloBlur` past the
-   * ink, capped at about a quarter of `fontSize` by the field itself.
-   *
-   * Collision reserves that reach out of `padding` first: padding that already
-   * exceeds the reach adds nothing to the box.
+   * Distance of the halo from the ink edge, in CSS px. The field reaches a
+   * quarter of `fontSize` past the ink; a wider halo draws no further.
    */
   haloWidth?: number;
-  /** Halo falloff, in CSS px, outside {@link haloWidth}. */
+  /** Fade-out distance past {@link haloWidth}, in CSS px. */
   haloBlur?: number;
+  /** From 0 to 1, multiplied by `opacity`. */
   haloOpacity?: number;
 
-  // Rendering
   rotationAlignment?: RotationAlignment;
   /** TODO: stored and sent to the shader, but not acted on. See {@link SymbolPlacement}. */
   symbolPlacement?: SymbolPlacement;
   visible?: boolean;
 
-  // Transform
   textTransform?: TextTransform;
-
-  // Bounds in label-local space
-  bounds?: LabelBounds;
-
-  // GLyphs
-  glyphs?: GlyphInstance[];
 }
 
+/**
+ * One label. Every setter notifies the manager holding it. The objects returned
+ * by `position`, `rotation`, `offset`, `color`, `haloColor` and `padding` are the
+ * label's own: an edit in place is not detected, so assign a new value instead.
+ */
 export class Label {
   private _listeners = new Set<LabelChangeListener>();
 
-  // Unique id
   private readonly _id: string;
 
-  // Content
   private _text: string = '';
   private _textTransform: TextTransform = TextTransform.None;
 
-  // Position & Transform
   private _position: Vector3 = new Vector3();
   private _rotation: Quaternion = new Quaternion();
   private _offset: Vector2 = new Vector2();
 
-  // Font
   private _fontKey: FontKey = DEFAULT_FONT_KEY;
   private _fontKeyStr: string = fontKeyStr(DEFAULT_FONT_KEY);
   private _fontSize = 20;
   private _letterSpacing = 0;
   private _lineHeight = 1.2;
 
-  // Layout
   private _maxWidth = Infinity;
   private _textAlign = TextAlign.Auto;
   private _anchorX = TextAnchorX.Left;
   private _anchorY = TextAnchorY.Top;
   private _padding: TextPadding = { top: 20, right: 20, bottom: 20, left: 20 };
 
-  // Fill
   private _color: Color = new Color();
   private _opacity: number = 1;
 
-  // Halo
   private _haloColor: Color = new Color();
   private _haloWidth: number = 0;
   private _haloBlur: number = 0;
   private _haloOpacity: number = 1;
 
-  // Rendering
   private _rotationAlignment: RotationAlignment = RotationAlignment.Map;
   private _symbolPlacement: SymbolPlacement = SymbolPlacement.Point;
 
-  // Visibility
   private _visible: boolean = true;
-
-  // Occlusion & Render
 
   /**
    * How far the label has faded out: 0 fully drawn, 1 invisible. The manager
@@ -212,30 +216,24 @@ export class Label {
    */
   shouldRender: boolean = false;
 
-  /** The label's box, written by layout. Zero-sized until it has been laid out. */
+  /** Collision box, written by layout. Zero-sized until the label is laid out. */
   bounds: LabelBounds = { minX: 0, minY: 0, width: 0, height: 0 };
 
-  /**
-   * Area the shader shades: the union of the label's glyph bitmaps, each
-   * carrying the SDF buffer around its ink. Written by layout.
-   */
+  /** Area the shader draws over, written by layout. */
   quad: LabelQuad = { cx: 0, cy: 0, width: 0, height: 0 };
 
-  // Glyphs
-
-  /** Positioned glyphs, in label-local space. Written by layout. */
+  /** Positioned glyphs with ink, in label-local space. Written by layout. */
   glyphs: GlyphInstance[] = [];
 
   constructor(options: LabelOptions) {
     this._id = crypto.randomUUID();
-    this.set(options, true);
+    this._apply(options);
   }
 
   get id() {
     return this._id;
   }
 
-  // Text properties
   get text() {
     return this._text;
   }
@@ -268,7 +266,6 @@ export class Label {
     }
   }
 
-  // Transform properties
   get position(): Vector3 {
     return this._position;
   }
@@ -295,8 +292,6 @@ export class Label {
     this._offset = toVector2(value);
     this._emit(LabelChangeType.Layout);
   }
-
-  // Font properties
 
   /** The label's font identity, shared by reference. Never mutate it. */
   get fontKey(): FontKey {
@@ -342,10 +337,7 @@ export class Label {
     this._setFontKey({ ...this._fontKey, style: value });
   }
 
-  /**
-   * Replaces the font key, keeping its cached identity in sync. A set that does
-   * not change the key emits nothing.
-   */
+  /** Replaces the font key; a set that does not change it emits nothing. */
   private _setFontKey(next: FontKey) {
     const nextStr = fontKeyStr(next);
     if (nextStr === this._fontKeyStr) return;
@@ -414,18 +406,8 @@ export class Label {
   }
 
   set padding(value: TextPadding | number | [number, number, number, number]) {
-    this._padding = this._parsePadding(value);
+    this._padding = parsePadding(value);
     this._emit(LabelChangeType.Layout);
-  }
-
-  /**
-   * Normalizes the shorthand forms (one number, or `[top, right, bottom, left]`)
-   * to a {@link TextPadding}. An object argument is returned as given, not copied.
-   */
-  private _parsePadding(value: TextPadding | number | [number, number, number, number]): TextPadding {
-    if (Array.isArray(value)) return { top: value[0], right: value[1], bottom: value[2], left: value[3] };
-    if (typeof value === 'number') return { top: value, right: value, bottom: value, left: value };
-    return value;
   }
 
   get color(): Color {
@@ -460,7 +442,7 @@ export class Label {
   }
 
   set haloWidth(value: number) {
-    this._haloWidth = this._clampHalo('haloWidth', value);
+    this._haloWidth = value;
     this._emit(LabelChangeType.Style);
   }
 
@@ -469,7 +451,7 @@ export class Label {
   }
 
   set haloBlur(value: number) {
-    this._haloBlur = this._clampHalo('haloBlur', value);
+    this._haloBlur = value;
     this._emit(LabelChangeType.Style);
   }
 
@@ -491,28 +473,6 @@ export class Label {
   getDisplayedHaloOpacity(): number {
     if (!this.hasHalo()) return 0;
     return this._haloOpacity * this._opacity;
-  }
-
-  /**
-   * Caps a halo dimension at `4 * fontSize`, warning when it does.
-   *
-   * A sanity bound, well above the distance a halo can actually reach. Anything
-   * between the two is accepted and draws no wider. See
-   * {@link LabelOptions.haloWidth}.
-   *
-   * @param property - Property name, for the warning only.
-   * @param value - Requested value, in the same units as `fontSize`.
-   *
-   * @returns `value`, or the cap when it exceeds it.
-   */
-  private _clampHalo(property: 'haloWidth' | 'haloBlur', value: number): number {
-    const max = this._fontSize * 4;
-    if (value <= max) return value;
-
-    console.warn(
-      `Label.${property} ${value} is too large for fontSize ${this._fontSize}. Clamping to ${max}.`,
-    );
-    return max;
   }
 
   get rotationAlignment() {
@@ -544,19 +504,25 @@ export class Label {
   }
 
   /**
-   * Apply several properties in one go, emitting a single change notification
-   * for the lot.
+   * Apply several properties with a single change notification.
    *
    * @param options - Properties to change; the rest are left alone.
-   * @param silent - Suppress the notification, leaving any manager holding the
-   * label unaware of the change. For construction, not for live labels.
    *
    * @returns This label.
    */
-  set(options: Partial<LabelOptions>, silent = false): this {
-    let changes = LabelChangeType.None;
+  set(options: Partial<LabelOptions>): this {
+    this._emit(this._apply(options));
+    return this;
+  }
 
-    // Transform properties
+  /**
+   * Writes `options` onto the label without notifying.
+   *
+   * @returns What changed.
+   */
+  private _apply(options: Partial<LabelOptions>): LabelChangeMask {
+    let changes: LabelChangeMask = LabelChangeType.None;
+
     if (options.position !== undefined) {
       this._position = toVector3(options.position);
       changes |= LabelChangeType.Transform;
@@ -570,8 +536,7 @@ export class Label {
       changes |= LabelChangeType.Layout;
     }
 
-    // Font properties, built in one pass so a multi-property set produces a
-    // single key.
+    // Built in one step, so a multi-property set produces a single key.
     if (options.font !== undefined || options.fontWeight !== undefined || options.fontStyle !== undefined) {
       const next: FontKey = {
         font: options.font ?? this._fontKey.font,
@@ -590,7 +555,6 @@ export class Label {
       changes |= LabelChangeType.Layout;
     }
 
-    // Text content properties
     if (options.text !== undefined) {
       this._text = options.text;
       changes |= LabelChangeType.Text;
@@ -600,7 +564,6 @@ export class Label {
       changes |= LabelChangeType.Text;
     }
 
-    // Text layout properties
     if (options.letterSpacing !== undefined) {
       this._letterSpacing = options.letterSpacing;
       changes |= LabelChangeType.Layout;
@@ -626,11 +589,10 @@ export class Label {
       changes |= LabelChangeType.Layout;
     }
     if (options.padding !== undefined) {
-      this._padding = this._parsePadding(options.padding);
+      this._padding = parsePadding(options.padding);
       changes |= LabelChangeType.Layout;
     }
 
-    // Style properties
     if (options.color !== undefined) {
       this._color = toColor(options.color);
       changes |= LabelChangeType.Style;
@@ -644,11 +606,11 @@ export class Label {
       changes |= LabelChangeType.Style;
     }
     if (options.haloWidth !== undefined) {
-      this._haloWidth = this._clampHalo('haloWidth', options.haloWidth);
+      this._haloWidth = options.haloWidth;
       changes |= LabelChangeType.Style;
     }
     if (options.haloBlur !== undefined) {
-      this._haloBlur = this._clampHalo('haloBlur', options.haloBlur);
+      this._haloBlur = options.haloBlur;
       changes |= LabelChangeType.Style;
     }
     if (options.haloOpacity !== undefined) {
@@ -664,39 +626,24 @@ export class Label {
       changes |= LabelChangeType.Style;
     }
 
-    // Visibility
     if (options.visible !== undefined) {
       this._visible = options.visible;
       changes |= LabelChangeType.Visibility;
     }
 
-    if (options.bounds !== undefined) {
-      this.bounds = options.bounds;
-      changes |= LabelChangeType.Style;
-    }
-
-    if (options.glyphs !== undefined) {
-      this.glyphs = options.glyphs;
-      changes |= LabelChangeType.Style;
-    }
-
-    if (!silent) {
-      this._emit(changes);
-    }
-
-    return this;
+    return changes;
   }
 
   /**
-   * @returns An independent copy, including its current bounds and glyphs, with
-   * a fresh id and no listeners.
+   * @returns A copy of every option, with a fresh id and no listeners. Layout
+   * output is not copied; a manager lays the copy out when it is added.
    */
   clone(): Label {
     return new Label({
       text: this._text,
-      position: this._position.clone(),
-      rotation: this._rotation.clone(),
-      offset: this._offset.clone(),
+      position: this._position,
+      rotation: this._rotation,
+      offset: this._offset,
       font: this._fontKey.font,
       fontSize: this._fontSize,
       fontWeight: this._fontKey.weight,
@@ -707,10 +654,10 @@ export class Label {
       textAlign: this._textAlign,
       anchorX: this._anchorX,
       anchorY: this._anchorY,
-      padding: { ...this._padding },
-      color: this._color.clone(),
+      padding: this._padding,
+      color: this._color,
       opacity: this._opacity,
-      haloColor: this._haloColor.clone(),
+      haloColor: this._haloColor,
       haloWidth: this._haloWidth,
       haloBlur: this._haloBlur,
       haloOpacity: this._haloOpacity,
@@ -718,12 +665,6 @@ export class Label {
       symbolPlacement: this._symbolPlacement,
       visible: this._visible,
       textTransform: this._textTransform,
-      bounds: { ...this.bounds },
-      glyphs: this.glyphs.map(g => ({
-        glyph: { ...g.glyph },
-        offset: g.offset.clone(),
-        rotation: g.rotation ? g.rotation.clone() : undefined,
-      })),
     });
   }
 
@@ -748,10 +689,7 @@ export class Label {
     return () => this._listeners.delete(listener);
   }
 
-  /**
-   * Notifies listeners of what changed, as a {@link LabelChangeType} bitmask. A
-   * `None` mask is dropped, so setters can emit unconditionally.
-   */
+  /** Notifies listeners of what changed. A `None` mask is dropped. */
   private _emit(changes: LabelChangeMask): void {
     if (changes === LabelChangeType.None) return;
     for (const listener of this._listeners) {
@@ -760,7 +698,11 @@ export class Label {
   }
 }
 
-// Utils
+function parsePadding(value: TextPadding | number | [number, number, number, number]): TextPadding {
+  if (Array.isArray(value)) return { top: value[0], right: value[1], bottom: value[2], left: value[3] };
+  if (typeof value === 'number') return { top: value, right: value, bottom: value, left: value };
+  return { ...value };
+}
 
 function toColor(value: string | number | Color | Vector3): Color {
   if (value instanceof Color) return value.clone();
@@ -773,17 +715,12 @@ function toVector2(value: [number, number] | Vector2): Vector2 {
   return new Vector2(...value);
 }
 
-function toVector3(
-  value: [number, number, number] | Vector3 | Color,
-): Vector3 {
+function toVector3(value: [number, number, number] | Vector3): Vector3 {
   if (value instanceof Vector3) return value.clone();
-  if (value instanceof Color) return new Vector3(value.r, value.g, value.b);
   return new Vector3(...value);
 }
 
-function toQuaternion(
-  value: [number, number, number] | Euler | Quaternion,
-): Quaternion {
+function toQuaternion(value: [number, number, number] | Euler | Quaternion): Quaternion {
   if (value instanceof Quaternion) return value.clone();
   if (value instanceof Euler) return new Quaternion().setFromEuler(value);
   return new Quaternion().setFromEuler(new Euler(...value, 'XYZ'));

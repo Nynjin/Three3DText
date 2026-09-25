@@ -3,18 +3,17 @@ const EMPTY = new Int32Array(0);
 /** Above 31 bits a quantised key overflows the int32 sign bit `>>` reads. */
 const MAX_KEY_BITS = 31;
 
-/** Beyond 2^16 slots the histogram stops fitting in cache. */
+/** Largest digit width accepted. */
 const MAX_DIGIT_BITS = 16;
 
 /**
- * @description Least-significant-digit radix sort returning a permutation of
- * indices instead of reordering its input. `O(passes * n)` with no comparisons,
- * which beats a comparison sort from the low thousands up.
+ * Least-significant-digit radix sort returning a permutation of indices; `keys`
+ * is not modified.
  *
  * Keys are quantised into `keyBits` by mapping the batch's own `[min, max]`
- * onto it, so the order is approximate — keys within
- * `(max - min) / 2 ** keyBits` keep their input order — and orders from two
- * calls are not comparable. Ties come out in ascending index order.
+ * onto it, so the order is approximate: keys that quantise to the same bucket,
+ * `(max - min) / (2 ** keyBits - 1)` wide, keep their input order, and orders
+ * from two calls are not comparable. Ties come out in ascending index order.
  *
  * @example
  * ```ts
@@ -45,7 +44,7 @@ export class RadixSorter {
 
   /**
    * @param keyBits - Precision of the quantised key, from 1 to
-   * {@link MAX_KEY_BITS}. This is the total width the passes cover.
+   * {@link MAX_KEY_BITS}.
    * @param digitBits - Bits consumed per pass, from 1 to
    * {@link MAX_DIGIT_BITS}, and no more than `keyBits`. Fewer bits means more
    * passes over the data but a smaller histogram.
@@ -75,8 +74,8 @@ export class RadixSorter {
    * @returns Indices `0` to `n - 1` by ascending key. Reused buffer: `length`
    * is the capacity, not `n`, and the next call overwrites it.
    *
-   * @throws {RangeError} If no key in the range is finite. A NaN among finite
-   * keys is tolerated, quantising to `0`.
+   * @throws {RangeError} If any key is ±Infinity, or every key is NaN. A NaN
+   * among finite keys is tolerated, quantising to `0`.
    */
   sort(keys: ArrayLike<number>, n = keys.length): Int32Array {
     if (n <= 0) return EMPTY;
@@ -133,8 +132,8 @@ export class RadixSorter {
     let src = this._indicesSrc;
     let dst = this._indicesDst;
 
-    // Pass 0 permutes the implicit identity order, so it reads `quantised`
-    // sequentially instead of through `src` and needs no initialised source.
+    // Pass 0 permutes the implicit identity order, reading `quantised`
+    // sequentially, so `src` needs no initialisation.
     for (let i = 0; i < n; i++) {
       dst[histograms[quantised[i] & mask]++] = i;
     }
@@ -166,7 +165,7 @@ export class RadixSorter {
 
   /**
    * Grow the working buffers to at least `n`, geometrically. Contents are not
-   * preserved — `sort` rewrites every entry it reads.
+   * preserved: `sort` rewrites every entry it reads.
    */
   private _ensureCapacity(n: number): void {
     if (this._quantised.length >= n) return;

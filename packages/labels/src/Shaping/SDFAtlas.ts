@@ -59,7 +59,7 @@ export interface FontChars {
  */
 export class SDFAtlas {
   private _texture: DataTexture = new DataTexture(new Uint8Array(1), 1, 1, RedFormat, UnsignedByteType);
-  readonly glyphs = new Map<string, GlyphInfo>();
+  private readonly _glyphs = new Map<string, GlyphInfo>();
 
   /** Replaced, and the previous one disposed, whenever the atlas grows. */
   get texture(): DataTexture {
@@ -75,7 +75,7 @@ export class SDFAtlas {
   /** Distance, in raster px, over which the field runs from 0 to 1. */
   readonly radius: number;
 
-  /** What layout needs to read {@link glyphs}. */
+  /** What layout needs to read glyph entries. */
   readonly metrics: AtlasMetrics;
 
   private _data: Uint8Array = new Uint8Array(1);
@@ -134,7 +134,7 @@ export class SDFAtlas {
   } {
     const newGlyphs: { char: string; fontKey: FontKey }[] = [];
     const queue = (fontKey: FontKey, c: string) => {
-      if (!this.glyphs.has(glyphKey(fontKey, c))) newGlyphs.push({ char: c, fontKey });
+      if (!this._glyphs.has(glyphKey(fontKey, c))) newGlyphs.push({ char: c, fontKey });
     };
 
     for (const { fontKey, chars } of fontChars) {
@@ -179,8 +179,8 @@ export class SDFAtlas {
       throw new Error(`SDFAtlas: font ${fontKeyStr(fontKey)} was never passed to setChars`);
     }
     const prefix = glyphKeyPrefix(fontKey);
-    const fallback = this.glyphs.get(prefix + FALLBACK_CHAR) ?? BLANK;
-    return (char: string) => this.glyphs.get(prefix + char) ?? fallback;
+    const fallback = this._glyphs.get(prefix + FALLBACK_CHAR) ?? BLANK;
+    return (char: string) => this._glyphs.get(prefix + char) ?? fallback;
   }
 
   /**
@@ -197,7 +197,7 @@ export class SDFAtlas {
     let drawn = 0;
     for (const { char: c, fontKey } of entries) {
       const key = glyphKey(fontKey, c);
-      if (this.glyphs.has(key)) continue;
+      if (this._glyphs.has(key)) continue;
 
       const sdf = this._fontToSDF.get(fontKeyStr(fontKey));
       if (!sdf) throw new Error(`SDFAtlas: No TinySDF for fontKey ${fontKeyStr(fontKey)}`);
@@ -205,7 +205,7 @@ export class SDFAtlas {
       const g = sdf.draw(c);
 
       if (g.glyphWidth === 0 || g.glyphHeight === 0) {
-        this.glyphs.set(key, { px: 0, py: 0, pw: 0, ph: 0, w: 0, h: 0, left: 0, top: 0, advance: g.glyphAdvance });
+        this._glyphs.set(key, { px: 0, py: 0, pw: 0, ph: 0, w: 0, h: 0, left: 0, top: 0, advance: g.glyphAdvance });
         continue;
       }
 
@@ -221,7 +221,7 @@ export class SDFAtlas {
 
       // tiny-sdf draws the pen at column `buffer - glyphLeft` and the baseline
       // at row `buffer + glyphTop` of the bitmap.
-      this.glyphs.set(key, {
+      this._glyphs.set(key, {
         px: x,
         py: y,
         pw: g.width,
@@ -281,7 +281,7 @@ export class SDFAtlas {
     const newData = new Uint8Array(newSize * newSize);
 
     let slot = 0;
-    for (const g of this.glyphs.values()) {
+    for (const g of this._glyphs.values()) {
       if (g.pw === 0) continue;
       const newX = (slot % this._cols) * this._cellSize;
       const newY = Math.floor(slot / this._cols) * this._cellSize;

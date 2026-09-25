@@ -1,73 +1,82 @@
+/**
+ * Label manager settings. The manager keeps its own copy, `manager.config`, and
+ * reads it live, except for the fields marked as read at construction.
+ */
 export interface LabelManagerConfig {
-  // SDF atlas, shared by every font.
-  /** Fixed raster size for every glyph. Labels scale from it, whatever their own fontSize. */
+  /**
+   * Raster size every glyph is drawn at, in CSS px. Labels drawn at twice it or
+   * more show lumpy edges. Read at construction.
+   */
   atlasFontSize: number;
-  /** Atlas headroom on a resize, at least 1, within the device's texture size. */
+  /** Atlas headroom on a resize, at least 1, within the device's texture size. Read at construction. */
   atlasCapacityMultiplier: number;
 
   /** Commit pending work on the microtask after a change. Off means calling `update()`. */
   autoUpdate: boolean;
 
   /**
-   * Minimum seconds between placement pass starts, rounded up to a whole
-   * multiple when a pass outruns it. Far below `fadeDurationMs` reads as flicker.
+   * Minimum time between placement pass starts, in milliseconds, rounded up to a
+   * whole multiple when a pass outruns it.
    */
-  cullingRate: number;
+  placementIntervalMs: number;
 
-  /** Milliseconds one frame may spend on placement. A pass resumes across frames. */
+  /**
+   * Time one frame spends on placement before resuming on the next, in
+   * milliseconds. A target, not a cap: a frame runs at least one step, and the
+   * sort is one step.
+   */
   placementBudgetMs: number;
 
-  /** Milliseconds for a label to fade fully in or out. */
+  /** Time for a label to fade fully in or out, in milliseconds. */
   fadeDurationMs: number;
 
   /** Fade curve. 1 is linear; lower fades in faster, higher fades out faster. */
   fadeGamma: number;
 
-  // Collision Grid settings
-
-  /**
-   * Screen pixels per occupancy cell, a power of two, read once at construction.
-   * Coarser cells pack fewer labels; 4 costs 16 KiB at 1080p.
-   */
+  /** CSS px per occupancy cell edge, a power of two. Read at construction. */
   downscale: number;
 
   /**
-   * Fraction of its cells an already placed label may find taken and still keep.
-   * A label placed for the first time needs all of its cells free.
+   * Fraction of its cells, from 0 to 1, an already placed label may find taken
+   * and still keep. A label placed for the first time needs all of its cells free.
+   * Known issue: a small label covering less than this fraction of a large
+   * placed label's box can sit on top of it.
    */
   occlusionTolerance: number;
 
-  /** View-projection change below which the camera counts as still and placement is skipped. */
+  /**
+   * Largest element-wise change of the view-projection matrix since the last
+   * pass below which the camera counts as still and placement is skipped.
+   * Translation elements scale with world coordinates, so a scene far from the
+   * origin needs a larger value.
+   */
   viewProjThreshold: number;
-
-  // Projector settings
 
   /** NDC units past the cube a label's position may sit and still be projected. */
   ndcCullMargin: number;
 
-  /** Camera distance below which a label is not placed. `0` disables it. */
+  /** Camera distance below which a label is not placed, in world units. `0` disables it. */
   labelNear: number;
-  /** Camera distance beyond which a label is not placed. `Infinity` disables it. */
+  /** Camera distance beyond which a label is not placed, in world units. `Infinity` disables it. */
   labelFar: number;
 
-  // Sorting settings
-
   /**
-   * Sort penalty on unplaced labels, against squared distance: a contender must
-   * be `sqrt(renderPenaltyMultiplier)` times nearer to take a placed region.
+   * Sort penalty on labels not placed by the last pass: their squared distance
+   * is multiplied by it, so a contender must be `sqrt(renderPenaltyMultiplier)`
+   * times nearer to take a placed label's region.
    */
   renderPenaltyMultiplier: number;
 }
 
 export const DefaultLabelConfig: LabelManagerConfig = {
-  atlasFontSize: 24,
+  atlasFontSize: 32,
   atlasCapacityMultiplier: 1.5,
 
   autoUpdate: true,
-  cullingRate: 0.2,
+  placementIntervalMs: 200,
   placementBudgetMs: 3,
-  fadeDurationMs: 650.0,
-  fadeGamma: 3.0,
+  fadeDurationMs: 650,
+  fadeGamma: 3,
 
   downscale: 4,
   occlusionTolerance: 0.2,

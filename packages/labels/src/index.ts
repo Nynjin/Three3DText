@@ -1,15 +1,10 @@
 /**
- * Instanced SDF labels for three.js.
- *
- * Everything needed to create, configure and drive labels is re-exported here.
- * The API is plain classes and functions over a three.js `WebGLRenderer` and
- * `Camera`.
+ * Instanced SDF labels for three.js: many labels drawn through one mesh and
+ * placed so they do not overlap.
  */
 
-// Manager: the entry point. Owns the atlas, the mesh and the collision pass.
 export { InstancedLabelManager } from './InstancedLabelManager';
 
-// Label: the unit of content, and every option and enum describing one.
 export {
   Label,
   type LabelOptions,
@@ -27,42 +22,13 @@ export {
   TextTransform,
 } from './Label';
 
-// Manager configuration and its defaults.
 export { type LabelManagerConfig, DefaultLabelConfig } from './Types/LabelConfig';
 
-// Font descriptors: parsing and normalizing the `font` string on a Label.
-export {
-  type FontKey,
-  type FontStyle,
-  type FontWeight,
-  type FontWeightName,
-  DEFAULT_FONT,
-  DEFAULT_FONT_KEY,
-  DEFAULT_STYLE,
-  DEFAULT_WEIGHT,
-  fontKeyStr,
-  normalizeFontWeight,
-  parseFontDescriptor,
-} from './Shaping/FontKey';
+export type { FontKey, FontStyle, FontWeight, FontWeightName } from './Shaping/FontKey';
 
-// Glyph and atlas shapes, for consumers inspecting layout output.
-export type {
-  AtlasMetrics,
-  GlyphInfo,
-  GlyphInstance,
-  GlyphResolver,
-} from './Shaping/GlyphRun';
+export type { GlyphInfo, GlyphInstance } from './Shaping/GlyphRun';
 
-// SDF atlas, exposed for pre-warming and custom glyph sets.
-export { SDFAtlas, type SDFAtlasOptions, type FontChars, FALLBACK_CHAR } from './Shaping/SDFAtlas';
-
-// RTL shaping readiness: resolves once the WASM-backed shaper is live.
+/** Settles once the RTL shaper has loaded or failed to load; never rejects. */
 export { rtlReady } from './Shaping/RTL';
 
-// The mesh type the manager hands back, for typing scene-graph code.
 export type { LabelMesh } from './Rendering/LabelMeshManager';
-
-// Collision internals, for benchmarking and custom placement passes.
-export { LabelCollisionEngine } from './Collision/LabelCollisionEngine';
-export { LabelProjector, type ScreenAABB } from './Collision/LabelProjector';
-export { BitmapOccupancy } from './Collision/BitmapOccupancy';
