@@ -7,10 +7,11 @@ export type FontStyle = (typeof STYLES)[number];
 export type FontWeightName = keyof typeof WEIGHT_ALIASES;
 
 /**
- * Immutable font identity. Holders share the object rather than copying it, so
- * a change must replace the key, never mutate it in place.
+ * Immutable font identity, shared by reference. A change replaces the key; it is
+ * never mutated in place.
  */
 export interface FontKey {
+  /** CSS family name, or a comma-separated list of them. */
   readonly font: string;
   readonly weight: FontWeight;
   readonly style: FontStyle;
@@ -32,6 +33,7 @@ const WEIGHT_ALIASES = {
   extralight: '200',
   ultralight: '200',
   light: '300',
+  normal: '400',
   regular: '400',
   medium: '500',
   semibold: '600',
@@ -43,10 +45,15 @@ const WEIGHT_ALIASES = {
   heavy: '900',
 } as const satisfies Record<string, FontWeight>;
 
-// Keyed on `string` so a token of unknown provenance resolves without a cast.
 const ALIASES: ReadonlyMap<string, FontWeight> = new Map(Object.entries(WEIGHT_ALIASES));
 const WEIGHT_SET: ReadonlySet<string> = new Set(WEIGHTS);
 const STYLE_SET: ReadonlySet<string> = new Set(STYLES);
+
+/** CSS generic families, which the canvas `font` shorthand takes unquoted. */
+const GENERIC_FAMILIES: ReadonlySet<string> = new Set([
+  'serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui',
+  'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'emoji', 'math', 'fangsong',
+]);
 
 function isFontWeight(token: string): token is FontWeight {
   return WEIGHT_SET.has(token);
@@ -56,44 +63,80 @@ function isFontStyle(token: string): token is FontStyle {
   return STYLE_SET.has(token);
 }
 
-/**
- * Collapses an author-facing weight to its canonical form. Aliases must be
- * normalized before a weight reaches a {@link FontKey}, otherwise `thin` and
- * `hairline` would key two atlases for identical glyphs.
- */
-export function normalizeFontWeight(value: FontWeight | FontWeightName): FontWeight {
-  return isFontWeight(value) ? value : WEIGHT_ALIASES[value];
+/** A weight token or alias, ignoring case and hyphens, or `undefined`. */
+function weightOf(token: string): FontWeight | undefined {
+  const t = token.toLowerCase().replace(/-/g, '');
+  return isFontWeight(t) ? t : ALIASES.get(t);
 }
 
 /**
- * Parses a descriptor such as `"Helvetica Neue Bold Italic"`. Weight and style
- * tokens are consumed from the end; whatever remains is the family name.
+ * Canonical weight for a numeric weight, a weight string or an alias such as
+ * `bold`.
+ *
+ * @throws {RangeError} If the value is none of the nine CSS weights or a known
+ * alias.
  */
-export function parseFontDescriptor(descriptor: string): FontKey {
+export function normalizeFontWeight(value: FontWeight | FontWeightName | number): FontWeight {
+  const weight = weightOf(String(value));
+  if (weight === undefined) throw new RangeError(`Unknown font weight: ${value}`);
+  return weight;
+}
+
+/**
+ * Splits a descriptor such as `"Helvetica Neue Extra Bold Italic"` into its
+ * family, weight and style. Weight and style words are read from the end, one
+ * or two words at a time; the rest is the family. `weight` and `style` are
+ * present only when the descriptor names them.
+ */
+export function parseFontDescriptor(descriptor: string): { font: string; weight?: FontWeight; style?: FontStyle } {
   const parts = descriptor.trim().split(/\s+/).filter(Boolean);
-  let weight: FontWeight = DEFAULT_WEIGHT;
-  let style: FontStyle = DEFAULT_STYLE;
+  let weight: FontWeight | undefined;
+  let style: FontStyle | undefined;
 
-  // Keep at least one token for the family name.
+  // Keep at least one word for the family.
   while (parts.length > 1) {
-    const token = parts[parts.length - 1].toLowerCase();
+    const last = parts[parts.length - 1];
+    const lastLower = last.toLowerCase();
 
-    if (isFontStyle(token)) {
-      style = token;
-    } else {
-      const parsed = isFontWeight(token) ? token : ALIASES.get(token);
-      if (parsed === undefined) break;
-      weight = parsed;
+    if (style === undefined && isFontStyle(lastLower)) {
+      style = lastLower;
+      parts.pop();
+      continue;
     }
+    if (weight !== undefined) break;
 
+    if (parts.length > 2) {
+      const pair = weightOf(parts[parts.length - 2] + last);
+      if (pair !== undefined) {
+        weight = pair;
+        parts.length -= 2;
+        continue;
+      }
+    }
+    const single = weightOf(last);
+    if (single === undefined) break;
+    weight = single;
     parts.pop();
   }
 
-  return {
-    font: parts.join(' ') || DEFAULT_FONT,
-    weight,
-    style,
-  };
+  return { font: parts.join(' ') || DEFAULT_FONT, weight, style };
+}
+
+/**
+ * The family part of a canvas `font` shorthand for `font`. Each family is
+ * quoted unless it is a CSS generic family or already quoted, so a name with a
+ * digit-led word such as `Font Awesome 6 Free` stays valid.
+ */
+export function canvasFontFamily(font: string): string {
+  return font
+    .split(',')
+    .map(name => name.trim())
+    .filter(Boolean)
+    .map((name) => {
+      if (/^["'].*["']$/.test(name) || GENERIC_FAMILIES.has(name.toLowerCase())) return name;
+      return `"${name.replace(/["\\]/g, '\\$&')}"`;
+    })
+    .join(', ');
 }
 
 export function fontKeyStr(key: FontKey): string {
@@ -101,8 +144,8 @@ export function fontKeyStr(key: FontKey): string {
 }
 
 /**
- * Prefix shared by every glyph key of one font. Resolve many characters of the
- * same font by concatenating onto this instead of rebuilding the whole key.
+ * Prefix shared by every glyph key of one font. Concatenate a character onto it
+ * to reach that character's entry.
  */
 export function glyphKeyPrefix(fontKey: FontKey): string {
   return `${fontKeyStr(fontKey)}\x00`;

@@ -1,6 +1,6 @@
 import TinySDF from '@mapbox/tiny-sdf';
 import { DataTexture, LinearFilter, RedFormat, UnsignedByteType } from 'three';
-import { fontKeyStr, glyphKey, glyphKeyPrefix, type FontKey } from './FontKey';
+import { canvasFontFamily, fontKeyStr, glyphKey, glyphKeyPrefix, type FontKey } from './FontKey';
 import type { AtlasMetrics, GlyphInfo, GlyphResolver } from './GlyphRun';
 
 /** Character every font the atlas knows is rasterized with; a lookup miss resolves to it. */
@@ -142,7 +142,7 @@ export class SDFAtlas {
       if (!this._fontToSDF.has(fk)) {
         this._fontToSDF.set(fk, new TinySDF({
           fontSize: this.fontSize,
-          fontFamily: fontKey.font,
+          fontFamily: canvasFontFamily(fontKey.font),
           fontWeight: fontKey.weight,
           fontStyle: fontKey.style,
           buffer: this.buffer,

@@ -4,6 +4,7 @@ import {
   DEFAULT_FONT_KEY,
   fontKeyStr,
   normalizeFontWeight,
+  parseFontDescriptor,
   type FontKey,
   type FontStyle,
   type FontWeight,
@@ -120,11 +121,15 @@ export interface LabelOptions {
   /** Shift from the anchor, in em; +x right, +y down. */
   offset?: [number, number] | Vector2;
 
-  /** CSS family name, or a comma-separated list. */
+  /**
+   * CSS family name, or a comma-separated list. Trailing weight and style
+   * words, as in `'Open Sans Semi Bold Italic'`, set {@link fontWeight} and
+   * {@link fontStyle} unless those are given too.
+   */
   font?: string;
   /** Text height, in CSS px. */
   fontSize?: number;
-  fontWeight?: FontWeight | FontWeightName;
+  fontWeight?: FontWeight | FontWeightName | number;
   fontStyle?: FontStyle;
   /** Extra space between glyphs, in em. */
   letterSpacing?: number;
@@ -303,12 +308,18 @@ export class Label {
     return this._fontKeyStr;
   }
 
+  /** The family, without the weight and style words a descriptor may have carried. */
   get font() {
     return this._fontKey.font;
   }
 
   set font(value: string) {
-    this._setFontKey({ ...this._fontKey, font: value });
+    const parsed = parseFontDescriptor(value);
+    this._setFontKey({
+      font: parsed.font,
+      weight: parsed.weight ?? this._fontKey.weight,
+      style: parsed.style ?? this._fontKey.style,
+    });
   }
 
   get fontSize() {
@@ -324,8 +335,12 @@ export class Label {
     return this._fontKey.weight;
   }
 
-  /** Accepts an alias name; always reads back as the canonical weight. */
-  set fontWeight(value: FontWeight | FontWeightName) {
+  /**
+   * Accepts a number or an alias name; always reads back as the canonical weight.
+   *
+   * @throws {RangeError} If the value is not a CSS weight or a known alias.
+   */
+  set fontWeight(value: FontWeight | FontWeightName | number) {
     this._setFontKey({ ...this._fontKey, weight: normalizeFontWeight(value) });
   }
 
@@ -508,6 +523,8 @@ export class Label {
    *
    * @param options - Properties to change; the rest are left alone.
    *
+   * @throws {RangeError} If `fontWeight` is not a CSS weight or a known alias.
+   *
    * @returns This label.
    */
   set(options: Partial<LabelOptions>): this {
@@ -538,10 +555,13 @@ export class Label {
 
     // Built in one step, so a multi-property set produces a single key.
     if (options.font !== undefined || options.fontWeight !== undefined || options.fontStyle !== undefined) {
+      const parsed = options.font !== undefined ? parseFontDescriptor(options.font) : undefined;
       const next: FontKey = {
-        font: options.font ?? this._fontKey.font,
-        weight: options.fontWeight !== undefined ? normalizeFontWeight(options.fontWeight) : this._fontKey.weight,
-        style: options.fontStyle ?? this._fontKey.style,
+        font: parsed?.font ?? this._fontKey.font,
+        weight: options.fontWeight !== undefined
+          ? normalizeFontWeight(options.fontWeight)
+          : parsed?.weight ?? this._fontKey.weight,
+        style: options.fontStyle ?? parsed?.style ?? this._fontKey.style,
       };
       const nextStr = fontKeyStr(next);
       if (nextStr !== this._fontKeyStr) {
