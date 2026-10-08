@@ -10,6 +10,9 @@ const MAX_INDEXABLE_WIDTH = 4096;
 /** Update ranges past which the whole buffer is uploaded instead. */
 const MAX_UPLOAD_RANGES = 512;
 
+/** Dirty spans recorded between uploads, past which the whole buffer is sent without merging them. */
+const MAX_RECORDED_SPANS = 32768;
+
 const NO_DATA = new Float32Array(0);
 
 export interface ItemAllocation {
@@ -141,12 +144,9 @@ export class InstancedDataTexture {
     // when its tail is appended.
     if (common > 0 && newCount === common) this._linkTo(indices[common - 1], -1);
 
-    for (let i = common; i < oldCount; i++) {
-      const idx = indices[i];
-      this._data.fill(0, idx * TEXEL_SIZE, (idx + this._texelsPerItem) * TEXEL_SIZE);
-      this._markDirty(idx, this._texelsPerItem);
-      this._availableTexelIdx.push(idx);
-    }
+    // A freed item keeps its texels: nothing links to it, and the next write
+    // into the slot replaces all of them.
+    for (let i = common; i < oldCount; i++) this._availableTexelIdx.push(indices[i]);
     indices.length = common;
     this._usedSlots -= oldCount - common;
 
@@ -248,6 +248,8 @@ export class InstancedDataTexture {
   private _markDirty(texelStart: number, texelCount: number) {
     if (this._fullUploadPending) return;
     this._dirty.push(texelStart, texelStart + texelCount);
+    // More spans than a partial upload carries: send the whole buffer, unmerged.
+    if (this._dirty.length > MAX_RECORDED_SPANS * 2) this._requestFullUpload();
   }
 
   /** Copies one item's floats into the buffer at texel `idx`. */
@@ -285,7 +287,8 @@ export class InstancedDataTexture {
     }
 
     const width = this._width;
-    let ranges = 0;
+    // Ranges queued by earlier flushes count too: three sends them all at once.
+    let ranges = texture.updateRanges.length;
     for (const [from, to] of merged) {
       for (let texel = from; texel < to;) {
         const end = Math.min(to, (Math.floor(texel / width) + 1) * width);

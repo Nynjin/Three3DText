@@ -166,6 +166,7 @@ export class LabelMeshManager {
     base.dispose();
     this.geom.setAttribute('labelSpan', this._labelSpanAttr);
     this.geom.setAttribute('occlusionFade', this._labelFadeAttr);
+    this.geom.instanceCount = 0;
 
     const material = createLabelMaterial(atlas, this._labelData.texture, this._glyphData.texture);
     this.mesh = new Mesh(this.geom, material);
@@ -209,13 +210,16 @@ export class LabelMeshManager {
   update(changes: MeshChanges, atlasReplaced: boolean) {
     const { add, relayout, update, remove } = changes;
 
-    this._labelData.update(this._stageLabels([add, relayout, update]), remove);
-    this._glyphData.update(this._stageGlyphs([add, relayout]), remove);
-
     const uniforms = this.mesh.material.uniforms;
-    uniforms.uLabelTex.value = this._labelData.texture;
-    uniforms.uGlyphTex.value = this._glyphData.texture;
-    if (atlasReplaced) uniforms.uAtlas.value = this._atlas.texture;
+    // Growth replaces a texture before an update can throw for size.
+    try {
+      this._labelData.update(this._stageLabels([add, relayout, update]), remove);
+      this._glyphData.update(this._stageGlyphs([add, relayout]), remove);
+    } finally {
+      uniforms.uLabelTex.value = this._labelData.texture;
+      uniforms.uGlyphTex.value = this._glyphData.texture;
+      if (atlasReplaced) uniforms.uAtlas.value = this._atlas.texture;
+    }
   }
 
   /** @returns One allocation per label, viewing the staging buffer until the next call. */
@@ -300,8 +304,6 @@ export class LabelMeshManager {
     this._labelSpanAttr.needsUpdate = true;
     this._labelFadeAttr.addUpdateRange(0, pos);
     this._labelFadeAttr.needsUpdate = true;
-
-    this.mesh.visible = pos > 0;
   }
 
   /** Releases the geometry, both data textures and the material. */
