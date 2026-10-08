@@ -142,15 +142,3 @@ export function canvasFontFamily(font: string): string {
 export function fontKeyStr(key: FontKey): string {
   return `${key.font}\x00${key.weight}\x00${key.style}`;
 }
-
-/**
- * Prefix shared by every glyph key of one font. Concatenate a character onto it
- * to reach that character's entry.
- */
-export function glyphKeyPrefix(fontKey: FontKey): string {
-  return `${fontKeyStr(fontKey)}\x00`;
-}
-
-export function glyphKey(fontKey: FontKey, char: string): string {
-  return glyphKeyPrefix(fontKey) + char;
-}

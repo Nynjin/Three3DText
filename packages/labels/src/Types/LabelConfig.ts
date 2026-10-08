@@ -5,11 +5,10 @@
 export interface LabelManagerConfig {
   /**
    * Font size every glyph is rasterized at, in raster px. Labels drawn at twice it or
-   * more show lumpy edges. Read at construction.
+   * more show lumpy edges. Read at construction. Construction throws if the
+   * glyph cell this size implies exceeds the device's texture size.
    */
   atlasFontSize: number;
-  /** Atlas headroom on a resize, at least 1, within the device's texture size. Read at construction. */
-  atlasCapacityMultiplier: number;
 
   /** Commit pending work on the microtask after a change. Off means calling `update()`. */
   autoUpdate: boolean;
@@ -65,7 +64,6 @@ export interface LabelManagerConfig {
 
 export const DefaultLabelConfig: LabelManagerConfig = {
   atlasFontSize: 32,
-  atlasCapacityMultiplier: 1.5,
 
   autoUpdate: true,
   placementIntervalMs: 200,

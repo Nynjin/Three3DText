@@ -54,13 +54,12 @@ export class LabelAtlasManager {
   private readonly _listeners = new Set<() => void>();
 
   /**
-   * @param config - Reads `atlasFontSize` and `atlasCapacityMultiplier` once.
+   * @param config - Reads `atlasFontSize` once.
    * @param maxTextureSize - Largest texture side the device accepts, in texels.
    */
   constructor(config: LabelManagerConfig, maxTextureSize: number) {
     this.atlas = new SDFAtlas({
       fontSize: config.atlasFontSize,
-      capacityMultiplier: config.atlasCapacityMultiplier,
       maxSize: maxTextureSize,
     });
 

@@ -157,7 +157,6 @@ apply from the next `cull`, except for the fields read at construction.
 | Field | Unit | Default | |
 | --- | --- | --- | --- |
 | `atlasFontSize` | px glyphs are rasterized at; labels at twice it or more show lumpy edges | `32` | read at construction |
-| `atlasCapacityMultiplier` | atlas headroom on growth, at least 1 | `1.5` | read at construction |
 | `autoUpdate` | commit changes on the next microtask | `true` | |
 | `placementIntervalMs` | ms between pass starts | `200` | |
 | `placementBudgetMs` | ms of placement per frame | `3` | |

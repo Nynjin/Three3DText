@@ -1,6 +1,6 @@
 import TinySDF from '@mapbox/tiny-sdf';
 import { DataTexture, LinearFilter, RedFormat, UnsignedByteType } from 'three';
-import { canvasFontFamily, fontKeyStr, glyphKey, glyphKeyPrefix, type FontKey } from './FontKey';
+import { canvasFontFamily, fontKeyStr, type FontKey } from './FontKey';
 import type { AtlasMetrics, GlyphInfo, GlyphResolver } from './GlyphRun';
 
 /** Character every font the atlas knows is rasterized with; a lookup miss resolves to it. */
@@ -21,25 +21,15 @@ export function sdfBuffer(fontSize: number): number {
   return Math.max(2, Math.round(fontSize * BUFFER_EM));
 }
 
-/**
- * Columns of the square glyph grid to grow to: room for `glyphs` times
- * `multiplier`, or the widest grid `maxSize` allows when that does not fit.
- *
- * @param glyphs - Glyphs the grid has to hold.
- * @param multiplier - Headroom, at least 1.
- * @param cellSize - Side of one glyph cell, in texels.
- * @param maxSize - Largest texture side, in texels.
- */
-function atlasColumns(glyphs: number, multiplier: number, cellSize: number, maxSize: number): number {
-  const wanted = Math.ceil(Math.sqrt(Math.ceil(glyphs * multiplier)));
-  return Math.max(1, Math.min(wanted, Math.floor(maxSize / cellSize)));
-}
+/** Room made on growth, as a multiple of the glyphs needed. */
+const CAPACITY_MULTIPLIER = 1.5;
+
+/** Texture rows queued between uploads, past which the whole texture is sent. */
+const MAX_UPLOAD_ROWS = 4096;
 
 export interface SDFAtlasOptions {
   /** Raster font size, in raster px. */
   fontSize: number;
-  /** Headroom on a resize, at least 1: room is made for this many times the glyphs needed. */
-  capacityMultiplier: number;
   /** Largest texture side, in texels. */
   maxSize: number;
 }
@@ -59,7 +49,8 @@ export interface FontChars {
  */
 export class SDFAtlas {
   private _texture: DataTexture = new DataTexture(new Uint8Array(1), 1, 1, RedFormat, UnsignedByteType);
-  private readonly _glyphs = new Map<string, GlyphInfo>();
+  /** Glyph entries, by font key string then character. */
+  private readonly _glyphs = new Map<string, Map<string, GlyphInfo>>();
 
   /** Replaced, and the previous one disposed, whenever the atlas grows. */
   get texture(): DataTexture {
@@ -81,26 +72,31 @@ export class SDFAtlas {
   private _data: Uint8Array = new Uint8Array(1);
   private _width = 1;
   private readonly _cellSize: number;
-  private _cols = 0;
+  /** Glyph cells per row: as many as fit the device limit across, set at construction. */
+  private readonly _cols: number;
+  private _rows = 0;
   private _capacity = 0;
   private _slotCount = 0;
   private _warnedFull = false;
 
-  private readonly _capacityMultiplier: number;
+  /** Set until three has uploaded the whole texture, after it was replaced or cleared. */
+  private _fullUploadPending = true;
+  /** Texture rows queued as update ranges since the last upload. */
+  private readonly _queuedRows = new Set<number>();
+  /** Texture rows the glyphs drawn by the running `setChars` touched. */
+  private _touchedFirstRow = Infinity;
+  private _touchedLastRow = -1;
+
   private readonly _maxSize: number;
 
   private readonly _fontToSDF = new Map<string, TinySDF>();
 
   /**
-   * @throws {RangeError} If `capacityMultiplier` is below 1.
+   * @throws {RangeError} If one glyph cell is larger than `maxSize`.
    */
   constructor(options: SDFAtlasOptions) {
-    const { fontSize, capacityMultiplier, maxSize } = options;
-    if (!(capacityMultiplier >= 1)) {
-      throw new RangeError(`SDFAtlas: capacityMultiplier must be at least 1, got ${capacityMultiplier}`);
-    }
+    const { fontSize, maxSize } = options;
     this.fontSize = fontSize;
-    this._capacityMultiplier = capacityMultiplier;
     this._maxSize = maxSize;
 
     this.buffer = sdfBuffer(fontSize);
@@ -112,11 +108,42 @@ export class SDFAtlas {
     // glyph one further buffer beyond it, so fontSize + 5 * buffer is the
     // largest bitmap it can hand back. A smaller cell bleeds into the next.
     this._cellSize = fontSize + this.buffer * 5;
+    if (this._cellSize > maxSize) {
+      throw new RangeError(`SDFAtlas: a ${this._cellSize} px glyph cell exceeds the ${maxSize} px texture limit; lower atlasFontSize`);
+    }
+    this._cols = Math.floor(maxSize / this._cellSize);
 
     this.metrics = {
       fontSize,
       padding: this.buffer * 2,
     };
+  }
+
+  /** Makes the next upload send the whole texture, dropping any queued rows. */
+  private _requestFullUpload() {
+    this._fullUploadPending = true;
+    this._queuedRows.clear();
+    this._texture.clearUpdateRanges();
+    this._texture.onUpdate = () => {
+      this._fullUploadPending = false;
+      this._queuedRows.clear();
+    };
+    this._texture.needsUpdate = true;
+  }
+
+  /**
+   * Queues the rows the last draw touched as update ranges: three sends each as
+   * one row-wide `texSubImage2D`, reading the single channel as RGBA floats, so a
+   * range is `4 * width` long. Past {@link MAX_UPLOAD_ROWS} the whole texture goes.
+   */
+  private _queueTouchedRows() {
+    if (this._fullUploadPending) return;
+    for (let row = this._touchedFirstRow; row < this._touchedLastRow; row++) {
+      if (this._queuedRows.has(row)) continue;
+      this._queuedRows.add(row);
+      this._texture.addUpdateRange(row * this._width * 4, this._width * 4);
+    }
+    if (this._queuedRows.size > MAX_UPLOAD_ROWS) this._requestFullUpload();
   }
 
   /**
@@ -125,8 +152,9 @@ export class SDFAtlas {
    * font the canvas resolves at call time, so a web font has to be loaded
    * before its first characters arrive.
    *
-   * @returns `dirty` if the texture contents changed; `resize` if the atlas grew,
-   * which moves every existing glyph and replaces {@link texture}.
+   * @returns `dirty` if the texture contents changed; `resize` if the atlas grew
+   * and replaced {@link texture} with a taller one. Existing entries keep their
+   * `px` and `py`.
    */
   setChars(fontChars: FontChars[]): {
     dirty: boolean;
@@ -134,7 +162,7 @@ export class SDFAtlas {
   } {
     const newGlyphs: { char: string; fontKey: FontKey }[] = [];
     const queue = (fontKey: FontKey, c: string) => {
-      if (!this._glyphs.has(glyphKey(fontKey, c))) newGlyphs.push({ char: c, fontKey });
+      if (!this._fontGlyphs(fontKey).has(c)) newGlyphs.push({ char: c, fontKey });
     };
 
     for (const { fontKey, chars } of fontChars) {
@@ -159,8 +187,11 @@ export class SDFAtlas {
 
     const needed = this._slotCount + newGlyphs.length;
     const resize = needed > this._capacity && this._resize(needed);
+    this._touchedFirstRow = Infinity;
+    this._touchedLastRow = -1;
     const drawn = this._drawChars(newGlyphs);
     if (drawn === 0 && !resize) return { dirty: false, resize: false };
+    this._queueTouchedRows();
     this._texture.needsUpdate = true;
 
     return { dirty: true, resize };
@@ -169,8 +200,7 @@ export class SDFAtlas {
   /**
    * Binds a lookup to one font. A character the font has no entry for resolves
    * to {@link FALLBACK_CHAR}, or to a blank glyph if the atlas was full before
-   * the font's fallback was drawn. Entries are the atlas's own: `px` and `py`
-   * change when it grows.
+   * the font's fallback was drawn.
    *
    * @throws {Error} If no {@link setChars} call has registered `fontKey`.
    */
@@ -178,9 +208,19 @@ export class SDFAtlas {
     if (!this._fontToSDF.has(fontKeyStr(fontKey))) {
       throw new Error(`SDFAtlas: font ${fontKeyStr(fontKey)} was never passed to setChars`);
     }
-    const prefix = glyphKeyPrefix(fontKey);
-    const fallback = this._glyphs.get(prefix + FALLBACK_CHAR) ?? BLANK;
-    return (char: string) => this._glyphs.get(prefix + char) ?? fallback;
+    const glyphs = this._fontGlyphs(fontKey);
+    const fallback = glyphs.get(FALLBACK_CHAR) ?? BLANK;
+    return (char: string) => glyphs.get(char) ?? fallback;
+  }
+
+  private _fontGlyphs(fontKey: FontKey): Map<string, GlyphInfo> {
+    const key = fontKeyStr(fontKey);
+    let glyphs = this._glyphs.get(key);
+    if (!glyphs) {
+      glyphs = new Map();
+      this._glyphs.set(key, glyphs);
+    }
+    return glyphs;
   }
 
   /**
@@ -196,8 +236,8 @@ export class SDFAtlas {
     let dropped = 0;
     let drawn = 0;
     for (const { char: c, fontKey } of entries) {
-      const key = glyphKey(fontKey, c);
-      if (this._glyphs.has(key)) continue;
+      const glyphs = this._fontGlyphs(fontKey);
+      if (glyphs.has(c)) continue;
 
       const sdf = this._fontToSDF.get(fontKeyStr(fontKey));
       if (!sdf) throw new Error(`SDFAtlas: No TinySDF for fontKey ${fontKeyStr(fontKey)}`);
@@ -205,7 +245,7 @@ export class SDFAtlas {
       const g = sdf.draw(c);
 
       if (g.glyphWidth === 0 || g.glyphHeight === 0) {
-        this._glyphs.set(key, { px: 0, py: 0, pw: 0, ph: 0, w: 0, h: 0, left: 0, top: 0, advance: g.glyphAdvance });
+        glyphs.set(c, { px: 0, py: 0, pw: 0, ph: 0, w: 0, h: 0, left: 0, top: 0, advance: g.glyphAdvance });
         continue;
       }
 
@@ -218,10 +258,12 @@ export class SDFAtlas {
       const x = (slot % this._cols) * this._cellSize;
       const y = Math.floor(slot / this._cols) * this._cellSize;
       this._blit(g.data, x, y, g.width, g.height);
+      this._touchedFirstRow = Math.min(this._touchedFirstRow, y);
+      this._touchedLastRow = Math.max(this._touchedLastRow, y + g.height);
 
       // tiny-sdf draws the pen at column `buffer - glyphLeft` and the baseline
       // at row `buffer + glyphTop` of the bitmap.
-      this._glyphs.set(key, {
+      glyphs.set(c, {
         px: x,
         py: y,
         pw: g.width,
@@ -237,7 +279,7 @@ export class SDFAtlas {
     if (dropped > 0 && !this._warnedFull) {
       this._warnedFull = true;
       console.warn(
-        `SDFAtlas: full at ${this._width} px, the device limit; ${dropped} characters draw as "${FALLBACK_CHAR}" from here on`,
+        `SDFAtlas: full at ${this._capacity} glyphs, the device limit; ${dropped} characters draw as "${FALLBACK_CHAR}" from here on`,
       );
     }
     return drawn;
@@ -263,50 +305,37 @@ export class SDFAtlas {
   }
 
   /**
-   * Grows the grid towards `minChars` glyphs times the capacity multiplier,
-   * capped at the widest grid `maxSize` allows. Existing glyphs are re-laid out
-   * into the new grid, so their slots change.
+   * Adds rows of glyph cells towards `minChars` glyphs times the capacity
+   * multiplier, capped at the device's texture height. The width never changes,
+   * so every existing glyph keeps its position and the old bitmap is the first
+   * part of the new one.
    *
-   * @returns `false` if the grid is already as wide as it can get.
+   * @returns `false` if the atlas already has every row it can get.
    */
   private _resize(minChars: number): boolean {
-    const cols = atlasColumns(minChars, this._capacityMultiplier, this._cellSize, this._maxSize);
-    if (cols <= this._cols) return false;
-    const newSize = cols * this._cellSize;
-    this._capacity = cols * cols;
-    this._cols = cols;
+    const maxRows = Math.floor(this._maxSize / this._cellSize);
+    const wanted = Math.ceil(Math.ceil(minChars * CAPACITY_MULTIPLIER) / this._cols);
+    const rows = Math.max(1, Math.min(wanted, maxRows));
+    if (rows <= this._rows) return false;
 
-    const oldData = this._data;
-    const oldWidth = this._width;
-    const newData = new Uint8Array(newSize * newSize);
+    const width = this._cols * this._cellSize;
+    const height = rows * this._cellSize;
+    const newData = new Uint8Array(width * height);
+    if (this._rows > 0) newData.set(this._data);
 
-    let slot = 0;
-    for (const g of this._glyphs.values()) {
-      if (g.pw === 0) continue;
-      const newX = (slot % this._cols) * this._cellSize;
-      const newY = Math.floor(slot / this._cols) * this._cellSize;
-
-      for (let row = 0; row < g.ph; row++) {
-        const srcOff = (g.py + row) * oldWidth + g.px;
-        newData.set(oldData.subarray(srcOff, srcOff + g.pw), (newY + row) * newSize + newX);
-      }
-
-      g.px = newX;
-      g.py = newY;
-      slot++;
-    }
-
+    this._rows = rows;
+    this._capacity = this._cols * rows;
     this._data = newData;
-    this._width = newSize;
+    this._width = width;
 
     this._texture.dispose();
-    this._texture = new DataTexture(newData, newSize, newSize, RedFormat, UnsignedByteType);
+    this._texture = new DataTexture(newData, width, height, RedFormat, UnsignedByteType);
     this._texture.flipY = false;
     // No mipmaps: averaging a distance field across a thin stem erodes it.
     this._texture.generateMipmaps = false;
     this._texture.minFilter = LinearFilter;
     this._texture.magFilter = LinearFilter;
-    this._texture.needsUpdate = true;
+    this._requestFullUpload();
     return true;
   }
 }
