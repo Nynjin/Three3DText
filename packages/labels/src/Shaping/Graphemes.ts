@@ -10,8 +10,11 @@ const CLUSTERED = /\p{M}|‍|[\u{10000}-\u{10FFFF}]/u;
  * a letter with its combining marks is one element.
  */
 function graphemes(text: string): string[] {
-  if (!CLUSTERED.test(text)) return text.split('');
   return Array.from(segmenter.segment(text), s => s.segment);
+}
+
+function codeUnits(text: string): string[] {
+  return text.split('');
 }
 
 function codePoints(text: string): string[] {
@@ -21,8 +24,10 @@ function codePoints(text: string): string[] {
 /**
  * How a label's shaped text splits into the characters layout draws and the
  * atlas holds: user-perceived characters, or code points for text with an RTL
- * script, whose bidi pass drops joiners. Decide once per label, for all its lines.
+ * script, whose bidi pass drops joiners. Decided from the whole text, so every
+ * line of a label splits the same way.
  */
-export function charSplitter(text: string): (s: string) => string[] {
-  return needsShaping(text) ? codePoints : graphemes;
+export function charSplitter(text: string, rtl: boolean = needsShaping(text)): (s: string) => string[] {
+  if (rtl) return codePoints;
+  return CLUSTERED.test(text) ? graphemes : codeUnits;
 }

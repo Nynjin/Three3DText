@@ -19,7 +19,8 @@
     "declarationMap": true,
     "outDir": "dist",
     "rootDir": "src",
-    "emitDeclarationOnly": true
+    "emitDeclarationOnly": true,
+    "stripInternal": true
   },
   "include": [
     "src"

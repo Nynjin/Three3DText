@@ -110,8 +110,10 @@ label out again; colour, opacity or transform only rewrite its data.
 | `visible` | | `true` | |
 
 `padding` reserves space around the text from other labels; it does not move the
-text. `Auto` alignment is right-aligned when the text's first letter is from an
-RTL script. `Capitalize` upper-cases the first letter of each word, and an
+text. A line break (`
+`) starts a new paragraph. `Auto` alignment is
+right-aligned for a paragraph whose first letter is from an RTL script. `Justify`
+stretches every line of a paragraph except its last. `Capitalize` upper-cases the first letter of each word, and an
 apostrophe does not start a word.
 
 The objects `position`, `rotation`, `offset`, `color`, `haloColor` and `padding`

@@ -1,5 +1,6 @@
 import { Color, Euler, Quaternion, Vector2, Vector3 } from 'three';
 import type { GlyphInstance } from './Shaping/GlyphRun';
+import type { TextAnalysis } from './Shaping/TextAnalysis';
 import {
   DEFAULT_FONT_KEY,
   fontKeyStr,
@@ -225,6 +226,13 @@ export class Label {
    * collision engine; setting it by hand is overwritten on the next pass.
    */
   shouldRender: boolean = false;
+
+  /**
+   * The text analysis the atlas manager and layout share, cleared when the text changes.
+   *
+   * @internal
+   */
+  analysis: TextAnalysis | undefined;
 
   /** Collision box, written by layout. Zero-sized until the label is laid out. */
   bounds: LabelBounds = { minX: 0, minY: 0, width: 0, height: 0 };
@@ -583,10 +591,12 @@ export class Label {
 
     if (options.text !== undefined) {
       this._text = options.text;
+      this.analysis = undefined;
       changes |= LabelChangeType.Text;
     }
     if (options.textTransform !== undefined) {
       this._textTransform = options.textTransform;
+      this.analysis = undefined;
       changes |= LabelChangeType.Text;
     }
 

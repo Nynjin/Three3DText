@@ -22,6 +22,11 @@ export const rtlReady: Promise<void> = (rtlText as Promise<RTLModule>)
     console.error('RTL shaping unavailable, falling back to unshaped text', error);
   });
 
+/** Whether the RTL shaper has loaded. */
+export function shaperLoaded(): boolean {
+  return rtl !== null;
+}
+
 export function applyShaping(text: string): string {
   if (!text || !rtl) return text;
   return rtl.applyArabicShaping(text);

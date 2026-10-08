@@ -1,8 +1,8 @@
 import { type Label, LabelChangeType } from './Label';
 import type { FontKey } from './Shaping/FontKey';
 import { SDFAtlas } from './Shaping/SDFAtlas';
-import { applyShaping, needsShaping, rtlReady } from './Shaping/RTL';
-import { charSplitter } from './Shaping/Graphemes';
+import { needsShaping, reorderParagraph, rtlReady } from './Shaping/RTL';
+import { analyze } from './Shaping/TextAnalysis';
 import type { LabelManagerConfig } from './Types/LabelConfig';
 
 /**
@@ -226,12 +226,17 @@ export class LabelAtlasManager {
       this._pendingFor(label);
     }
 
-    const shaped = applyShaping(label.getDisplayText());
-    for (const char of charSplitter(shaped)(shaped)) {
-      if (known.chars.has(char)) continue;
-      known.chars.add(char);
-      this._pendingFor(label).chars.add(char);
-    }
+    const { shaped, rtl, split, chars } = analyze(label);
+    const request = (list: string[]) => {
+      for (const char of list) {
+        if (known.chars.has(char)) continue;
+        known.chars.add(char);
+        this._pendingFor(label).chars.add(char);
+      }
+    };
+    request(chars);
+    // The bidi pass mirrors brackets in right-to-left runs: `(` draws as `)`.
+    if (rtl) for (const line of reorderParagraph(shaped, [])) request(split(line));
   }
 
   private _pendingFor(label: Label): FontCharSet {
