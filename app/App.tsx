@@ -13,6 +13,8 @@ import {
 import { InstancedLabelComponent } from './TextRenderers/InstancedLabelComponent';
 import { makeItems } from './Utils/MakeItems';
 import { StatsPanel } from './Commons/StatsPanel';
+import { DEFAULT_LABEL_SETTINGS, LabelSettingsPanel, type LabelSettings } from './Commons/LabelSettings';
+import { FOCUS, LABEL, NUMBER_INPUT, PANEL, ROW } from './Commons/Ui';
 
 const MODES = [
   ['uikit', 'UIKit'],
@@ -35,12 +37,6 @@ const MAX_INSTANCES: Record<Mode, number> = {
   'custom-instanced': 300000,
 };
 
-const PANEL = 'absolute z-[10000] rounded-[10px] border border-white/[0.12] '
-  + 'bg-zinc-900/[0.86] text-[#e8e8ea] shadow-[0_6px_20px_rgba(0,0,0,0.35)] '
-  + 'backdrop-blur-[8px] text-[13px]/[1.4] [font-family:system-ui,sans-serif]';
-
-const FOCUS = 'focus-visible:outline-2 focus-visible:outline-sky-300 focus-visible:outline-offset-1';
-
 const MODE_BUTTON = 'block w-full cursor-pointer appearance-none rounded-[7px] border-0 '
   + 'bg-transparent px-3 py-[7px] text-left text-[#b9b9c0] [font:inherit] '
   + 'transition-[background-color,color] duration-[120ms] '
@@ -48,17 +44,11 @@ const MODE_BUTTON = 'block w-full cursor-pointer appearance-none rounded-[7px] b
   + 'aria-pressed:bg-zinc-100 aria-pressed:font-semibold aria-pressed:text-zinc-900 '
   + FOCUS;
 
-const ROW = 'flex items-center gap-[10px]';
-
-const LABEL = 'cursor-pointer select-none text-[#b9b9c0]';
-
-const NUMBER_INPUT = 'w-[88px] rounded-md border border-white/[0.14] bg-white/[0.06] '
-  + 'px-2 py-1 text-right text-[#f2f2f4] [font:inherit] ' + FOCUS;
-
 function App() {
   const [mode, setMode] = useState<Mode>('custom-instanced');
   const [halo, setHalo] = useState(false);
   const [count, setCount] = useState(100);
+  const [labelSettings, setLabelSettings] = useState<LabelSettings>(DEFAULT_LABEL_SETTINGS);
 
   const seed = 12345;
   const items = useMemo(() => makeItems(count, seed), [count, seed]);
@@ -82,6 +72,10 @@ function App() {
           </button>
         ))}
       </div>
+
+      {mode === 'custom-instanced' && (
+        <LabelSettingsPanel settings={labelSettings} onChange={setLabelSettings} />
+      )}
 
       <div className={`${PANEL} bottom-3 left-3 px-3.5 py-2`}>
         <label className={`${ROW} ${LABEL}`}>
@@ -146,7 +140,15 @@ function App() {
                   )
                 : mode === 'css3d'
                   ? <CSS3DCloud key="css3d" items={items} halo={halo} />
-                  : <InstancedLabelComponent items={items} halo={halo} />}
+                  : (
+                      <InstancedLabelComponent
+                        // downscale and atlasFontSize are read at construction.
+                        key={`${labelSettings.downscale}-${labelSettings.atlasFontSize}`}
+                        items={items}
+                        halo={halo}
+                        settings={labelSettings}
+                      />
+                    )}
       </Canvas>
     </>
   );

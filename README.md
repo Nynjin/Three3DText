@@ -109,6 +109,8 @@ npm run dev
 
 `npm run dev` builds the library, rebuilds its JavaScript on every change, and serves the app at `http://localhost:3000`.
 
+In the `@itowns/labels` mode, the **Label settings** panel edits the manager options while the labels run, each shown with its option name and a description on hover. `downscale` and `atlasFontSize` are read once, so changing them starts the labels over.
+
 ```bash
 npm run build       # library, then a production build of the app
 npm run start       # serve the production build

@@ -9,6 +9,7 @@ import {
   rtlReady,
 } from '@itowns/labels';
 import type { Item } from '../Types/Item';
+import type { LabelSettings } from '../Commons/LabelSettings';
 import { useFrame, useThree } from '@react-three/fiber';
 
 /** Halo distance and fade-out, in CSS px. */
@@ -18,6 +19,8 @@ const HALO_BLUR = 10;
 export interface InstancedLabelsProps {
   items: Item[];
   halo: boolean;
+  /** Manager options. Those read at construction apply on remount. */
+  settings: LabelSettings;
 }
 
 function makeLabel(item: Item, halo: boolean): Label {
@@ -43,7 +46,7 @@ function makeLabel(item: Item, halo: boolean): Label {
   });
 }
 
-export function InstancedLabelComponent({ items, halo }: InstancedLabelsProps) {
+export function InstancedLabelComponent({ items, halo, settings }: InstancedLabelsProps) {
   const groupRef = useRef<Group>(null);
   const camera = useThree(state => state.camera);
   const renderer = useThree(state => state.gl);
@@ -52,6 +55,8 @@ export function InstancedLabelComponent({ items, halo }: InstancedLabelsProps) {
   const labelMapRef = useRef(new Map<number, Label>());
   /** The halo setting the labels were last built or updated with. */
   const haloRef = useRef(halo);
+  /** Settings the manager is constructed with. */
+  const initialSettings = useRef(settings);
 
   // Created, attached and disposed together, so a remount starts from a new
   // manager and an empty label map. Declared first: the effects below run after
@@ -60,7 +65,7 @@ export function InstancedLabelComponent({ items, halo }: InstancedLabelsProps) {
     const group = groupRef.current;
     if (!group) return;
 
-    const manager = new InstancedLabelManager(renderer, { autoUpdate: false });
+    const manager = new InstancedLabelManager(renderer, { ...initialSettings.current, autoUpdate: false });
     group.add(manager.mesh);
     managerRef.current = manager;
     labelMapRef.current = new Map();
@@ -73,6 +78,11 @@ export function InstancedLabelComponent({ items, halo }: InstancedLabelsProps) {
       managerRef.current = null;
     };
   }, [renderer]);
+
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (manager) Object.assign(manager.config, settings);
+  }, [settings, renderer]);
 
   useEffect(() => {
     const manager = managerRef.current;
