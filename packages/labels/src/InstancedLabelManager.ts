@@ -34,6 +34,14 @@ export class InstancedLabelManager {
   /** Earliest `performance.now()` at which a pass may open. */
   private _nextPassTime = 0;
   private _lastFrameTime = 0;
+
+  /**
+   * Labels the fade loop and the draw list read: every label that is fading, or
+   * placed and visible. A hidden label that has fully faded is not in it.
+   */
+  private readonly _live = new Set<Label>();
+  /** The set of drawn labels or their order changed since the draw list was written. */
+  private _drawListStale = false;
   private _updateQueued = false;
 
   /**
@@ -50,7 +58,7 @@ export class InstancedLabelManager {
     this.config = config;
 
     const maxTextureSize = renderer.capabilities.maxTextureSize;
-    this.collision = new LabelCollisionEngine(renderer, config);
+    this.collision = new LabelCollisionEngine(renderer, config, label => this._touch(label));
     this._atlasManager = new LabelAtlasManager(config, maxTextureSize);
     this._meshManager = new LabelMeshManager(config, this._atlasManager.atlas, maxTextureSize);
     this.mesh = this._meshManager.mesh;
@@ -113,10 +121,8 @@ export class InstancedLabelManager {
   }
 
   /**
-   * Opens a placement pass every `config.placementIntervalMs` when the view or
-   * the labels changed, advances it for about `config.placementBudgetMs`, steps
-   * the fades, and rewrites the draw list if anything moved. Call once per
-   * rendered frame, before the renderer draws.
+   * Runs placement, steps the fades and rewrites the draw list when something
+   * changed. Call once per rendered frame, before the renderer draws.
    *
    * @param camera - Its `projectionMatrix`, `matrixWorld` and
    * `matrixWorldInverse` must be up to date.
@@ -125,8 +131,6 @@ export class InstancedLabelManager {
     const now = performance.now();
     const frameDelta = now - this._lastFrameTime;
     this._lastFrameTime = now;
-
-    let visualNeedUpdate = false;
 
     if (now >= this._nextPassTime) {
       const interval = this.config.placementIntervalMs;
@@ -138,59 +142,69 @@ export class InstancedLabelManager {
       }
       // A refused pass leaves the slot open.
     }
-    if (this.collision.stepPass(this.config.placementBudgetMs)) visualNeedUpdate = true;
+    this.collision.stepPass(this.config.placementBudgetMs);
 
-    const labels = this._atlasManager.labels;
     const duration = this.config.fadeDurationMs;
     const fadeDelta = duration > 0 ? frameDelta / duration : Infinity;
+    let stale = this._drawListStale;
 
-    for (const label of labels) {
+    for (const label of this._live) {
       // A hidden label disappears at once; placement drops it on its next pass.
       const target = label.shouldRender && label.visible ? 0 : 1;
-      if (label.occlusionFade === target) continue;
-
-      visualNeedUpdate = true;
-
-      if (!label.visible) {
-        label.occlusionFade = 1;
-      } else if (label.occlusionFade < target) {
-        label.occlusionFade = Math.min(target, label.occlusionFade + fadeDelta);
-      } else {
-        label.occlusionFade = Math.max(target, label.occlusionFade - fadeDelta);
+      if (label.occlusionFade !== target) {
+        stale = true;
+        if (!label.visible) label.occlusionFade = 1;
+        else if (label.occlusionFade < target) label.occlusionFade = Math.min(target, label.occlusionFade + fadeDelta);
+        else label.occlusionFade = Math.max(target, label.occlusionFade - fadeDelta);
       }
+      if (label.occlusionFade === 1 && target === 1) this._live.delete(label);
     }
 
-    if (visualNeedUpdate) this._meshManager.cull(labels);
+    if (stale) this._writeDrawList();
+  }
+
+  /** Puts `label` in the live set if its fade or placement calls for it, and marks the draw list stale. */
+  private _touch(label: Label) {
+    this._live.add(label);
+    this._drawListStale = true;
+  }
+
+  private _writeDrawList() {
+    this._drawListStale = false;
+    this._meshManager.cull(this._live);
   }
 
   /** Releases every GPU resource. The mesh stays in its parent. */
   dispose() {
+    this._live.clear();
     this._atlasManager.dispose();
     this._meshManager.dispose();
     this.collision.dispose();
   }
 
   /**
-   * Rasterizes pending glyphs, then lays out and writes pending label work. The
-   * atlas syncs first: a resize moves existing glyphs, which promotes every
-   * label to a relayout.
+   * Rasterizes pending glyphs, then lays out and writes pending label work.
    */
   private _sync() {
     const { atlas } = this._atlasManager;
     const { resize } = this._atlasManager.syncAtlas();
-    const { add, relayout, update, dispose } = this._atlasManager.flushDirty();
+    const { placement, add, relayout, update, dispose } = this._atlasManager.flushDirty();
 
     const disposedIds = dispose.map(label => label.id);
     for (const label of dispose) {
       label.shouldRender = false;
       label.occlusionFade = 1;
+      this._live.delete(label);
     }
+    // A visibility or opacity change is a fade target change.
+    for (const label of update) this._touch(label);
+    for (const label of relayout) this._touch(label);
 
     this.collision.removeLabels(disposedIds);
     this.collision.addLabels(add);
     // A label removed and added back before this sync arrives as a relayout.
     this.collision.addLabels(relayout);
-    if (relayout.length > 0 || update.length > 0) this.collision.invalidate();
+    if (placement) this.collision.invalidate();
 
     const resolvers = new Map<string, GlyphResolver>();
     const layout = (label: Label) => {
@@ -205,6 +219,6 @@ export class InstancedLabelManager {
     for (const label of relayout) layout(label);
 
     this._meshManager.update({ add, relayout, update, remove: disposedIds }, resize);
-    this._meshManager.cull(this._atlasManager.labels);
+    this._writeDrawList();
   }
 }

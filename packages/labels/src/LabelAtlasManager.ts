@@ -1,4 +1,4 @@
-import { type Label, LabelChangeType } from './Label';
+import { type Label, LabelChangeType, PLACEMENT_CHANGE } from './Label';
 import type { FontKey } from './Shaping/FontKey';
 import { SDFAtlas } from './Shaping/SDFAtlas';
 import { needsShaping, reorderParagraph, rtlReady } from './Shaping/RTL';
@@ -23,8 +23,13 @@ export const enum DirtyLevel {
   Dispose = 4,
 }
 
+const PLACEMENT_CHANGES = LabelChangeType.Font | LabelChangeType.Text | LabelChangeType.Layout
+  | LabelChangeType.Transform | LabelChangeType.Visibility | PLACEMENT_CHANGE;
+
 /** Dirty labels grouped by what the renderer has to do with them. */
 export interface DirtyLabels {
+  /** Something changed that can alter placement: a layout, a transform, visibility or a halo. */
+  placement: boolean;
   add: Label[];
   relayout: Label[];
   update: Label[];
@@ -49,8 +54,11 @@ export class LabelAtlasManager {
   /** Characters requested since the last {@link syncAtlas}, per font. */
   private readonly _pendingChars = new Map<string, FontCharSet>();
 
-  private readonly _dirty = new Map<Label, DirtyLevel>();
-  private readonly _unsubs = new Map<Label, () => void>();
+  /** Labels with a non-zero `dirtyLevel`, in the order they became dirty. */
+  private _dirtyLabels: Label[] = [];
+  private _placementDirty = false;
+  /** Shared by every tracked label, which passes itself in. */
+  private readonly _onLabel = (changes: number, label: Label) => this._onLabelChange(label, changes);
   private readonly _listeners = new Set<() => void>();
 
   /**
@@ -69,7 +77,7 @@ export class LabelAtlasManager {
 
   /** Whether anything is waiting for a sync. */
   get hasDirty(): boolean {
-    return this._dirty.size > 0;
+    return this._dirtyLabels.length > 0;
   }
 
   /**
@@ -88,12 +96,12 @@ export class LabelAtlasManager {
       this._requestChars(label);
       // Removed and re-added before a flush: it may still hold its slots, or
       // never have had any; a relayout rewrites or allocates as needed.
-      if (this._dirty.get(label) === DirtyLevel.Dispose) {
-        this._dirty.set(label, DirtyLevel.Relayout);
+      if ((label.dirtyLevel as DirtyLevel) === DirtyLevel.Dispose) {
+        label.dirtyLevel = DirtyLevel.Relayout;
       } else {
         this._markDirty(label, DirtyLevel.Add);
       }
-      this._unsubs.set(label, label.onChange(changes => this._onLabelChange(label, changes)));
+      label.onChange(this._onLabel);
       added = true;
     }
 
@@ -112,8 +120,7 @@ export class LabelAtlasManager {
     for (const label of labels) {
       if (!this.labels.delete(label)) continue;
 
-      this._unsubs.get(label)?.();
-      this._unsubs.delete(label);
+      label.offChange(this._onLabel);
       this._markDirty(label, DirtyLevel.Dispose);
       removed = true;
     }
@@ -122,39 +129,33 @@ export class LabelAtlasManager {
   }
 
   /**
-   * Rasterizes the characters requested since the last call. Must run before
-   * {@link flushDirty}: a resize moves every existing glyph, which marks all
-   * labels for relayout.
+   * Rasterizes the characters requested since the last call.
    *
    * @returns `dirty` if the texture contents changed; `resize` if the texture
-   * was replaced and every glyph moved.
+   * was replaced by a taller one. Existing glyphs keep their position.
    */
   syncAtlas(): { dirty: boolean; resize: boolean } {
     if (this._pendingChars.size === 0) return { dirty: false, resize: false };
 
     const result = this.atlas.setChars([...this._pendingChars.values()]);
     this._pendingChars.clear();
-
-    if (result.resize) {
-      for (const label of this.labels) this._markDirty(label, DirtyLevel.Relayout);
-    }
-
     return result;
   }
 
   /** Takes the pending work, grouped by level, and clears it. The arrays are the caller's. */
   flushDirty(): DirtyLabels {
-    const flushed: DirtyLabels = { add: [], relayout: [], update: [], dispose: [] };
-    const byLevel = new Map<DirtyLevel, Label[]>([
-      [DirtyLevel.Add, flushed.add],
-      [DirtyLevel.Relayout, flushed.relayout],
-      [DirtyLevel.Update, flushed.update],
-      [DirtyLevel.Dispose, flushed.dispose],
-    ]);
-
-    for (const [label, level] of this._dirty) byLevel.get(level)?.push(label);
-
-    this._dirty.clear();
+    const flushed: DirtyLabels = { placement: this._placementDirty, add: [], relayout: [], update: [], dispose: [] };
+    this._placementDirty = false;
+    for (const label of this._dirtyLabels) {
+      const level = label.dirtyLevel as DirtyLevel;
+      label.dirtyLevel = DirtyLevel.None;
+      if (level === DirtyLevel.Add) flushed.add.push(label);
+      else if (level === DirtyLevel.Relayout) flushed.relayout.push(label);
+      else if (level === DirtyLevel.Update) flushed.update.push(label);
+      else if (level === DirtyLevel.Dispose) flushed.dispose.push(label);
+    }
+    this._dirtyLabels = [];
+    if (flushed.relayout.length > 0) flushed.placement = true;
     return flushed;
   }
 
@@ -173,10 +174,10 @@ export class LabelAtlasManager {
 
   /** Drops every label and subscription, and disposes the atlas. */
   dispose() {
-    for (const unsub of this._unsubs.values()) unsub();
-    this._unsubs.clear();
+    for (const label of this.labels) label.offChange(this._onLabel);
     this.labels.clear();
-    this._dirty.clear();
+    for (const label of this._dirtyLabels) label.dirtyLevel = DirtyLevel.None;
+    this._dirtyLabels = [];
     this._fontChars.clear();
     this._pendingChars.clear();
     this._listeners.clear();
@@ -194,6 +195,7 @@ export class LabelAtlasManager {
       this._requestChars(label);
     }
 
+    if (changes & PLACEMENT_CHANGES) this._placementDirty = true;
     const needsLayout = changes & (LabelChangeType.Font | LabelChangeType.Text | LabelChangeType.Layout);
     this._markDirty(label, needsLayout ? DirtyLevel.Relayout : DirtyLevel.Update);
     this._emit();
@@ -250,8 +252,10 @@ export class LabelAtlasManager {
 
   /** Raise the label's pending work to `level`; never lowers it. */
   private _markDirty(label: Label, level: DirtyLevel) {
-    const current = this._dirty.get(label) ?? DirtyLevel.None;
-    if (level > current) this._dirty.set(label, level);
+    const current = label.dirtyLevel as DirtyLevel;
+    if (level <= current) return;
+    if (current === DirtyLevel.None) this._dirtyLabels.push(label);
+    label.dirtyLevel = level;
   }
 
   /** Notifies every {@link LabelAtlasManager.onChange} listener. */

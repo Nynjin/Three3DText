@@ -74,6 +74,9 @@ export const LabelChangeType = {
   Dispose: 1 << 6,
 } as const;
 
+/** Set beside `Style` when a change can alter where the label may be placed. Not part of the public API. */
+export const PLACEMENT_CHANGE = 1 << 7;
+
 export type LabelChangeMask = number;
 
 /** Per-side padding, in CSS px. */
@@ -105,7 +108,12 @@ export interface LabelQuad {
   height: number;
 }
 
-export type LabelChangeListener = (changes: LabelChangeMask) => void;
+/**
+ * Called when a label changes, with a {@link LabelChangeType} mask and the label
+ * itself, so one listener can serve many labels. Bits not named in
+ * `LabelChangeType` may be set and are reserved.
+ */
+export type LabelChangeListener = (changes: LabelChangeMask, label: Label) => void;
 
 /**
  * A label's properties. Units follow the Mapbox style specification: sizes in
@@ -178,22 +186,24 @@ export interface LabelOptions {
 let nextLabelId = 0;
 
 /**
- * One label. Every setter notifies the manager holding it, except a font, weight
- * or style set that leaves the font unchanged. The objects returned
+ * One label. Every setter notifies the manager holding it, except a set that
+ * leaves the value unchanged. The objects returned
  * by `position`, `rotation`, `offset`, `color`, `haloColor` and `padding` are the
  * label's own: an edit in place is not detected, so assign a new value instead.
  */
 export class Label {
-  private _listeners = new Set<LabelChangeListener>();
+  /** The first listener, kept inline: a label usually has one, its manager. */
+  private _listener: LabelChangeListener | undefined;
+  private _moreListeners: LabelChangeListener[] | undefined;
 
   private readonly _id: string;
 
   private _text: string = '';
   private _textTransform: TextTransform = TextTransform.None;
 
-  private _position: Vector3 = new Vector3();
-  private _rotation: Quaternion = new Quaternion();
-  private _offset: Vector2 = new Vector2();
+  private _position!: Vector3;
+  private _rotation!: Quaternion;
+  private _offset!: Vector2;
 
   private _fontKey: FontKey = DEFAULT_FONT_KEY;
   private _fontKeyStr: string = fontKeyStr(DEFAULT_FONT_KEY);
@@ -207,10 +217,10 @@ export class Label {
   private _anchorY = TextAnchorY.Top;
   private _padding: TextPadding = { top: 20, right: 20, bottom: 20, left: 20 };
 
-  private _color: Color = new Color();
+  private _color!: Color;
   private _opacity: number = 1;
 
-  private _haloColor: Color = new Color();
+  private _haloColor!: Color;
   private _haloWidth: number = 0;
   private _haloBlur: number = 0;
   private _haloOpacity: number = 1;
@@ -233,13 +243,6 @@ export class Label {
    */
   shouldRender: boolean = false;
 
-  /**
-   * The text analysis the atlas manager and layout share, cleared when the text changes.
-   *
-   * @internal
-   */
-  analysis: TextAnalysis | undefined;
-
   /** Collision box, written by layout. Zero-sized until the label is laid out. */
   bounds: LabelBounds = { minX: 0, minY: 0, width: 0, height: 0 };
 
@@ -249,9 +252,33 @@ export class Label {
   /** Positioned glyphs with ink, in label-local space. Written by layout. */
   glyphs: GlyphInstance[] = [];
 
+  /**
+   * What the manager holding this label has to do with it on its next sync.
+   *
+   * @internal
+   */
+  dirtyLevel = 0;
+
+  /**
+   * The text analysis the atlas manager and layout share, cleared when the text changes.
+   *
+   * @internal
+   */
+  analysis: TextAnalysis | undefined;
+
+  /**
+   * @throws {RangeError} If `fontWeight` is not a CSS weight from 100 to 900 in
+   * steps of 100, or one of the weight names.
+   */
   constructor(options: LabelOptions) {
     this._id = `label-${nextLabelId++}`;
     this._apply(options);
+    // Defaults for what the options left out.
+    this._position = orNew(this._position, Vector3);
+    this._rotation = orNew(this._rotation, Quaternion);
+    this._offset = orNew(this._offset, Vector2);
+    this._color = orNew(this._color, Color);
+    this._haloColor = orNew(this._haloColor, Color);
   }
 
   /** Unique among the labels of this module instance. */
@@ -264,8 +291,7 @@ export class Label {
   }
 
   set text(value: string) {
-    this._text = value;
-    this._emit(LabelChangeType.Text);
+    this._emit(this._apply({ text: value }));
   }
 
   get textTransform() {
@@ -273,8 +299,7 @@ export class Label {
   }
 
   set textTransform(value: TextTransform) {
-    this._textTransform = value;
-    this._emit(LabelChangeType.Text);
+    this._emit(this._apply({ textTransform: value }));
   }
 
   /** @returns The text as {@link textTransform} renders it. */
@@ -296,8 +321,7 @@ export class Label {
   }
 
   set position(value: Vector3 | [number, number, number]) {
-    this._position = toVector3(value);
-    this._emit(LabelChangeType.Transform);
+    this._emit(this._apply({ position: value }));
   }
 
   get rotation(): Quaternion {
@@ -305,8 +329,7 @@ export class Label {
   }
 
   set rotation(value: [number, number, number] | Euler | Quaternion) {
-    this._rotation = toQuaternion(value);
-    this._emit(LabelChangeType.Transform);
+    this._emit(this._apply({ rotation: value }));
   }
 
   get offset(): Vector2 {
@@ -314,8 +337,7 @@ export class Label {
   }
 
   set offset(value: Vector2 | [number, number]) {
-    this._offset = toVector2(value);
-    this._emit(LabelChangeType.Layout);
+    this._emit(this._apply({ offset: value }));
   }
 
   /** The label's font identity, shared by reference. Never mutate it. */
@@ -342,8 +364,7 @@ export class Label {
   }
 
   set fontSize(value: number) {
-    this._fontSize = value;
-    this._emit(LabelChangeType.Layout);
+    this._emit(this._apply({ fontSize: value }));
   }
 
   get fontWeight(): FontWeight {
@@ -356,7 +377,7 @@ export class Label {
    * @throws {RangeError} If the value is not a CSS weight or a known alias.
    */
   set fontWeight(value: FontWeight | FontWeightName | number) {
-    this._setFontKey({ ...this._fontKey, weight: normalizeFontWeight(value) });
+    this._emit(this._apply({ fontWeight: value }));
   }
 
   get fontStyle() {
@@ -364,17 +385,7 @@ export class Label {
   }
 
   set fontStyle(value: FontStyle) {
-    this._setFontKey({ ...this._fontKey, style: value });
-  }
-
-  /** Replaces the font key; a set that does not change it emits nothing. */
-  private _setFontKey(next: FontKey) {
-    const nextStr = fontKeyStr(next);
-    if (nextStr === this._fontKeyStr) return;
-
-    this._fontKey = next;
-    this._fontKeyStr = nextStr;
-    this._emit(LabelChangeType.Font);
+    this._emit(this._apply({ fontStyle: value }));
   }
 
   get letterSpacing() {
@@ -382,8 +393,7 @@ export class Label {
   }
 
   set letterSpacing(value: number) {
-    this._letterSpacing = value;
-    this._emit(LabelChangeType.Layout);
+    this._emit(this._apply({ letterSpacing: value }));
   }
 
   get lineHeight() {
@@ -391,8 +401,7 @@ export class Label {
   }
 
   set lineHeight(value: number) {
-    this._lineHeight = value;
-    this._emit(LabelChangeType.Layout);
+    this._emit(this._apply({ lineHeight: value }));
   }
 
   get maxWidth() {
@@ -400,8 +409,7 @@ export class Label {
   }
 
   set maxWidth(value: number) {
-    this._maxWidth = value;
-    this._emit(LabelChangeType.Layout);
+    this._emit(this._apply({ maxWidth: value }));
   }
 
   get textAlign() {
@@ -409,8 +417,7 @@ export class Label {
   }
 
   set textAlign(value: TextAlign) {
-    this._textAlign = value;
-    this._emit(LabelChangeType.Layout);
+    this._emit(this._apply({ textAlign: value }));
   }
 
   get anchorX() {
@@ -418,8 +425,7 @@ export class Label {
   }
 
   set anchorX(value: TextAnchorX) {
-    this._anchorX = value;
-    this._emit(LabelChangeType.Layout);
+    this._emit(this._apply({ anchorX: value }));
   }
 
   get anchorY() {
@@ -427,8 +433,7 @@ export class Label {
   }
 
   set anchorY(value: TextAnchorY) {
-    this._anchorY = value;
-    this._emit(LabelChangeType.Layout);
+    this._emit(this._apply({ anchorY: value }));
   }
 
   get padding(): TextPadding {
@@ -436,8 +441,7 @@ export class Label {
   }
 
   set padding(value: TextPadding | number | [number, number, number, number]) {
-    this._padding = parsePadding(value);
-    this._emit(LabelChangeType.Layout);
+    this._emit(this._apply({ padding: value }));
   }
 
   get color(): Color {
@@ -445,8 +449,7 @@ export class Label {
   }
 
   set color(value: string | number | Color | Vector3) {
-    this._color = toColor(value);
-    this._emit(LabelChangeType.Style);
+    this._emit(this._apply({ color: value }));
   }
 
   get opacity() {
@@ -454,8 +457,7 @@ export class Label {
   }
 
   set opacity(value: number) {
-    this._opacity = value;
-    this._emit(LabelChangeType.Style);
+    this._emit(this._apply({ opacity: value }));
   }
 
   get haloColor(): Color {
@@ -463,8 +465,7 @@ export class Label {
   }
 
   set haloColor(value: string | number | Color | Vector3) {
-    this._haloColor = toColor(value);
-    this._emit(LabelChangeType.Style);
+    this._emit(this._apply({ haloColor: value }));
   }
 
   get haloWidth() {
@@ -472,8 +473,7 @@ export class Label {
   }
 
   set haloWidth(value: number) {
-    this._haloWidth = value;
-    this._emit(LabelChangeType.Style);
+    this._emit(this._apply({ haloWidth: value }));
   }
 
   get haloBlur() {
@@ -481,8 +481,7 @@ export class Label {
   }
 
   set haloBlur(value: number) {
-    this._haloBlur = value;
-    this._emit(LabelChangeType.Style);
+    this._emit(this._apply({ haloBlur: value }));
   }
 
   get haloOpacity() {
@@ -490,8 +489,7 @@ export class Label {
   }
 
   set haloOpacity(value: number) {
-    this._haloOpacity = value;
-    this._emit(LabelChangeType.Style);
+    this._emit(this._apply({ haloOpacity: value }));
   }
 
   /** @returns Whether the halo has both width and opacity to draw with. */
@@ -510,8 +508,7 @@ export class Label {
   }
 
   set rotationAlignment(value: RotationAlignment) {
-    this._rotationAlignment = value;
-    this._emit(LabelChangeType.Style);
+    this._emit(this._apply({ rotationAlignment: value }));
   }
 
   get symbolPlacement() {
@@ -519,8 +516,7 @@ export class Label {
   }
 
   set symbolPlacement(value: SymbolPlacement) {
-    this._symbolPlacement = value;
-    this._emit(LabelChangeType.Style);
+    this._emit(this._apply({ symbolPlacement: value }));
   }
 
   /** Both the flag and a non-zero {@link opacity}: a label at 0 reads false. */
@@ -529,8 +525,7 @@ export class Label {
   }
 
   set visible(value: boolean) {
-    this._visible = value;
-    this._emit(LabelChangeType.Visibility);
+    this._emit(this._apply({ visible: value }));
   }
 
   /**
@@ -556,16 +551,25 @@ export class Label {
     let changes: LabelChangeMask = LabelChangeType.None;
 
     if (options.position !== undefined) {
-      this._position = toVector3(options.position);
-      changes |= LabelChangeType.Transform;
+      const next = toVector3(options.position);
+      if (differs(next, this._position)) {
+        this._position = next;
+        changes |= LabelChangeType.Transform;
+      }
     }
     if (options.rotation !== undefined) {
-      this._rotation = toQuaternion(options.rotation);
-      changes |= LabelChangeType.Transform;
+      const next = toQuaternion(options.rotation);
+      if (differs(next, this._rotation)) {
+        this._rotation = next;
+        changes |= LabelChangeType.Transform;
+      }
     }
     if (options.offset !== undefined) {
-      this._offset = toVector2(options.offset);
-      changes |= LabelChangeType.Layout;
+      const next = toVector2(options.offset);
+      if (differs(next, this._offset)) {
+        this._offset = next;
+        changes |= LabelChangeType.Layout;
+      }
     }
 
     // An explicit `fontWeight` or `fontStyle` overrides the ones a `text-font` stack names.
@@ -586,85 +590,99 @@ export class Label {
         changes |= LabelChangeType.Font;
       }
     }
-    if (options.fontSize !== undefined) {
-      this._fontSize = options.fontSize;
-      changes |= LabelChangeType.Layout;
-    }
 
-    if (options.text !== undefined) {
+    if (options.text !== undefined && options.text !== this._text) {
       this._text = options.text;
       this.analysis = undefined;
       changes |= LabelChangeType.Text;
     }
-    if (options.textTransform !== undefined) {
+    if (options.textTransform !== undefined && options.textTransform !== this._textTransform) {
       this._textTransform = options.textTransform;
       this.analysis = undefined;
       changes |= LabelChangeType.Text;
     }
 
-    if (options.letterSpacing !== undefined) {
+    if (options.fontSize !== undefined && options.fontSize !== this._fontSize) {
+      this._fontSize = options.fontSize;
+      changes |= LabelChangeType.Layout;
+    }
+    if (options.letterSpacing !== undefined && options.letterSpacing !== this._letterSpacing) {
       this._letterSpacing = options.letterSpacing;
       changes |= LabelChangeType.Layout;
     }
-    if (options.lineHeight !== undefined) {
+    if (options.lineHeight !== undefined && options.lineHeight !== this._lineHeight) {
       this._lineHeight = options.lineHeight;
       changes |= LabelChangeType.Layout;
     }
-    if (options.maxWidth !== undefined) {
+    if (options.maxWidth !== undefined && options.maxWidth !== this._maxWidth) {
       this._maxWidth = options.maxWidth;
       changes |= LabelChangeType.Layout;
     }
-    if (options.textAlign !== undefined) {
+    if (options.textAlign !== undefined && options.textAlign !== this._textAlign) {
       this._textAlign = options.textAlign;
       changes |= LabelChangeType.Layout;
     }
-    if (options.anchorX !== undefined) {
+    if (options.anchorX !== undefined && options.anchorX !== this._anchorX) {
       this._anchorX = options.anchorX;
       changes |= LabelChangeType.Layout;
     }
-    if (options.anchorY !== undefined) {
+    if (options.anchorY !== undefined && options.anchorY !== this._anchorY) {
       this._anchorY = options.anchorY;
       changes |= LabelChangeType.Layout;
     }
     if (options.padding !== undefined) {
-      this._padding = parsePadding(options.padding);
-      changes |= LabelChangeType.Layout;
+      const next = parsePadding(options.padding);
+      const p = this._padding;
+      if (next.top !== p.top || next.right !== p.right || next.bottom !== p.bottom || next.left !== p.left) {
+        this._padding = next;
+        changes |= LabelChangeType.Layout;
+      }
     }
 
+    // Colours and opacities only change what is drawn; the rest of the style
+    // options also change a label's box or what counts as hidden.
     if (options.color !== undefined) {
-      this._color = toColor(options.color);
-      changes |= LabelChangeType.Style;
+      const next = toColor(options.color);
+      if (differs(next, this._color)) {
+        this._color = next;
+        changes |= LabelChangeType.Style;
+      }
     }
-    if (options.opacity !== undefined) {
+    if (options.opacity !== undefined && options.opacity !== this._opacity) {
+      if ((options.opacity > 0) !== (this._opacity > 0)) changes |= PLACEMENT_CHANGE;
       this._opacity = options.opacity;
       changes |= LabelChangeType.Style;
     }
     if (options.haloColor !== undefined) {
-      this._haloColor = toColor(options.haloColor);
-      changes |= LabelChangeType.Style;
+      const next = toColor(options.haloColor);
+      if (differs(next, this._haloColor)) {
+        this._haloColor = next;
+        changes |= LabelChangeType.Style;
+      }
     }
-    if (options.haloWidth !== undefined) {
+    if (options.haloWidth !== undefined && options.haloWidth !== this._haloWidth) {
       this._haloWidth = options.haloWidth;
-      changes |= LabelChangeType.Style;
+      changes |= LabelChangeType.Style | PLACEMENT_CHANGE;
     }
-    if (options.haloBlur !== undefined) {
+    if (options.haloBlur !== undefined && options.haloBlur !== this._haloBlur) {
       this._haloBlur = options.haloBlur;
-      changes |= LabelChangeType.Style;
+      changes |= LabelChangeType.Style | PLACEMENT_CHANGE;
     }
-    if (options.haloOpacity !== undefined) {
+    if (options.haloOpacity !== undefined && options.haloOpacity !== this._haloOpacity) {
+      if ((options.haloOpacity > 0) !== (this._haloOpacity > 0)) changes |= PLACEMENT_CHANGE;
       this._haloOpacity = options.haloOpacity;
       changes |= LabelChangeType.Style;
     }
-    if (options.rotationAlignment !== undefined) {
+    if (options.rotationAlignment !== undefined && options.rotationAlignment !== this._rotationAlignment) {
       this._rotationAlignment = options.rotationAlignment;
-      changes |= LabelChangeType.Style;
+      changes |= LabelChangeType.Style | PLACEMENT_CHANGE;
     }
-    if (options.symbolPlacement !== undefined) {
+    if (options.symbolPlacement !== undefined && options.symbolPlacement !== this._symbolPlacement) {
       this._symbolPlacement = options.symbolPlacement;
       changes |= LabelChangeType.Style;
     }
 
-    if (options.visible !== undefined) {
+    if (options.visible !== undefined && options.visible !== this._visible) {
       this._visible = options.visible;
       changes |= LabelChangeType.Visibility;
     }
@@ -712,7 +730,8 @@ export class Label {
    */
   dispose() {
     this._emit(LabelChangeType.Dispose);
-    this._listeners.clear();
+    this._listener = undefined;
+    this._moreListeners = undefined;
   }
 
   /**
@@ -723,16 +742,36 @@ export class Label {
    * @returns Unsubscribe function.
    */
   onChange(listener: LabelChangeListener): () => void {
-    this._listeners.add(listener);
-    return () => this._listeners.delete(listener);
+    if (this._listener === listener || this._moreListeners?.includes(listener)) return () => this.offChange(listener);
+    if (this._listener === undefined) this._listener = listener;
+    else (this._moreListeners ??= []).push(listener);
+    return () => this.offChange(listener);
+  }
+
+  /**
+   * Unsubscribe a listener given to {@link onChange}; one that is not subscribed is ignored.
+   *
+   * @internal
+   */
+  offChange(listener: LabelChangeListener): void {
+    const more = this._moreListeners;
+    if (this._listener === listener) {
+      this._listener = more === undefined ? undefined : more.shift();
+      return;
+    }
+    if (more === undefined) return;
+    const at = more.indexOf(listener);
+    if (at >= 0) more.splice(at, 1);
   }
 
   /** Notifies listeners of what changed. A `None` mask is dropped. */
   private _emit(changes: LabelChangeMask): void {
-    if (changes === LabelChangeType.None) return;
-    for (const listener of this._listeners) {
-      listener(changes);
-    }
+    const first = this._listener;
+    if (changes === LabelChangeType.None || first === undefined) return;
+    // A listener may unsubscribe while it runs.
+    const more = this._moreListeners && [...this._moreListeners];
+    first(changes, this);
+    if (more) for (const listener of more) listener(changes, this);
   }
 }
 
@@ -742,10 +781,31 @@ function parsePadding(value: TextPadding | number | [number, number, number, num
   return { ...value };
 }
 
+/** The field a constructor option left unset: `current`, or a new default. */
+function orNew<T>(current: T | undefined, Type: new () => T): T {
+  return current ?? new Type();
+}
+
+/** Whether `next` is a change: `current` is unset, or holds another value. */
+function differs<T extends { equals(other: T): boolean }>(next: T, current: T | undefined): boolean {
+  return current === undefined || !next.equals(current);
+}
+
+/** Colour strings already parsed, by string; holds at most `MAX_PARSED_COLORS`. */
+const PARSED_COLORS = new Map<string, Color>();
+const MAX_PARSED_COLORS = 512;
+
 function toColor(value: string | number | Color | Vector3): Color {
   if (value instanceof Color) return value.clone();
   if (value instanceof Vector3) return new Color(value.x, value.y, value.z);
-  return new Color(value);
+  if (typeof value !== 'string') return new Color(value);
+  let parsed = PARSED_COLORS.get(value);
+  if (!parsed) {
+    parsed = new Color(value);
+    if (PARSED_COLORS.size < MAX_PARSED_COLORS) PARSED_COLORS.set(value, parsed);
+    return parsed.clone();
+  }
+  return parsed.clone();
 }
 
 function toVector2(value: [number, number] | Vector2): Vector2 {
@@ -755,11 +815,13 @@ function toVector2(value: [number, number] | Vector2): Vector2 {
 
 function toVector3(value: [number, number, number] | Vector3): Vector3 {
   if (value instanceof Vector3) return value.clone();
-  return new Vector3(...value);
+  return new Vector3(value[0], value[1], value[2]);
 }
+
+const SCRATCH_EULER = new Euler();
 
 function toQuaternion(value: [number, number, number] | Euler | Quaternion): Quaternion {
   if (value instanceof Quaternion) return value.clone();
   if (value instanceof Euler) return new Quaternion().setFromEuler(value);
-  return new Quaternion().setFromEuler(new Euler(...value, 'XYZ'));
+  return new Quaternion().setFromEuler(SCRATCH_EULER.set(value[0], value[1], value[2], 'XYZ'));
 }

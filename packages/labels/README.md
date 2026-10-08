@@ -131,7 +131,10 @@ covers.
 ## Placement
 
 `cull` opens a placement pass at most every `placementIntervalMs`, when a placed
-label moved more than `moveThresholdPx` on screen or labels changed. Labels are placed
+label moved more than `moveThresholdPx` on screen or labels changed. Setting a
+property to its current value or a change that only affects style (`color`,
+`haloColor`, `symbolPlacement`, and an `opacity` or `haloOpacity` that stays
+above 0) does not trigger a pass. Labels are placed
 nearest first on a screen-space occupancy grid; a label that finds its region
 taken is not drawn. A pass spreads over frames, spending about
 `placementBudgetMs` in each: a frame always runs at least one step, and sorting
@@ -175,6 +178,8 @@ apply from the next `cull`, except for the fields read at construction.
 
 * Glyphs are rasterized once, with whatever font the browser resolves at that
   moment: load a web font before adding labels that use it.
+* A label belongs to one manager at a time: the manager writes its placement, fade
+  and pending work onto the label.
 * The atlas never frees a glyph. It grows up to the device's texture size; once
   full, new characters draw as `?` and a warning is logged once.
 * Layout uses each character's own advance: no kerning and no ligatures.

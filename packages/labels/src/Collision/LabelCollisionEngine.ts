@@ -74,17 +74,25 @@ export class LabelCollisionEngine {
   private _pass: Generator<void, void, void> | null = null;
 
   private readonly _config: LabelManagerConfig;
+  private readonly _onPlacementChange: (label: Label) => void;
 
   /**
    * @param renderer - Renderer whose canvas size (`getSize`, in CSS px) is the pixel space of
    * the bitmap. Borrowed, never disposed; re-read on every pass.
    * @param config - Read live, except `downscale` and `atlasFontSize`, read once.
+   * @param onPlacementChange - Called with each label whose `shouldRender` the
+   * engine changes, after the change.
    *
    * @throws {Error} If `config.downscale` is not a power of two.
    */
-  constructor(renderer: WebGLRenderer, config: LabelManagerConfig) {
+  constructor(
+    renderer: WebGLRenderer,
+    config: LabelManagerConfig,
+    onPlacementChange: (label: Label) => void = () => {},
+  ) {
     this._renderer = renderer;
     this._config = config;
+    this._onPlacementChange = onPlacementChange;
     this._bitmap = new BitmapOccupancy(config.downscale);
     this._projector = new LabelProjector(config);
     this._sorter = new RadixSorter();
@@ -280,11 +288,11 @@ export class LabelCollisionEngine {
           && aabb.y1 <= maxY;
 
       if (!placeable) {
-        label.shouldRender = false;
+        this._setPlaced(label, false);
         continue;
       }
 
-      label.shouldRender = this._bitmap.tryClaim(aabb.x0, aabb.y0, aabb.x1, aabb.y1);
+      this._setPlaced(label, this._bitmap.tryClaim(aabb.x0, aabb.y0, aabb.x1, aabb.y1));
       if (label.shouldRender && this._screenOf(this._lastVP, label.position, this._scratchXY)) {
         this._shown.push(label);
         this._shownXY.push(this._scratchXY[0], this._scratchXY[1]);
@@ -333,7 +341,7 @@ export class LabelCollisionEngine {
           && this._projector.checkVisible(label);
 
       if (!isValid) {
-        label.shouldRender = false;
+        this._setPlaced(label, false);
         continue;
       }
 
@@ -343,6 +351,12 @@ export class LabelCollisionEngine {
     }
 
     return count;
+  }
+
+  private _setPlaced(label: Label, placed: boolean) {
+    if (label.shouldRender === placed) return;
+    label.shouldRender = placed;
+    this._onPlacementChange(label);
   }
 
   /**
