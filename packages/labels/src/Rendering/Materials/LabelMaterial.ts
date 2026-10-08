@@ -1,4 +1,4 @@
-import { type DataTexture, GLSL3, ShaderMaterial, Vector2 } from 'three';
+import { type DataTexture, GLSL3, ShaderMaterial, Vector2, Vector3 } from 'three';
 import { LABEL_QUAD_VERT } from '../Shaders/LabelQuad.vert.glsl';
 import { LABEL_FRAG } from '../Shaders/Label.frag.glsl';
 import type { SDFAtlas } from '../../Shaping/SDFAtlas';
@@ -26,6 +26,8 @@ export function createLabelMaterial(
       uLabelTex: { value: labelTex },
       uGlyphTex: { value: glyphTex },
       uViewport: { value: new Vector2(1, 1) },
+      uEyeHigh: { value: new Vector3() },
+      uEyeLow: { value: new Vector3() },
     },
     transparent: true,
     // Blended surfaces do not write depth. The test stays on, so a label is

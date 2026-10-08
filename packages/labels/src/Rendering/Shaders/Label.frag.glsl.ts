@@ -12,6 +12,8 @@ uniform sampler2D uAtlas;
 uniform float uCutoff;
 uniform float uRadius;
 
+#include <logdepthbuf_pars_fragment>
+
 in vec2 vLocal;
 flat in int vLabelTexel;
 flat in int vGlyphBase;
@@ -30,6 +32,8 @@ const float MIN_BLUR_PX = 0.75;
 const float MIN_FALLOFF = 0.05;
 
 void main() {
+  #include <logdepthbuf_fragment>
+
   // CSS px per screen pixel. Derivatives are undefined in divergent flow, so
   // they are taken here, before the loop and any discard.
   float localPerPx = 0.5 * (length(dFdx(vLocal)) + length(dFdy(vLocal)));

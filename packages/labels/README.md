@@ -143,6 +143,11 @@ its region on the next pass.
   <em>Labels fading in and out as the camera moves</em>
 </p>
 
+### Depth
+
+Labels are depth tested against what was drawn before them, and work with a
+renderer's logarithmic depth buffer.
+
 ## Configuration
 
 The manager takes a `Partial<LabelManagerConfig>` merged over

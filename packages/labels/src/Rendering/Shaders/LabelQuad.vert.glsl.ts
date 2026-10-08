@@ -7,6 +7,8 @@ import { LABEL_PLACEMENT } from './LabelCommon.glsl';
  */
 export const LABEL_QUAD_VERT = /* glsl */ `
 ${LABEL_PLACEMENT}
+#include <common>
+#include <logdepthbuf_pars_vertex>
 
 // Label texel, and the glyph run to walk: head texel and count.
 attribute ivec3 labelSpan;
@@ -26,12 +28,14 @@ void main() {
   vGlyphCount = labelSpan.z;
   vOcclusionFade = occlusionFade;
 
-  vec3 labelPos = labelFetch(vLabelTexel, 0).xyz;
+  vec3 centerVS = anchorViewPos(labelFetch(vLabelTexel, 0).xyz, labelFetch(vLabelTexel, 6).xyz);
   vec4 rot = labelFetch(vLabelTexel, 1);
   vec4 t4 = labelFetch(vLabelTexel, 4);
   vec4 t5 = labelFetch(vLabelTexel, 5);
 
   vLocal = t4.zw + position.xy * t5.zw;
-  gl_Position = placeLocal(vLocal, int(t5.x), int(t5.y), rot, labelPos);
+  gl_Position = placeLocal(vLocal, int(t5.x), int(t5.y), rot, centerVS);
+
+  #include <logdepthbuf_vertex>
 }
 `;

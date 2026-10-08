@@ -1,10 +1,13 @@
 import {
+  type Camera,
   InstancedBufferAttribute,
   InstancedBufferGeometry,
   Mesh,
   PlaneGeometry,
+  type Scene,
   type ShaderMaterial,
   type Vector2,
+  Vector3,
   type WebGLRenderer,
 } from 'three';
 import type { SDFAtlas } from '../Shaping/SDFAtlas';
@@ -27,9 +30,10 @@ const INSTANCE_SLACK = 1.5;
 
 /** Writes a label's texels as flat floats, {@link LABEL_FLOATS} of them at `at`. */
 function writeLabelFloats(label: Label, out: Float32Array, at: number) {
-  out[at] = label.position.x;
-  out[at + 1] = label.position.y;
-  out[at + 2] = label.position.z;
+  const { x, y, z } = label.position;
+  out[at] = x;
+  out[at + 1] = y;
+  out[at + 2] = z;
   out[at + 3] = 0;
 
   out[at + 4] = label.rotation.x;
@@ -58,6 +62,17 @@ function writeLabelFloats(label: Label, out: Float32Array, at: number) {
   out[at + 21] = label.symbolPlacement;
   out[at + 22] = quad.width;
   out[at + 23] = quad.height;
+
+  out[at + 24] = x - Math.fround(x);
+  out[at + 25] = y - Math.fround(y);
+  out[at + 26] = z - Math.fround(z);
+  out[at + 27] = 0;
+}
+
+/** Splits `v` into a float32 and the remainder it rounds away, into `high` and `low`. */
+function splitDouble(v: Vector3, high: Vector3, low: Vector3) {
+  high.set(Math.fround(v.x), Math.fround(v.y), Math.fround(v.z));
+  low.set(v.x - high.x, v.y - high.y, v.z - high.z);
 }
 
 /** Writes glyphs as flat floats, {@link GLYPH_FLOATS} each, from `at`. */
@@ -155,9 +170,11 @@ export class LabelMeshManager {
     const material = createLabelMaterial(atlas, this._labelData.texture, this._glyphData.texture);
     this.mesh = new Mesh(this.geom, material);
     this.mesh.frustumCulled = false;
-    const viewport = material.uniforms.uViewport.value as Vector2;
-    this.mesh.onBeforeRender = (renderer: WebGLRenderer) => {
-      renderer.getSize(viewport);
+    const { uViewport, uEyeHigh, uEyeLow } = material.uniforms;
+    const eye = new Vector3();
+    this.mesh.onBeforeRender = (renderer: WebGLRenderer, _scene: Scene, camera: Camera) => {
+      renderer.getSize(uViewport.value as Vector2);
+      splitDouble(eye.setFromMatrixPosition(camera.matrixWorld), uEyeHigh.value as Vector3, uEyeLow.value as Vector3);
     };
   }
 
