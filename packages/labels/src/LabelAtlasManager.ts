@@ -73,6 +73,8 @@ export class LabelAtlasManager {
 
     // Labels added before the shaper loaded were laid out from unshaped text.
     void rtlReady.then(() => this._relayoutShaped());
+
+    fontSet()?.addEventListener('loadingdone', this._onFontsLoaded);
   }
 
   /** Whether anything is waiting for a sync. */
@@ -162,8 +164,8 @@ export class LabelAtlasManager {
   /**
    * Subscribe to "something needs a sync". Fires once per `addLabels` or
    * `removeLabels` call that changed anything, once per label change
-   * notification, and once when the RTL shaper loads if a tracked label needs
-   * shaping.
+   * notification, once when the RTL shaper loads if a tracked label needs
+   * shaping, and once per loaded web font that a requested font lists.
    *
    * @returns Unsubscribe function.
    */
@@ -181,6 +183,7 @@ export class LabelAtlasManager {
     this._fontChars.clear();
     this._pendingChars.clear();
     this._listeners.clear();
+    fontSet()?.removeEventListener('loadingdone', this._onFontsLoaded);
     this.atlas.dispose();
   }
 
@@ -198,6 +201,30 @@ export class LabelAtlasManager {
     if (changes & PLACEMENT_CHANGES) this._placementDirty = true;
     const needsLayout = changes & (LabelChangeType.Font | LabelChangeType.Text | LabelChangeType.Layout);
     this._markDirty(label, needsLayout ? DirtyLevel.Relayout : DirtyLevel.Update);
+    this._emit();
+  }
+
+  private readonly _onFontsLoaded = (event: Event) => {
+    const { fontfaces } = event as FontFaceSetLoadEvent;
+    if (fontfaces.some(face => this._usesFamily(face.family))) this._rasterizeAgain();
+  };
+
+  /** Whether any label font lists `family`, ignoring case and quotes. */
+  private _usesFamily(family: string): boolean {
+    const wanted = unquote(family);
+    for (const { fontKey } of this._fontChars.values()) {
+      if (fontKey.font.split(',').some(name => unquote(name) === wanted)) return true;
+    }
+    return false;
+  }
+
+  /** Rasterizes every requested character again, and relays out every label. */
+  private _rasterizeAgain() {
+    this.atlas.clearGlyphs();
+    for (const [key, { fontKey, chars }] of this._fontChars) {
+      this._pendingChars.set(key, { fontKey, chars: new Set(chars) });
+    }
+    for (const label of this.labels) this._markDirty(label, DirtyLevel.Relayout);
     this._emit();
   }
 
@@ -262,4 +289,13 @@ export class LabelAtlasManager {
   private _emit() {
     for (const listener of this._listeners) listener();
   }
+}
+
+/** The page's font set, or `undefined` outside a browser page. */
+function fontSet(): FontFaceSet | undefined {
+  return (globalThis as { document?: { fonts?: FontFaceSet } }).document?.fonts;
+}
+
+function unquote(name: string): string {
+  return name.trim().replace(/^["']|["']$/g, '').toLowerCase();
 }

@@ -222,6 +222,12 @@ export class LabelMeshManager {
     }
   }
 
+  /** Makes the next render upload both data textures whole. */
+  requestFullUpload() {
+    this._labelData.requestFullUpload();
+    this._glyphData.requestFullUpload();
+  }
+
   /** @returns One allocation per label, viewing the staging buffer until the next call. */
   private _stageLabels(lists: Label[][]): ItemAllocation[] {
     let total = 0;

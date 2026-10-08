@@ -7,6 +7,9 @@ import { LabelMeshManager, type LabelMesh } from './Rendering/LabelMeshManager';
 import { LabelCollisionEngine } from './Collision/LabelCollisionEngine';
 import { type LabelManagerConfig, DefaultLabelConfig } from './Types/LabelConfig';
 
+/** Longest step, in ms, one `cull` advances a fade by. */
+const MAX_FADE_STEP_MS = 100;
+
 /**
  * Draws a set of labels through one mesh, placing them so they do not overlap.
  *
@@ -28,12 +31,15 @@ export class InstancedLabelManager {
    */
   readonly collision: LabelCollisionEngine;
 
+  private readonly _renderer: WebGLRenderer;
   private readonly _atlasManager: LabelAtlasManager;
   private readonly _meshManager: LabelMeshManager;
 
   /** Earliest `performance.now()` at which a pass may open. */
   private _nextPassTime = 0;
   private _lastFrameTime = 0;
+  /** `labelNear`, `labelFar`, `ndcCullMargin` and `renderPenaltyMultiplier` as the last pass saw them. */
+  private readonly _placementOptions = [NaN, NaN, NaN, NaN];
 
   /**
    * Labels the fade loop and the draw list read: every label that is fading, or
@@ -57,6 +63,8 @@ export class InstancedLabelManager {
     }
     this.config = config;
 
+    this._renderer = renderer;
+    renderer.domElement.addEventListener('webglcontextrestored', this._onContextRestored);
     const maxTextureSize = renderer.capabilities.maxTextureSize;
     this.collision = new LabelCollisionEngine(renderer, config, label => this._touch(label));
     this._atlasManager = new LabelAtlasManager(config, maxTextureSize);
@@ -122,15 +130,27 @@ export class InstancedLabelManager {
 
   /**
    * Runs placement, steps the fades and rewrites the draw list when something
-   * changed. Call once per rendered frame, before the renderer draws.
+   * changed. Call once per rendered frame, before the renderer draws. A fade
+   * advances by at most 100 ms per call.
    *
    * @param camera - Its `projectionMatrix`, `matrixWorld` and
    * `matrixWorldInverse` must be up to date.
    */
   cull(camera: Camera) {
     const now = performance.now();
-    const frameDelta = now - this._lastFrameTime;
+    const frameDelta = Math.min(now - this._lastFrameTime, MAX_FADE_STEP_MS);
     this._lastFrameTime = now;
+
+    // A change to an option a pass reads opens a pass.
+    const { labelNear, labelFar, ndcCullMargin, renderPenaltyMultiplier } = this.config;
+    const seen = this._placementOptions;
+    if (labelNear !== seen[0] || labelFar !== seen[1] || ndcCullMargin !== seen[2] || renderPenaltyMultiplier !== seen[3]) {
+      seen[0] = labelNear;
+      seen[1] = labelFar;
+      seen[2] = ndcCullMargin;
+      seen[3] = renderPenaltyMultiplier;
+      this.collision.invalidate();
+    }
 
     if (now >= this._nextPassTime) {
       const interval = this.config.placementIntervalMs;
@@ -149,13 +169,13 @@ export class InstancedLabelManager {
     let stale = this._drawListStale;
 
     for (const label of this._live) {
-      // A hidden label disappears at once; placement drops it on its next pass.
+      // Placement drops a hidden label on its next pass.
       const target = label.shouldRender && label.visible ? 0 : 1;
       if (label.occlusionFade !== target) {
         stale = true;
-        if (!label.visible) label.occlusionFade = 1;
-        else if (label.occlusionFade < target) label.occlusionFade = Math.min(target, label.occlusionFade + fadeDelta);
-        else label.occlusionFade = Math.max(target, label.occlusionFade - fadeDelta);
+        label.occlusionFade = label.occlusionFade < target
+          ? Math.min(target, label.occlusionFade + fadeDelta)
+          : Math.max(target, label.occlusionFade - fadeDelta);
       }
       if (label.occlusionFade === 1 && target === 1) this._live.delete(label);
     }
@@ -174,13 +194,26 @@ export class InstancedLabelManager {
     this._meshManager.cull(this._live);
   }
 
-  /** Releases every GPU resource. The mesh stays in its parent. */
+  /**
+   * Releases every GPU resource and every label, which stop rendering and can be
+   * added to another manager. The mesh stays in its parent.
+   */
   dispose() {
+    for (const label of this._atlasManager.labels) {
+      label.shouldRender = false;
+      label.occlusionFade = 1;
+    }
     this._live.clear();
+    this._renderer.domElement.removeEventListener('webglcontextrestored', this._onContextRestored);
     this._atlasManager.dispose();
     this._meshManager.dispose();
     this.collision.dispose();
   }
+
+  /** A restored context starts with empty textures: the data textures are uploaded whole. */
+  private readonly _onContextRestored = () => {
+    this._meshManager.requestFullUpload();
+  };
 
   /**
    * Rasterizes pending glyphs, then lays out and writes pending label work.

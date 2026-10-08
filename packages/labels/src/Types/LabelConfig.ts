@@ -51,7 +51,10 @@ export interface LabelManagerConfig {
 
   /** Camera distance below which a label is not placed, in world units. `0` disables it. */
   labelNear: number;
-  /** Camera distance beyond which a label is not placed, in world units. `Infinity` disables it. */
+  /**
+   * Camera distance beyond which a label is not placed and fades out, in world
+   * units. `Infinity` disables it.
+   */
   labelFar: number;
 
   /**

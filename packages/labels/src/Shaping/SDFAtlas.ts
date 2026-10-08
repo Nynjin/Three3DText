@@ -42,7 +42,8 @@ export interface FontChars {
 
 /**
  * One single-channel distance-field texture holding the glyphs of every font,
- * keyed by font and character. Glyphs are rasterized once and never freed.
+ * keyed by font and character. A glyph is never freed, only forgotten all at
+ * once by {@link clearGlyphs}.
  * Once the texture reaches the device's size limit and every slot is taken, a
  * new character resolves to its font's {@link FALLBACK_CHAR}, and a warning is
  * logged once.
@@ -119,6 +120,19 @@ export class SDFAtlas {
     };
   }
 
+  /**
+   * Forgets every glyph and font; a later {@link setChars} registers them again.
+   * Entries already handed to layout are stale afterwards.
+   */
+  clearGlyphs() {
+    this._glyphs.clear();
+    this._fontToSDF.clear();
+    this._slotCount = 0;
+    this._warnedFull = false;
+    this._data.fill(0);
+    this._requestFullUpload();
+  }
+
   /** Makes the next upload send the whole texture, dropping any queued rows. */
   private _requestFullUpload() {
     this._fullUploadPending = true;
@@ -149,8 +163,7 @@ export class SDFAtlas {
   /**
    * Rasterize any `(font, char)` pair not in the atlas yet, plus
    * {@link FALLBACK_CHAR} for each font. Glyphs are rasterized with whatever
-   * font the canvas resolves at call time, so a web font has to be loaded
-   * before its first characters arrive.
+   * font the canvas resolves at call time.
    *
    * @returns `dirty` if the texture contents changed; `resize` if the atlas grew
    * and replaced {@link texture} with a taller one. Existing entries keep their

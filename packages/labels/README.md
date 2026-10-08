@@ -65,8 +65,8 @@ manager.cull(camera);
 Changes to labels, and adding or removing them, are committed on the next
 microtask. With `autoUpdate: false`, call `manager.update()` after changes
 instead, and once more after `rtlReady` settles: loading the RTL shaper queues a
-relayout of RTL labels. `manager.dispose()` releases GPU resources and leaves the
-mesh in its parent.
+relayout of RTL labels. `manager.dispose()` releases GPU resources and its
+labels, which can be added to another manager; the mesh stays in its parent.
 
 ## Units
 
@@ -131,17 +131,20 @@ covers.
 ## Placement
 
 `cull` opens a placement pass at most every `placementIntervalMs`, when a placed
-label moved more than `moveThresholdPx` on screen or labels changed. Setting a
-property to its current value or a change that only affects style (`color`,
-`haloColor`, `symbolPlacement`, and an `opacity` or `haloOpacity` that stays
-above 0) does not trigger a pass. Labels are placed
+label moved more than `moveThresholdPx` on screen, labels changed, or one of
+`labelNear`, `labelFar`, `ndcCullMargin` and `renderPenaltyMultiplier` changed.
+Setting a property to its current value or a change that only affects style
+(`color`, `haloColor`, `symbolPlacement`, and an `opacity` or `haloOpacity` that
+stays above 0) does not trigger a pass. Labels are placed
 nearest first on a screen-space occupancy grid; a label that finds its region
 taken is not drawn. A pass spreads over frames, spending about
 `placementBudgetMs` in each: a frame always runs at least one step, and sorting
-the candidates is a single step. Fades step by elapsed time in every `cull`.
+the candidates is a single step.
 
-A hidden label (`visible: false` or `opacity: 0`) disappears at once and frees
-its region on the next pass.
+Fades step by elapsed time in every `cull`, by at most 100 ms per call. A hidden
+label (`visible: false` or `opacity: 0`) fades out like a label that lost its
+place, and frees its region on the next pass. A label beyond `labelFar` is not
+placed and fades out the same way.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/Nynjin/Three3DText/main/docs/images/fading.webp" alt="Labels fading in and out as the camera orbits" width="720">
@@ -171,13 +174,15 @@ apply from the next `cull`, except for the fields read at construction.
 | `downscale` | divisor of the screen resolution for the collision grid, a power of two: 8 makes each cell 8 × 8 CSS px; a label claims every cell its box touches | `4` | read at construction |
 | `moveThresholdPx` | CSS px a placed label moves on screen before a new pass | `1` | |
 | `ndcCullMargin` | NDC units past the frustum a label's position may sit | `0.2` | |
-| `labelNear`, `labelFar` | world units | `0`, `Infinity` | |
+| `labelNear`, `labelFar` | world units; a label beyond them is not placed and fades out | `0`, `Infinity` | |
 | `renderPenaltyMultiplier` | factor on the squared distance of a label not yet placed | `1.5` | |
 
 ## Limits
 
-* Glyphs are rasterized once, with whatever font the browser resolves at that
-  moment: load a web font before adding labels that use it.
+* Glyphs are rasterized with the font the browser resolves at that moment. When
+  a web font used by a label finishes loading, every glyph is rasterized again
+  and every label laid out again; with `autoUpdate: false`, the next `update()`
+  does it.
 * A label belongs to one manager at a time: the manager writes its placement, fade
   and pending work onto the label.
 * The atlas never frees a glyph. It grows up to the device's texture size; once

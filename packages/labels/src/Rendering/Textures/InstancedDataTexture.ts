@@ -227,6 +227,12 @@ export class InstancedDataTexture {
     this._requestFullUpload();
   }
 
+  /** Makes the next upload send the whole buffer, even with nothing pending. */
+  requestFullUpload() {
+    this._requestFullUpload();
+    this._texture.needsUpdate = true;
+  }
+
   /** Makes the next upload send the whole buffer, dropping any queued ranges. */
   private _requestFullUpload() {
     this._fullUploadPending = true;

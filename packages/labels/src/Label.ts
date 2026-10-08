@@ -233,7 +233,7 @@ export class Label {
   /**
    * How far the label has faded out: 0 fully drawn, 1 invisible. The manager
    * steps it each cull, towards 0 while {@link shouldRender} and {@link visible}
-   * hold and towards 1 otherwise; a hidden label jumps to 1.
+   * hold and towards 1 otherwise.
    */
   occlusionFade: number = 1;
 
