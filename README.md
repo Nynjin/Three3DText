@@ -25,7 +25,7 @@ Instanced text renderers for Three.js draw from font files (`.ttf`, `.woff`, or 
 
 **Text and layout.** Line breaks at `\n` and wrapping to a `maxWidth`, left, center, right and justified alignment, anchors on both axes including the baseline, letter spacing, line height, offsets and collision padding. Units follow the [Mapbox style specification](https://docs.mapbox.com/style-spec/reference/layers/#symbol): sizes in CSS px, spacing and offsets in em.
 
-**Fonts and scripts.** One atlas for every font in the scene. Weight and style can be given in the font name (`'Open Sans Semi Bold Italic'`) or as numbers. Arabic shaping and bidirectional reordering come from [`@mapbox/mapbox-gl-rtl-text`](https://github.com/mapbox/mapbox-gl-rtl-text). Joined emoji, skin tones and combining accents draw as one glyph.
+**Fonts and scripts.** One atlas for every font in the scene. A MapLibre or Mapbox `text-font` array works as it is (`['Open Sans Semibold', 'Arial Unicode MS Bold']`); a CSS family list plus a weight and style does too. Arabic shaping and bidirectional reordering come from [`@mapbox/mapbox-gl-rtl-text`](https://github.com/mapbox/mapbox-gl-rtl-text). Joined emoji, skin tones and combining accents draw as one glyph.
 
 **Styling.** Ink colour and opacity, and a halo with its own colour, opacity, width and blur, both from one distance field in a single pass.
 

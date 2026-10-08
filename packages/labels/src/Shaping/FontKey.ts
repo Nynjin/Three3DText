@@ -83,12 +83,12 @@ export function normalizeFontWeight(value: FontWeight | FontWeightName | number)
 }
 
 /**
- * Splits a descriptor such as `"Helvetica Neue Extra Bold Italic"` into its
+ * Splits a font name such as `"Helvetica Neue Extra Bold Italic"` into its
  * family, weight and style. Weight and style words are read from the end, one
  * or two words at a time; the rest is the family. `weight` and `style` are
- * present only when the descriptor names them.
+ * present only when the name carries them.
  */
-export function parseFontDescriptor(descriptor: string): { font: string; weight?: FontWeight; style?: FontStyle } {
+function parseFontName(descriptor: string): { font: string; weight?: FontWeight; style?: FontStyle } {
   const parts = descriptor.trim().split(/\s+/).filter(Boolean);
   let weight: FontWeight | undefined;
   let style: FontStyle | undefined;
@@ -120,6 +120,33 @@ export function parseFontDescriptor(descriptor: string): { font: string; weight?
   }
 
   return { font: parts.join(' ') || DEFAULT_FONT, weight, style };
+}
+
+/**
+ * Reads a MapLibre or Mapbox `text-font` stack: font names that carry their
+ * weight and style, such as `['Open Sans Semibold', 'Arial Unicode MS Bold']`.
+ * The first name sets the weight and style, normal when it names none; the
+ * families of all names, in order, make the family list.
+ *
+ * @returns A family list as {@link canvasFontFamily} reads it, with the weight
+ * and style.
+ */
+export function parseFontStack(names: readonly string[]): { font: string; weight: FontWeight; style: FontStyle } {
+  const families: string[] = [];
+  let weight: FontWeight | undefined;
+  let style: FontStyle | undefined;
+
+  for (const name of names) {
+    if (!name.trim()) continue;
+    const parsed = parseFontName(name);
+    if (families.length === 0) {
+      weight = parsed.weight;
+      style = parsed.style;
+    }
+    if (!families.includes(parsed.font)) families.push(parsed.font);
+  }
+
+  return { font: families.join(', ') || DEFAULT_FONT, weight: weight ?? DEFAULT_FONT_KEY.weight, style: style ?? DEFAULT_STYLE };
 }
 
 /**

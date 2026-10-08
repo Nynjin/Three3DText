@@ -47,7 +47,8 @@ manager.addLabels([
   new Label({
     text: 'Villejuif',
     position: [0, 0, 0],
-    font: 'Arial Bold',
+    font: 'Arial',
+    fontWeight: 'bold',
     fontSize: 16,
     color: '#1d2b36',
     haloColor: '#ffffff',
@@ -85,8 +86,8 @@ label out again; colour, opacity or transform only rewrite its data.
 | --- | --- | --- | --- |
 | `text` | | | `text-field` |
 | `textTransform` | `None`, `Uppercase`, `Lowercase`, `Capitalize` | `None` | `text-transform` |
-| `font` | CSS family, optionally followed by weight and style words (`'Open Sans Semi Bold Italic'`) | `'Arial'` | `text-font` |
-| `fontWeight` | CSS weight, number or name | `400` | |
+| `font` | a string is a CSS family list used as written (`'Arial Black, sans-serif'`); an array is a `text-font` stack whose names carry weight and style (`['Open Sans Semibold', 'Arial Unicode MS Bold']`) | `'Arial'` | `text-font` |
+| `fontWeight` | CSS weight, number or name; from the first name of a `text-font` stack unless given | `400` | |
 | `fontStyle` | `normal`, `italic`, `oblique` | `normal` | |
 | `fontSize` | px | `20` | `text-size` |
 | `letterSpacing` | em | `0` | `text-letter-spacing` |

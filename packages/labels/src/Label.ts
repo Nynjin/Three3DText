@@ -5,7 +5,7 @@ import {
   DEFAULT_FONT_KEY,
   fontKeyStr,
   normalizeFontWeight,
-  parseFontDescriptor,
+  parseFontStack,
   type FontKey,
   type FontStyle,
   type FontWeight,
@@ -124,11 +124,17 @@ export interface LabelOptions {
   offset?: [number, number] | Vector2;
 
   /**
-   * CSS family name, or a comma-separated list. Trailing weight and style
-   * words, as in `'Open Sans Semi Bold Italic'`, set {@link fontWeight} and
-   * {@link fontStyle} unless those are given too.
+   * A string is a CSS `font-family` list, used as written: `'Arial Black, sans-serif'`.
+   * Weight and style come from {@link fontWeight} and {@link fontStyle}.
+   *
+   * An array is a MapLibre or Mapbox `text-font` stack, such as
+   * `['Open Sans Semibold', 'Arial Unicode MS Bold']`. Each name carries its
+   * weight and style as trailing words; the first name sets {@link fontWeight}
+   * and {@link fontStyle} (normal when it names none), and the families of all
+   * names, in order, are the family list. A `fontWeight` or `fontStyle` given in
+   * the same call takes precedence.
    */
-  font?: string;
+  font?: string | readonly string[];
   /** Text height, in CSS px. */
   fontSize?: number;
   fontWeight?: FontWeight | FontWeightName | number;
@@ -322,18 +328,13 @@ export class Label {
     return this._fontKeyStr;
   }
 
-  /** The family, without the weight and style words a descriptor may have carried. */
-  get font() {
+  /** The CSS family list: what a string was given as, or the families of a `text-font` stack. */
+  get font(): string {
     return this._fontKey.font;
   }
 
-  set font(value: string) {
-    const parsed = parseFontDescriptor(value);
-    this._setFontKey({
-      font: parsed.font,
-      weight: parsed.weight ?? this._fontKey.weight,
-      style: parsed.style ?? this._fontKey.style,
-    });
+  set font(value: string | readonly string[]) {
+    this._emit(this._apply({ font: value }));
   }
 
   get fontSize() {
@@ -567,15 +568,16 @@ export class Label {
       changes |= LabelChangeType.Layout;
     }
 
-    // An explicit `fontWeight` or `fontStyle` overrides the words parsed from `font`.
+    // An explicit `fontWeight` or `fontStyle` overrides the ones a `text-font` stack names.
     if (options.font !== undefined || options.fontWeight !== undefined || options.fontStyle !== undefined) {
-      const parsed = options.font !== undefined ? parseFontDescriptor(options.font) : undefined;
+      const given = options.font;
+      const stack = given !== undefined && typeof given !== 'string' ? parseFontStack(given) : undefined;
       const next: FontKey = {
-        font: parsed?.font ?? this._fontKey.font,
+        font: typeof given === 'string' ? given.trim() || DEFAULT_FONT_KEY.font : stack?.font ?? this._fontKey.font,
         weight: options.fontWeight !== undefined
           ? normalizeFontWeight(options.fontWeight)
-          : parsed?.weight ?? this._fontKey.weight,
-        style: options.fontStyle ?? parsed?.style ?? this._fontKey.style,
+          : stack?.weight ?? this._fontKey.weight,
+        style: options.fontStyle ?? stack?.style ?? this._fontKey.style,
       };
       const nextStr = fontKeyStr(next);
       if (nextStr !== this._fontKeyStr) {
