@@ -33,24 +33,19 @@ export interface LabelManagerConfig {
   /** Fade curve. 1 is linear; lower fades in faster, higher fades out faster. */
   fadeGamma: number;
 
-  /** CSS px per occupancy cell edge, a power of two. Read at construction. */
+  /**
+   * Factor the screen is divided by, on each axis, to get the collision grid: a
+   * cell covers `downscale` × `downscale` CSS px. A power of two. Larger is
+   * faster and spaces labels more coarsely; 1 is pixel-exact. Read at construction.
+   */
   downscale: number;
 
   /**
-   * Fraction of its cells, from 0 to 1, an already placed label may find taken
-   * and still keep. A label placed for the first time needs all of its cells free.
-   * Known issue: a small label covering less than this fraction of a large
-   * placed label's box can sit on top of it.
+   * CSS px some label placed by the last pass has to move on screen before the
+   * view counts as moved and a pass opens. With no label placed, any change of
+   * the view counts.
    */
-  occlusionTolerance: number;
-
-  /**
-   * Largest element-wise change of the view-projection matrix since the last
-   * pass below which the camera counts as still and placement is skipped.
-   * Translation elements scale with world coordinates, so a scene far from the
-   * origin needs a larger value.
-   */
-  viewProjThreshold: number;
+  moveThresholdPx: number;
 
   /** NDC units past the cube a label's position may sit and still be projected. */
   ndcCullMargin: number;
@@ -79,8 +74,7 @@ export const DefaultLabelConfig: LabelManagerConfig = {
   fadeGamma: 3,
 
   downscale: 4,
-  occlusionTolerance: 0.2,
-  viewProjThreshold: 0.05,
+  moveThresholdPx: 1,
 
   ndcCullMargin: 0.2,
 

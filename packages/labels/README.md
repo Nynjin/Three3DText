@@ -127,8 +127,8 @@ covers.
 
 ## Placement
 
-`cull` opens a placement pass at most every `placementIntervalMs`, when the
-camera moved more than `viewProjThreshold` or labels changed. Labels are placed
+`cull` opens a placement pass at most every `placementIntervalMs`, when a placed
+label moved more than `moveThresholdPx` on screen or labels changed. Labels are placed
 nearest first on a screen-space occupancy grid; a label that finds its region
 taken is not drawn. A pass spreads over frames, spending about
 `placementBudgetMs` in each: a frame always runs at least one step, and sorting
@@ -163,16 +163,11 @@ apply from the next `cull`, except for the fields read at construction.
 | `placementBudgetMs` | ms of placement per frame | `3` | |
 | `fadeDurationMs` | ms per fade; `0` shows and hides at once | `650` | |
 | `fadeGamma` | fade curve; 1 is linear | `3` | |
-| `downscale` | CSS px per grid cell, a power of two; a label claims every cell its box touches | `4` | read at construction |
-| `occlusionTolerance` | fraction, 0 to 1, of its cells a placed label may lose and stay | `0.2` | |
-| `viewProjThreshold` | largest change of any view-projection matrix element | `0.05` | |
+| `downscale` | divisor of the screen resolution for the collision grid, a power of two: 8 makes each cell 8 × 8 CSS px; a label claims every cell its box touches | `4` | read at construction |
+| `moveThresholdPx` | CSS px a placed label moves on screen before a new pass | `1` | |
 | `ndcCullMargin` | NDC units past the frustum a label's position may sit | `0.2` | |
 | `labelNear`, `labelFar` | world units | `0`, `Infinity` | |
 | `renderPenaltyMultiplier` | factor on the squared distance of a label not yet placed | `1.5` | |
-
-`viewProjThreshold` compares translation elements too, which grow with world
-coordinates: a scene far from the origin, such as an Earth-centred one, needs a
-larger value.
 
 ## Limits
 
@@ -190,8 +185,6 @@ larger value.
 * A character the font lacks is drawn with the browser's fallback font, or as a
   missing-glyph box.
 * Only point placement: text does not follow lines.
-* A label already placed keeps its place while less than `occlusionTolerance` of its
-  box is covered, so a small label can sit on top of a large one.
 
 ## Development
 

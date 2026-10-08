@@ -14,7 +14,8 @@ export class BitmapOccupancy {
   private _bits = new Uint32Array(1);
 
   /**
-   * @param downscale - CSS px per cell edge. Must be a power of two.
+   * @param downscale - Divisor of the pixel size on each axis, so a cell covers
+   * `downscale` × `downscale` px. Must be a power of two.
    *
    * @throws {Error} If `downscale` is not a power-of-two integer of at least 1.
    */
@@ -54,20 +55,12 @@ export class BitmapOccupancy {
   }
 
   /**
-   * Claim an inclusive pixel rectangle if at most `tolerance` of it (a fraction
-   * in [0, 1], 0 for no overlap) is already claimed. A rejected rectangle leaves
-   * the grid untouched.
+   * Claim an inclusive pixel rectangle if none of it is claimed. A rejected
+   * rectangle leaves the grid untouched.
    *
-   * @returns `false` if the region was too crowded, inverted, or off the grid.
-   *
-   * @throws {Error} If `tolerance` is outside `[0, 1]`, NaN included.
+   * @returns `false` if the region was taken, inverted, or off the grid.
    */
-  tryClaim(x0: number, y0: number, x1: number, y1: number, tolerance = 0): boolean {
-    // Positive form, so a NaN tolerance throws.
-    if (!(tolerance >= 0 && tolerance <= 1)) {
-      throw new Error(`tolerance must be in [0, 1], got ${tolerance}`);
-    }
-
+  tryClaim(x0: number, y0: number, x1: number, y1: number): boolean {
     const cx0 = this._cellLow(Math.floor(x0));
     const cy0 = this._cellLow(Math.floor(y0));
     const cx1 = this._cellHigh(Math.floor(x1), this._width);
@@ -75,22 +68,13 @@ export class BitmapOccupancy {
     // Inverted or wholly off-grid once clamped.
     if (cx0 > cx1 || cy0 > cy1) return false;
 
-    // `claimed <= floor(tolerance * area)` is the same test as
-    // `claimed / area <= tolerance`, since `claimed` is a whole number.
-    const limit = Math.floor(tolerance * (cx1 - cx0 + 1) * (cy1 - cy0 + 1));
-
-    // A zero limit only needs to find one set bit, not count them.
-    const available = limit === 0
-      ? this._isRegionEmpty(cx0, cy0, cx1, cy1)
-      : this._isRegionWithinTolerance(cx0, cy0, cx1, cy1, limit);
-    if (!available) return false;
-
+    if (!this._isRegionEmpty(cx0, cy0, cx1, cy1)) return false;
     this._claim(cx0, cy0, cx1, cy1);
     return true;
   }
 
   // ─── Internals ────────────────────────────────────────────────────────────
-  // The three region methods take an inclusive cell rectangle, not pixels, and
+  // The region methods take an inclusive cell rectangle, not pixels, and
   // assume it has already been clamped to the grid.
 
   /**
@@ -160,51 +144,4 @@ export class BitmapOccupancy {
     }
     return true;
   }
-
-  /**
-   * True if at most `limit` cells in the rectangle are claimed. Stops once the
-   * unread rows cannot change the answer.
-   */
-  private _isRegionWithinTolerance(x0: number, y0: number, x1: number, y1: number, limit: number): boolean {
-    const wordA = (x0 >> 5);
-    const wordB = (x1 >> 5);
-    const maskA = 0xffffffff << (x0 & 31) >>> 0;
-    const maskB = 0xffffffff >>> (31 - (x1 & 31));
-    const bits = this._bits;
-    const wpr = this._wordsPerRow;
-    const perRow = (x1 - x0 + 1);
-
-    let claimed = 0;
-    let remaining = perRow * (y1 - y0 + 1);
-
-    for (let y = y0; y <= y1; y++) {
-      const rowBase = y * wpr;
-      if (wordA === wordB) {
-        claimed += popcount32(bits[rowBase + wordA] & (maskA & maskB));
-      } else {
-        claimed += popcount32(bits[rowBase + wordA] & maskA);
-        for (let w = wordA + 1; w < wordB; w++) {
-          claimed += popcount32(bits[rowBase + w]);
-        }
-        claimed += popcount32(bits[rowBase + wordB] & maskB);
-      }
-      remaining -= perRow;
-      if (claimed > limit) return false;
-      if (claimed + remaining <= limit) return true;
-    }
-    return claimed <= limit;
-  }
-}
-
-// Utils
-
-/**
- * @param v - Any 32-bit value.
- *
- * @returns How many of its bits are set.
- */
-function popcount32(v: number): number {
-  v = v - ((v >>> 1) & 0x55555555);
-  v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
-  return (((v + (v >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24;
 }

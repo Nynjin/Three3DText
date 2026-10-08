@@ -18,10 +18,8 @@ const PLACE_CHUNK = 512;
  * region in a {@link BitmapOccupancy}, nearest label first. Boxes are in CSS
  * px of the renderer's canvas; the bitmap converts them to its cell grid.
  *
- * Two rules favour the status quo: a label not placed by the last pass has its
- * squared distance multiplied by `config.renderPenaltyMultiplier`, and one
- * already placed may claim a region up to `config.occlusionTolerance` taken
- * where a new label needs a free one.
+ * A label not placed by the last pass has its squared distance multiplied by
+ * `config.renderPenaltyMultiplier`, which favours the labels already shown.
  *
  * Drive it with {@link LabelCollisionEngine.beginPass} and
  * {@link LabelCollisionEngine.stepPass} to spread a pass across frames, or
@@ -61,8 +59,14 @@ export class LabelCollisionEngine {
   private _screenW = 1;
   private _screenH = 1;
 
+  /** View-projection matrix of the last pass opened. */
   private readonly _lastVP = new Matrix4();
   private readonly _frustumMatrix = new Matrix4();
+
+  /** Labels the last pass placed, and their anchors' screen position then, in CSS px. */
+  private readonly _shown: Label[] = [];
+  private readonly _shownXY: number[] = [];
+  private readonly _scratchXY = [0, 0];
   private readonly _scratchAABB: ScreenAABB = { x0: 0, y0: 0, x1: 0, y1: 0 };
   private readonly _tmpVec2 = new Vector2();
 
@@ -72,7 +76,7 @@ export class LabelCollisionEngine {
   private readonly _config: LabelManagerConfig;
 
   /**
-   * @param renderer - Renderer whose CSS size (`getSize`) is the pixel space of
+   * @param renderer - Renderer whose canvas size (`getSize`, in CSS px) is the pixel space of
    * the bitmap. Borrowed, never disposed; re-read on every pass.
    * @param config - Read live, except `downscale` and `atlasFontSize`, read once.
    *
@@ -129,8 +133,8 @@ export class LabelCollisionEngine {
    * Open a placement pass for this camera, replacing any open one.
    *
    * Skipped when there are no labels, or when nothing called for one: the engine
-   * is not dirty, the bitmap's cell grid is unchanged, and no element of the
-   * view-projection matrix moved more than `config.viewProjThreshold`.
+   * is not dirty, the bitmap's cell grid is unchanged, and the view has not
+   * moved (see `config.moveThresholdPx`).
    *
    * @param camera - Its `projectionMatrix`, `matrixWorld` and `matrixWorldInverse`
    * must be up to date.
@@ -147,15 +151,7 @@ export class LabelCollisionEngine {
       camera.projectionMatrix,
       camera.matrixWorldInverse,
     );
-    const viewDiff = matrixMaxDiff(this._frustumMatrix, this._lastVP);
-
-    if (
-      !this._dirty
-      && !viewportChanged
-      && viewDiff <= this._config.viewProjThreshold
-    ) {
-      return false;
-    }
+    if (!this._dirty && !viewportChanged && !this._viewMoved(this._frustumMatrix)) return false;
 
     this._projector.setFrame(
       camera.matrixWorldInverse,
@@ -165,6 +161,8 @@ export class LabelCollisionEngine {
     );
 
     this._lastVP.copy(this._frustumMatrix);
+    this._shown.length = 0;
+    this._shownXY.length = 0;
     this._bitmap.clear();
     this._dirty = false;
     const n = this._labels.length;
@@ -232,8 +230,16 @@ export class LabelCollisionEngine {
     return true;
   }
 
-  /** No-op: this engine holds no GPU resources, and the renderer is borrowed. */
-  dispose() {}
+  /** Forgets every label and the open pass. The engine holds no GPU resources, and the renderer is borrowed. */
+  dispose() {
+    this._byId.clear();
+    this._labels = [];
+    this._listed.clear();
+    this._candidates.length = 0;
+    this._shown.length = 0;
+    this._shownXY.length = 0;
+    this._pass = null;
+  }
 
   // ─── Internals ────────────────────────────────────────────────────────────
 
@@ -255,7 +261,6 @@ export class LabelCollisionEngine {
    * @param order - Permutation of `candidates`, nearest first.
    */
   private _placeChunk(order: Int32Array, from: number, to: number) {
-    const occlusionTolerance = this._config.occlusionTolerance;
     const maxX = this._screenW - 1;
     const maxY = this._screenH - 1;
     const aabb = this._scratchAABB;
@@ -264,9 +269,11 @@ export class LabelCollisionEngine {
       const label = this._candidates[order[i]];
       if (!this._isTracked(label)) continue;
 
-      // A box reaching past the viewport edge fails placement.
+      // A box reaching past the viewport edge fails placement, and so does a
+      // label hidden since this pass collected it.
       const placeable
-        = this._projector.project(label, aabb)
+        = label.visible
+          && this._projector.project(label, aabb)
           && aabb.x0 >= 0
           && aabb.y0 >= 0
           && aabb.x1 <= maxX
@@ -277,13 +284,11 @@ export class LabelCollisionEngine {
         continue;
       }
 
-      label.shouldRender = this._bitmap.tryClaim(
-        aabb.x0,
-        aabb.y0,
-        aabb.x1,
-        aabb.y1,
-        label.shouldRender ? occlusionTolerance : 0,
-      );
+      label.shouldRender = this._bitmap.tryClaim(aabb.x0, aabb.y0, aabb.x1, aabb.y1);
+      if (label.shouldRender && this._screenOf(this._lastVP, label.position, this._scratchXY)) {
+        this._shown.push(label);
+        this._shownXY.push(this._scratchXY[0], this._scratchXY[1]);
+      }
     }
   }
 
@@ -314,8 +319,9 @@ export class LabelCollisionEngine {
         dz = p.z - ez;
 
       // The penalty applies to the sort key only; the range test uses raw distance.
+      // The key is the log of the squared distance: keys are bucketed linearly.
       const distSq = dx * dx + dy * dy + dz * dz;
-      const key = label.shouldRender ? distSq : distSq * penalty;
+      const key = Math.log((label.shouldRender ? distSq : distSq * penalty) || Number.MIN_VALUE);
 
       const isValid
         = distSq >= nearSq
@@ -340,6 +346,40 @@ export class LabelCollisionEngine {
   }
 
   /**
+   * Whether some label the last pass placed has moved more than
+   * `config.moveThresholdPx` on screen under `vp`. With none placed, whether
+   * `vp` changed at all.
+   */
+  private _viewMoved(vp: Matrix4): boolean {
+    const n = this._shown.length;
+    if (n === 0) return !vp.equals(this._lastVP);
+
+    const limitSq = this._config.moveThresholdPx ** 2;
+    const xy = this._scratchXY;
+    for (let i = 0; i < n; i++) {
+      if (!this._screenOf(vp, this._shown[i].position, xy)) return true;
+      const dx = xy[0] - this._shownXY[2 * i];
+      const dy = xy[1] - this._shownXY[2 * i + 1];
+      if (dx * dx + dy * dy > limitSq) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Screen position of a world point under `vp`, in CSS px, y down, written to `out`.
+   *
+   * @returns `false`, leaving `out` as it was, if the point is not in front of the camera.
+   */
+  private _screenOf(vp: Matrix4, p: Vector3, out: number[]): boolean {
+    const e = vp.elements;
+    const w = e[3] * p.x + e[7] * p.y + e[11] * p.z + e[15];
+    if (!(w > 0)) return false;
+    out[0] = ((e[0] * p.x + e[4] * p.y + e[8] * p.z + e[12]) / w + 1) * 0.5 * this._screenW;
+    out[1] = (1 - (e[1] * p.x + e[5] * p.y + e[9] * p.z + e[13]) / w) * 0.5 * this._screenH;
+    return true;
+  }
+
+  /**
    * Re-read the canvas size and match the bitmap to it.
    *
    * @returns `true` if the bitmap's cell grid changed, which clears it; a
@@ -351,16 +391,4 @@ export class LabelCollisionEngine {
     this._screenH = Math.max(1, size.y);
     return this._bitmap.resize(this._screenW, this._screenH);
   }
-}
-
-/**
- * Largest absolute element-wise difference between two matrices, compared
- * against `config.viewProjThreshold`.
- */
-function matrixMaxDiff(a: Matrix4, b: Matrix4): number {
-  let max = 0;
-  for (let i = 0; i < 16; i++) {
-    max = Math.max(max, Math.abs(a.elements[i] - b.elements[i]));
-  }
-  return max;
 }
