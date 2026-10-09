@@ -14,36 +14,35 @@ const PLACE_CHUNK = 512;
 /**
  * Greedy nearest-first label placement.
  *
- * A pass projects every candidate to a screen-space box and tries to claim that
- * region in a {@link BitmapOccupancy}, nearest label first. Boxes are in CSS
- * px of the renderer's canvas; the bitmap converts them to its cell grid.
+ * A pass projects each candidate to a screen box and claims it in a
+ * {@link BitmapOccupancy}, nearest first. Boxes in CSS px of the renderer's canvas.
  *
  * A label not placed by the last pass has its squared distance multiplied by
- * `config.renderPenaltyMultiplier`, which favours the labels already shown.
+ * `config.renderPenaltyMultiplier`.
  *
- * Drive it with {@link LabelCollisionEngine.beginPass} and
- * {@link LabelCollisionEngine.stepPass} to spread a pass across frames, or
- * {@link LabelCollisionEngine.evaluate} to run one to completion. Label edits
- * are not observed: call {@link LabelCollisionEngine.invalidate} after them.
+ * {@link LabelCollisionEngine.beginPass} and {@link LabelCollisionEngine.stepPass}
+ * spread a pass across frames; {@link LabelCollisionEngine.evaluate} runs one to
+ * completion. Label edits are not observed: call
+ * {@link LabelCollisionEngine.invalidate} after them.
  */
 export class LabelCollisionEngine {
   /** Tracked labels, by id. */
   private readonly _byId = new Map<string, Label>();
 
   /**
-   * Scan order of a pass. May still hold removed labels until the next
-   * {@link beginPass} compacts it; `_listed` mirrors its contents.
+   * Scan order of a pass. May hold removed labels until the next
+   * {@link beginPass} compacts it. `_listed` mirrors it.
    */
   private _labels: Label[] = [];
   private _listed = new Set<Label>();
   private _needsCompact = false;
 
-  /** Labels that passed the open pass's gates, refilled in place per pass. */
+  /** Labels that passed the open pass's gates. */
   private _candidates: Label[] = [];
 
   /**
-   * Sort keys parallel to `_candidates`. Capacity tracks `_labels.length`, so only
-   * the first `_candidates.length` entries are meaningful.
+   * Sort keys parallel to `_candidates`. Sized to `_labels.length`; only the
+   * first `_candidates.length` entries are valid.
    */
   private _sortKeys = new Float32Array(0);
 
@@ -55,7 +54,7 @@ export class LabelCollisionEngine {
   private readonly _projector: LabelProjector;
   private readonly _sorter: RadixSorter;
 
-  /** Canvas size in CSS px, refreshed by `_syncToViewport`. */
+  /** Canvas size, CSS px. Set by `_syncToViewport`. */
   private _screenW = 1;
   private _screenH = 1;
 
@@ -70,18 +69,17 @@ export class LabelCollisionEngine {
   private readonly _scratchAABB: ScreenAABB = { x0: 0, y0: 0, x1: 0, y1: 0 };
   private readonly _tmpVec2 = new Vector2();
 
-  /** The in-flight pass, suspended between chunks. `null` when none is open. */
+  /** In-flight pass, suspended between chunks. */
   private _pass: Generator<void, void, void> | null = null;
 
   private readonly _config: LabelManagerConfig;
   private readonly _onPlacementChange: (label: Label) => void;
 
   /**
-   * @param renderer - Renderer whose canvas size (`getSize`, in CSS px) is the pixel space of
-   * the bitmap. Borrowed, never disposed; re-read on every pass.
+   * @param renderer - Its canvas size (`getSize`, CSS px) is the bitmap's pixel
+   * space, re-read every pass. Borrowed, not disposed.
    * @param config - Read live, except `downscale` and `atlasFontSize`, read once.
-   * @param onPlacementChange - Called with each label whose `shouldRender` the
-   * engine changes, after the change.
+   * @param onPlacementChange - Called after the engine changes a label's `shouldRender`.
    *
    * @throws {Error} If `config.downscale` is not a power of two.
    */
@@ -100,8 +98,7 @@ export class LabelCollisionEngine {
   }
 
   /**
-   * Track labels; any already tracked are skipped. A pass in flight keeps
-   * running and does not consider them.
+   * Track labels; already tracked ones are skipped. An open pass ignores them.
    */
   addLabels(labels: Iterable<Label>) {
     for (const label of labels) {
@@ -116,8 +113,8 @@ export class LabelCollisionEngine {
   }
 
   /**
-   * Stop tracking labels by id; untracked ids are ignored. A pass in flight
-   * skips them from here on. Their `shouldRender` is left as it was.
+   * Untrack labels by id; unknown ids are ignored. An open pass skips them from
+   * here on. Their `shouldRender` is left as is.
    */
   removeLabels(ids: Iterable<string>) {
     for (const id of ids) {
@@ -140,12 +137,11 @@ export class LabelCollisionEngine {
   /**
    * Open a placement pass for this camera, replacing any open one.
    *
-   * Skipped when there are no labels, or when nothing called for one: the engine
-   * is not dirty, the bitmap's cell grid is unchanged, and the view has not
-   * moved (see `config.moveThresholdPx`).
+   * Skipped with no labels, or when the engine is clean, the cell grid unchanged
+   * and the view has not moved (see `config.moveThresholdPx`).
    *
-   * @param camera - Its `projectionMatrix`, `matrixWorld` and `matrixWorldInverse`
-   * must be up to date.
+   * @param camera - `projectionMatrix`, `matrixWorld` and `matrixWorldInverse`
+   * must be current.
    *
    * @returns `true` if a pass opened.
    */
@@ -183,8 +179,8 @@ export class LabelCollisionEngine {
   }
 
   /**
-   * One whole pass over the first `n` labels, suspending between chunks. The eye
-   * position is fixed when the pass opens.
+   * One pass over the first `n` labels, yielding between chunks. `eye` is fixed
+   * for the pass.
    */
   private* _run(eye: Vector3, n: number): Generator<void, void, void> {
     let count = 0;
@@ -203,12 +199,11 @@ export class LabelCollisionEngine {
   }
 
   /**
-   * Advance the open pass until `budgetMs` has elapsed or the pass ends. Runs
-   * at least one step and reads the clock only between steps, so a call can
-   * overrun; the sort is a single step. Labels the pass has not reached keep
-   * their `shouldRender`.
+   * Advance the open pass until `budgetMs` elapses or the pass ends. Runs at
+   * least one step; the clock is read between steps, so a call can overrun.
+   * The sort is one step. Labels not yet reached keep their `shouldRender`.
    *
-   * @param budgetMs - Milliseconds to spend. `Infinity` finishes the pass.
+   * @param budgetMs - In ms. `Infinity` finishes the pass.
    *
    * @returns `true` if a pass was open and advanced.
    */
@@ -238,7 +233,7 @@ export class LabelCollisionEngine {
     return true;
   }
 
-  /** Forgets every label and the open pass. The engine holds no GPU resources, and the renderer is borrowed. */
+  /** Forget every label and the open pass. */
   dispose() {
     this._byId.clear();
     this._labels = [];
@@ -255,7 +250,7 @@ export class LabelCollisionEngine {
     return this._byId.get(label.id) === label;
   }
 
-  /** Drops removed labels from the scan order. */
+  /** Drop removed labels from the scan order. */
   private _compact() {
     this._labels = this._labels.filter(label => this._isTracked(label));
     this._listed = new Set(this._labels);
@@ -264,9 +259,9 @@ export class LabelCollisionEngine {
   }
 
   /**
-   * Project and claim a run of candidates in priority order.
+   * Project and claim candidates in priority order.
    *
-   * @param order - Permutation of `candidates`, nearest first.
+   * @param order - Permutation of `_candidates`, nearest first.
    */
   private _placeChunk(order: Int32Array, from: number, to: number) {
     const maxX = this._screenW - 1;
@@ -277,8 +272,7 @@ export class LabelCollisionEngine {
       const label = this._candidates[order[i]];
       if (!this._isTracked(label)) continue;
 
-      // A box reaching past the viewport edge fails placement, and so does a
-      // label hidden since this pass collected it.
+      // Fails if the box crosses the viewport edge or the label was hidden since collection.
       const placeable
         = label.visible
           && this._projector.project(label, aabb)
@@ -301,10 +295,10 @@ export class LabelCollisionEngine {
   }
 
   /**
-   * Append the labels in `[from, to)` that pass this pass's gates to
-   * `candidates`, with their sort keys. A label failing a gate stops rendering.
+   * Append the labels in `[from, to)` that pass the gates to `_candidates`, with
+   * sort keys. A label failing a gate stops rendering.
    *
-   * @returns `count` plus the candidates this chunk appended.
+   * @returns `count` plus the number appended.
    */
   private _collectChunk(from: number, to: number, count: number, eye: Vector3): number {
     const keys = this._sortKeys;
@@ -326,8 +320,7 @@ export class LabelCollisionEngine {
         dy = p.y - ey,
         dz = p.z - ez;
 
-      // The penalty applies to the sort key only; the range test uses raw distance.
-      // The key is the log of the squared distance: keys are bucketed linearly.
+      // Penalty applies to the key only, not the range test. Log key: the sorter buckets linearly.
       const distSq = dx * dx + dy * dy + dz * dz;
       const key = Math.log((label.shouldRender ? distSq : distSq * penalty) || Number.MIN_VALUE);
 
@@ -360,9 +353,8 @@ export class LabelCollisionEngine {
   }
 
   /**
-   * Whether some label the last pass placed has moved more than
-   * `config.moveThresholdPx` on screen under `vp`. With none placed, whether
-   * `vp` changed at all.
+   * Whether a label the last pass placed moved more than `config.moveThresholdPx`
+   * on screen under `vp`. With none placed, whether `vp` changed.
    */
   private _viewMoved(vp: Matrix4): boolean {
     const n = this._shown.length;
@@ -380,9 +372,9 @@ export class LabelCollisionEngine {
   }
 
   /**
-   * Screen position of a world point under `vp`, in CSS px, y down, written to `out`.
+   * Screen position of a world point under `vp`, CSS px, y down, into `out`.
    *
-   * @returns `false`, leaving `out` as it was, if the point is not in front of the camera.
+   * @returns `false`, `out` untouched, if the point is not in front of the camera.
    */
   private _screenOf(vp: Matrix4, p: Vector3, out: number[]): boolean {
     const e = vp.elements;
@@ -396,8 +388,7 @@ export class LabelCollisionEngine {
   /**
    * Re-read the canvas size and match the bitmap to it.
    *
-   * @returns `true` if the bitmap's cell grid changed, which clears it; a
-   * resize within the same grid returns `false`.
+   * @returns `true` if the cell grid changed, which clears it.
    */
   private _syncToViewport(): boolean {
     const size = this._renderer.getSize(this._tmpVec2);

@@ -11,19 +11,19 @@ import anchorText from './TextAnchors';
 const LINE_TRIM = new Set([' ', '\n', '\r', '\r\n']);
 
 /**
- * Positions a label's glyphs, then writes them, its collision box and its draw
- * quad back onto the label.
+ * Lays out a label's glyphs and writes `glyphs`, `bounds` (collision box) and
+ * `quad` (draw quad) onto it, in CSS px, y up, shifted by anchor and offset.
+ * Clears `label.analysis`.
  *
- * Reads `fontSize` and `padding` in CSS px, and `maxWidth`, `letterSpacing`,
- * `lineHeight` and `offset` in em. Writes `glyphs`, `bounds` and `quad` in CSS
- * px, y up, already shifted by the anchor and offset. The anchor is taken on the
- * ink; `padding` then grows `bounds` only.
+ * Reads `fontSize` and `padding` in CSS px; `maxWidth`, `letterSpacing`,
+ * `lineHeight` and `offset` in em. Anchors on the ink; `padding` grows
+ * `bounds` only.
  *
- * @param label - Label to lay out. Mutated in place.
+ * @param label - Mutated in place.
  * @param resolve - Glyph lookup bound to the label's font.
- * @param metrics - Metrics of the atlas the resolver reads from.
+ * @param metrics - Metrics of the atlas `resolve` reads.
  *
- * @returns The same label.
+ * @returns `label`.
  */
 export default function layoutText(
   label: Label,
@@ -42,7 +42,7 @@ export default function layoutText(
   const letterSpacing = label.letterSpacing * label.fontSize;
   const lineHeight = label.lineHeight * label.fontSize;
 
-  // Without an RTL character the lines are runs of the characters already split.
+  // No RTL: lines are slices of `analysis.chars`.
   let lineChars: string[][];
   if (analysis.rtl) {
     lineChars = reorderParagraph(shapedText, breakIndices).map(line => trimLine(analysis.split(line)));
@@ -105,7 +105,7 @@ export default function layoutText(
     return label;
   }
 
-  // Ink box, and the union of the bitmaps the shader draws.
+  // Ink box, and the union of drawn bitmaps.
   const inset = (metrics.padding * scale) / 2;
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   let qMinX = Infinity, qMaxX = -Infinity, qMinY = Infinity, qMaxY = -Infinity;
@@ -152,8 +152,8 @@ export default function layoutText(
 }
 
 /**
- * Direction and ending of each line `breakIndices` cuts from `text`, in logical
- * order, which the bidi pass keeps one visual line per.
+ * Paragraph direction and `endsParagraph` for each line `breakIndices` cuts,
+ * in logical order. The bidi pass keeps one visual line per logical line.
  */
 function paragraphsOf(text: string, breakIndices: number[], rtl: boolean): { isRTL: boolean; endsParagraph: boolean }[] {
   const out: { isRTL: boolean; endsParagraph: boolean }[] = [];
@@ -184,7 +184,7 @@ function trimLine(cps: string[]): string[] {
   return start === 0 && end === cps.length ? cps : cps.slice(start, end);
 }
 
-/** An atlas entry with its size and metrics in CSS px. */
+/** Atlas entry with size and metrics in CSS px. */
 function scaleGlyph(g: GlyphInfo, scale: number): GlyphInfo {
   return {
     px: g.px,

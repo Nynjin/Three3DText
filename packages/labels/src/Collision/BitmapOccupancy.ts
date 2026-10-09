@@ -1,9 +1,8 @@
 /**
- * Packed-bit screen occupancy grid: one bit per cell, 32 cells per word, each
- * row padded to a whole word. A cell covers `downscale` × `downscale` pixels.
+ * Packed-bit screen occupancy grid: one bit per cell, 32 cells per word, rows
+ * padded to a whole word. A cell covers `downscale` × `downscale` px.
  *
- * Rectangles are in pixels, inclusive on both ends. Both edges map to the cell
- * that contains them, so a region claims exactly the cells it touches.
+ * Rectangles in px, inclusive on both ends. A region claims every cell it touches.
  */
 export class BitmapOccupancy {
   private readonly _shift: number;
@@ -14,10 +13,9 @@ export class BitmapOccupancy {
   private _bits = new Uint32Array(1);
 
   /**
-   * @param downscale - Divisor of the screen size on each axis, so a cell covers
-   * `downscale` × `downscale` CSS px. Must be a power of two.
+   * @param downscale - Cell size per axis, in CSS px.
    *
-   * @throws {Error} If `downscale` is not a power-of-two integer of at least 1.
+   * @throws {Error} If `downscale` is not a power-of-two integer >= 1.
    */
   constructor(downscale = 1) {
     if (!Number.isInteger(downscale) || downscale < 1 || (downscale & (downscale - 1)) !== 0) {
@@ -27,14 +25,12 @@ export class BitmapOccupancy {
   }
 
   /**
-   * Match the grid to a screen size, reallocating and clearing only when the
-   * cell dimensions actually change.
+   * Match the grid to a screen size. Reallocates only when the cell dimensions change.
    *
-   * @param screenW - Viewport width, in CSS px.
-   * @param screenH - Viewport height, in CSS px.
+   * @param screenW - In CSS px.
+   * @param screenH - In CSS px.
    *
-   * @returns `true` if the grid was resized, meaning every previously claimed
-   * region is gone and callers must re-evaluate.
+   * @returns `true` if the grid was resized, which clears every claim.
    */
   resize(screenW: number, screenH: number): boolean {
     const cell = 1 << this._shift;
@@ -55,8 +51,8 @@ export class BitmapOccupancy {
   }
 
   /**
-   * Claim an inclusive pixel rectangle if none of it is claimed, or regardless
-   * with `allowOverlap`. A rejected rectangle leaves the grid untouched.
+   * Claim an inclusive px rectangle if free, or regardless with `allowOverlap`.
+   * A rejected rectangle leaves the grid untouched.
    *
    * @returns `false` if the region was taken (unless `allowOverlap`), inverted, or off the grid.
    */
@@ -74,28 +70,24 @@ export class BitmapOccupancy {
   }
 
   // ─── Internals ────────────────────────────────────────────────────────────
-  // The region methods take an inclusive cell rectangle, not pixels, and
-  // assume it has already been clamped to the grid.
+  // Region methods take an inclusive cell rectangle, already clamped to the grid.
 
   /**
-   * Cell holding a rectangle's low edge, from an integer pixel. Clamps the lower
-   * bound only, leaving an edge past the far side out of range for `tryClaim`
-   * to reject.
+   * Cell of a low edge, from an integer px. Clamps below only; an edge past the
+   * far side stays out of range for `tryClaim` to reject.
    */
   private _cellLow(px: number): number {
     return Math.max(0, px >> this._shift);
   }
 
   /**
-   * Cell holding a rectangle's high edge, from an integer pixel. Clamps the
-   * upper bound only, leaving an edge before the near side negative for
-   * `tryClaim` to reject.
+   * Cell of a high edge, from an integer px. Clamps above only; an edge before
+   * the near side stays negative for `tryClaim` to reject.
    */
   private _cellHigh(px: number, extent: number): number {
     return Math.min(extent - 1, px >> this._shift);
   }
 
-  /** Set every bit in the rectangle. */
   private _claim(x0: number, y0: number, x1: number, y1: number): void {
     const wordA = (x0 >> 5);
     const wordB = (x1 >> 5);
@@ -118,10 +110,6 @@ export class BitmapOccupancy {
     }
   }
 
-  /**
-   * True if no cell in the rectangle is claimed, bailing on the first word
-   * that has a bit set inside it.
-   */
   private _isRegionEmpty(x0: number, y0: number, x1: number, y1: number): boolean {
     const wordA = (x0 >> 5);
     const wordB = (x1 >> 5);

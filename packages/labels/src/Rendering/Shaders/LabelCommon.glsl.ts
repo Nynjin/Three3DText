@@ -1,6 +1,6 @@
 /**
- * Data-texture access, for either shader stage. `base` is an item's first
- * texel; `texel` is the offset within it.
+ * Data-texture access, either stage. `base`: an item's first texel; `texel`:
+ * offset within it.
  */
 export const TEXEL_FETCH = /* glsl */ `
 precision highp float;
@@ -23,16 +23,16 @@ vec4 glyphFetch(int base, int texel) {
 `;
 
 /**
- * Vertex-stage placement of a label-local point. Label positions are world
- * coordinates, split into a float32 and its remainder; the camera position,
- * split the same way, is subtracted before the view rotation.
+ * Vertex-stage placement of a label-local point. Positions are world coordinates
+ * split into float32 and remainder; the camera, split alike, is subtracted
+ * before the view rotation.
  */
 export const LABEL_PLACEMENT = /* glsl */ `
 ${TEXEL_FETCH}
 
 // Canvas size, in CSS px.
 uniform vec2 uViewport;
-// Camera position in world units, split as label positions are.
+// Camera position, world units, split like label positions.
 uniform vec3 uEyeHigh;
 uniform vec3 uEyeLow;
 
@@ -40,12 +40,12 @@ vec3 rotateByQuat(vec3 v, vec4 q) {
   return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
 }
 
-// View-space position of a label anchor given as a float32 and its remainder.
+// View-space anchor from a float32 and its remainder.
 vec3 anchorViewPos(vec3 high, vec3 low) {
   return mat3(viewMatrix) * ((high - uEyeHigh) + (low - uEyeLow));
 }
 
-// World units covering one CSS px of the canvas at a view-space depth.
+// World units per CSS px at a view-space depth.
 float worldPerPx(vec3 centerVS) {
   float w = abs((projectionMatrix * vec4(centerVS, 1.0)).w);
   return 2.0 * w / (projectionMatrix[1][1] * uViewport.y);

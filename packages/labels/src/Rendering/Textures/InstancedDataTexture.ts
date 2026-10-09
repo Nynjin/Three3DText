@@ -4,13 +4,13 @@ const CAPACITY_MULTIPLIER = 1.5;
 
 const TEXEL_SIZE = 4; // RGBA channels per texel
 
-/** Widest texture: every texel index stays below 2^24, exact in a float channel. */
+/** Widest texture: texel indices stay below 2^24, exact in a float channel. */
 const MAX_INDEXABLE_WIDTH = 4096;
 
 /** Update ranges past which the whole buffer is uploaded instead. */
 const MAX_UPLOAD_RANGES = 512;
 
-/** Dirty spans recorded between uploads, past which the whole buffer is sent without merging them. */
+/** Recorded dirty spans past which the whole buffer is sent, unmerged. */
 const MAX_RECORDED_SPANS = 32768;
 
 const NO_DATA = new Float32Array(0);
@@ -18,22 +18,20 @@ const NO_DATA = new Float32Array(0);
 export interface ItemAllocation {
   key: string;
   /**
-   * The key's items as flat RGBA floats, concatenated, replacing whatever the
-   * key held. Length must be a multiple of `texelsPerItem * 4`; empty removes
-   * the key. Read during the call and never retained.
+   * The key's items as flat RGBA floats, replacing what the key held. Length a
+   * multiple of `texelsPerItem * 4`; empty removes the key. Not retained.
    */
   data: Float32Array;
 }
 
 /**
- * A square RGBA float texture holding, per string key, a list of items of
- * `texelsPerItem` texels. An item takes any free slot; with `nextItemFloat`
- * set, each item stores the texel index of the key's next item, -1 at the end.
- * Texel indices are linear (`i % width`, `floor(i / width)`) and survive other
- * keys' additions, removals and growth.
+ * Square RGBA float texture holding, per string key, a list of items of
+ * `texelsPerItem` texels. Items take any free slot; with `nextItemFloat` set,
+ * each stores the texel index of the key's next item, -1 at the end. Texel
+ * indices are linear (`i % width`, `floor(i / width)`) and stable across other
+ * keys' changes and growth.
  *
- * Growth replaces {@link texture}: re-read it, and its width, after every
- * {@link update}.
+ * Growth replaces {@link texture}: re-read it after every {@link update}.
  */
 export class InstancedDataTexture {
   private _data = new Float32Array();
@@ -48,13 +46,13 @@ export class InstancedDataTexture {
 
   private readonly _texelsPerItem: number;
   private readonly _floatsPerItem: number;
-  /** Float holding the link to a key's next item, or -1 when unused. */
+  /** Float holding the link to a key's next item; -1 when unused. */
   private readonly _nextItemFloat: number;
   private readonly _maxWidth: number;
 
-  /** Texel spans written since the last flush, as [start, end) pairs, for partial upload. */
+  /** Texel spans written since the last flush, [start, end) pairs. */
   private readonly _dirty: number[] = [];
-  /** Set until three has uploaded the whole buffer, after a resize or too many spans. */
+  /** Set until three uploads the whole buffer. */
   private _fullUploadPending = false;
 
   get texture(): DataTexture {
@@ -62,11 +60,10 @@ export class InstancedDataTexture {
   }
 
   /**
-   * @param texelsPerItem - Texels each item occupies.
-   * @param nextItemFloat - Float, within an item, holding the texel index of the
-   * key's next item. Pass it only for a buffer whose shader walks a key's
-   * items; the float is then owned by this class and whatever the caller
-   * stages there is overwritten.
+   * @param texelsPerItem - Texels per item.
+   * @param nextItemFloat - Float in an item holding the texel index of the key's
+   * next item, for shaders that walk a key's items. Owned by this class: staged
+   * values there are overwritten.
    * @param maxTextureSize - Largest texture side the device accepts, in texels.
    */
   constructor(texelsPerItem: number, nextItemFloat = -1, maxTextureSize = MAX_INDEXABLE_WIDTH) {
@@ -77,9 +74,8 @@ export class InstancedDataTexture {
   }
 
   /**
-   * @returns The texel index of each of the key's items in chain order, `[0]`
-   * being the head, or `undefined` if the key is unknown. Live array: do not
-   * mutate.
+   * @returns Texel index of each of the key's items in chain order, head first,
+   * or `undefined` for an unknown key. Live array: do not mutate.
    */
   getTexelIndicesOf(key: string): number[] | undefined {
     return this._keyToTexelIndices.get(key);
@@ -90,26 +86,25 @@ export class InstancedDataTexture {
     return Math.floor((this._maxWidth * this._maxWidth) / this._texelsPerItem) - this._usedSlots;
   }
 
-  /** @returns How many items the key holds. */
   itemCountOf(key: string): number {
     return this._keyToTexelIndices.get(key)?.length ?? 0;
   }
 
-  /** @returns The texel index of the key's first item, or `undefined` if the key holds none. */
+  /** @returns `undefined` if the key holds no item. */
   getFirstTexelIndexOf(key: string): number | undefined {
     return this._keyToTexelIndices.get(key)?.[0];
   }
 
   /**
-   * Apply one batch of changes and queue the texels it touched for upload.
-   * A key must not appear in both `allocations` and `removals`.
+   * Apply one batch and queue the touched texels for upload. A key must not be
+   * in both `allocations` and `removals`.
    *
-   * @param allocations - New contents for keys, new or held.
-   * @param removals - Keys whose slots are freed; unknown keys are ignored.
+   * @param allocations - New contents for new or held keys.
+   * @param removals - Unknown keys are ignored.
    *
    * @throws {Error} If an allocation's length is not a whole number of items.
    * @throws {RangeError} If the items do not fit in a texture as wide as the
-   * device limit, or 4096.
+   * smaller of the device limit and 4096.
    */
   update(allocations: ItemAllocation[], removals: Iterable<string>) {
     const toAppend: ItemAllocation[] = [];
@@ -127,17 +122,15 @@ export class InstancedDataTexture {
     this._flush();
   }
 
-  /** Releases the GPU texture. The instance is unusable afterwards. */
+  /** Release the GPU texture. Unusable afterwards. */
   dispose() {
     this._texture.dispose();
   }
 
   /**
-   * Overwrites the key's existing items with `data`, freeing any it no longer
-   * needs.
+   * Overwrite the key's items with `data`, freeing any surplus.
    *
-   * @returns The items that did not fit in the key's existing slots, or
-   * `undefined` when there are none.
+   * @returns Items beyond the key's existing slots, or `undefined` if none.
    */
   private _rewrite(key: string, data: Float32Array): ItemAllocation | undefined {
     const indices = this._keyToTexelIndices.get(key) ?? [];
@@ -145,17 +138,15 @@ export class InstancedDataTexture {
     const oldCount = indices.length;
     const common = Math.min(newCount, oldCount);
 
-    // Writing an item overwrites its link, so each is relinked after it.
+    // Writing an item overwrites its link: relink after each.
     for (let i = 0; i < common; i++) {
       this._writeItem(indices[i], data, i);
       if (i > 0) this._linkTo(indices[i - 1], indices[i]);
     }
-    // A key that shrank or kept its size ends here; one that grew is relinked
-    // when its tail is appended.
+    // A shrunk or same-size key ends here; a grown one is relinked on append.
     if (common > 0 && newCount === common) this._linkTo(indices[common - 1], -1);
 
-    // A freed item keeps its texels: nothing links to it, and the next write
-    // into the slot replaces all of them.
+    // Freed items keep their texels: nothing links to them, and the next write replaces them all.
     for (let i = common; i < oldCount; i++) this._availableTexelIdx.push(indices[i]);
     indices.length = common;
     this._usedSlots -= oldCount - common;
@@ -168,7 +159,7 @@ export class InstancedDataTexture {
     return newCount > oldCount ? { key, data: data.subarray(common * this._floatsPerItem) } : undefined;
   }
 
-  /** Appends items to each key after those it already holds, growing the buffer first if needed. */
+  /** Append items after each key's existing ones, growing the buffer first if needed. */
   private _append(allocations: ItemAllocation[]) {
     if (allocations.length === 0) return;
 
@@ -198,11 +189,10 @@ export class InstancedDataTexture {
   }
 
   /**
-   * Grows the buffer and texture to hold `needed` items plus headroom, or to
-   * the widest texture the limit allows when the headroom does not fit.
-   * Keeps existing data; never shrinks.
+   * Grow buffer and texture to hold `needed` items plus headroom, capped at the
+   * width limit. Keeps data; never shrinks.
    *
-   * @throws {RangeError} If `needed` items do not fit even at the limit.
+   * @throws {RangeError} If `needed` items do not fit at the limit.
    */
   private _resize(needed: number) {
     const widthFor = (items: number) => Math.max(1, Math.ceil(Math.sqrt(items * this._texelsPerItem)));
@@ -237,13 +227,13 @@ export class InstancedDataTexture {
     this._requestFullUpload();
   }
 
-  /** Makes the next upload send the whole buffer, even with nothing pending. */
+  /** Next upload sends the whole buffer, even with nothing pending. */
   requestFullUpload() {
     this._requestFullUpload();
     this._texture.needsUpdate = true;
   }
 
-  /** Makes the next upload send the whole buffer, dropping any queued ranges. */
+  /** Next upload sends the whole buffer; queued ranges are dropped. */
   private _requestFullUpload() {
     this._fullUploadPending = true;
     this._dirty.length = 0;
@@ -251,8 +241,8 @@ export class InstancedDataTexture {
   }
 
   /**
-   * Writes `to` into the link float of the item at texel `from`. No-op when
-   * `from` is -1 or the buffer has no link float.
+   * Write `to` into the link float of the item at texel `from`. No-op if `from`
+   * is -1 or there is no link float.
    */
   private _linkTo(from: number, to: number) {
     if (this._nextItemFloat < 0 || from < 0) return;
@@ -260,24 +250,23 @@ export class InstancedDataTexture {
     this._markDirty(from, 1);
   }
 
-  /** Notes a texel span as changed, for the next flush. */
+  /** Queue a texel span for the next flush. */
   private _markDirty(texelStart: number, texelCount: number) {
     if (this._fullUploadPending) return;
     this._dirty.push(texelStart, texelStart + texelCount);
-    // More spans than a partial upload carries: send the whole buffer, unmerged.
     if (this._dirty.length > MAX_RECORDED_SPANS * 2) this._requestFullUpload();
   }
 
-  /** Copies one item's floats into the buffer at texel `idx`. */
+  /** Copy item `item` of `src` to texel `idx`. */
   private _writeItem(idx: number, src: Float32Array, item: number) {
     this._markDirty(idx, this._texelsPerItem);
     this._data.set(src.subarray(item * this._floatsPerItem, (item + 1) * this._floatsPerItem), idx * TEXEL_SIZE);
   }
 
   /**
-   * Hands the changed spans to three as update ranges. Each range becomes one
-   * single-row `texSubImage2D`, so a span crossing a row is split. Past
-   * {@link MAX_UPLOAD_RANGES} the whole buffer is sent instead.
+   * Hand changed spans to three as update ranges. Each range is one single-row
+   * `texSubImage2D`: spans crossing a row are split. Past
+   * {@link MAX_UPLOAD_RANGES} the whole buffer is sent.
    */
   private _flush() {
     const texture = this._texture;
@@ -287,7 +276,7 @@ export class InstancedDataTexture {
     }
     if (this._dirty.length === 0) return;
 
-    // Merge overlapping and touching spans so neighbouring items upload once.
+    // Merge overlapping and touching spans.
     const spans: [number, number][] = [];
     for (let i = 0; i < this._dirty.length; i += 2) spans.push([this._dirty[i], this._dirty[i + 1]]);
     this._dirty.length = 0;
@@ -303,7 +292,7 @@ export class InstancedDataTexture {
     }
 
     const width = this._width;
-    // Ranges queued by earlier flushes count too: three sends them all at once.
+    // Ranges from earlier flushes count: three sends them together.
     let ranges = texture.updateRanges.length;
     for (const [from, to] of merged) {
       for (let texel = from; texel < to;) {

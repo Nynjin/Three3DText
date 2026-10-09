@@ -3,17 +3,14 @@ import { DataTexture, LinearFilter, RedFormat, UnsignedByteType } from 'three';
 import { canvasFontFamily, fontKeyStr, type FontKey } from './FontKey';
 import type { AtlasMetrics, GlyphInfo, GlyphResolver } from './GlyphRun';
 
-/** Character every font the atlas knows is rasterized with; a lookup miss resolves to it. */
+/** Rasterized for every font; a lookup miss resolves to it. */
 export const FALLBACK_CHAR = '?';
 
-/**
- * Distance encoded outside the glyph, as a fraction of the em. It caps how far
- * a halo can reach, and it is how far each glyph bitmap overruns its ink.
- */
+/** Field distance outside the ink, in em. Caps halo reach; also how far each bitmap overruns its ink. */
 const BUFFER_EM = 0.25;
 
 /**
- * Distance, in raster pixels, the field carries outside the ink.
+ * Field distance outside the ink, in raster px. At least 2.
  *
  * @param fontSize - Raster font size, {@link SDFAtlasOptions.fontSize}.
  */
@@ -21,14 +18,14 @@ export function sdfBuffer(fontSize: number): number {
   return Math.max(2, Math.round(fontSize * BUFFER_EM));
 }
 
-/** Room made on growth, as a multiple of the glyphs needed. */
+/** Growth headroom, as a multiple of the glyphs needed. */
 const CAPACITY_MULTIPLIER = 1.5;
 
-/** Texture rows queued between uploads, past which the whole texture is sent. */
+/** Queued rows past which the whole texture is uploaded. */
 const MAX_UPLOAD_ROWS = 4096;
 
 export interface SDFAtlasOptions {
-  /** Raster font size, in raster px. */
+  /** In raster px. */
   fontSize: number;
   /** Largest texture side, in texels. */
   maxSize: number;
@@ -36,25 +33,24 @@ export interface SDFAtlasOptions {
 
 export interface FontChars {
   fontKey: FontKey;
-  /** Characters needed, split as layout splits the text. A partial set is fine. */
+  /** Needed characters, split as layout splits the text. May be partial. */
   chars: Iterable<string>;
 }
 
 /**
- * One single-channel distance-field texture holding the glyphs of every font,
- * keyed by font (family list, weight and style) and character: a character in
- * two weights takes two slots. A glyph is never freed, only forgotten all at
- * once by {@link clearGlyphs}.
- * Once the texture reaches the device's size limit and every slot is taken, a
- * new character resolves to its font's {@link FALLBACK_CHAR}, and a warning is
- * logged once.
+ * Single-channel distance-field texture for every font's glyphs, keyed by font
+ * (family list, weight, style) and character: one slot per character per font.
+ * Glyphs are never freed, only all forgotten by {@link clearGlyphs}.
+ * At the device size limit with every slot taken, a new character resolves to
+ * its font's {@link FALLBACK_CHAR}, with a warning logged once per
+ * {@link clearGlyphs}.
  */
 export class SDFAtlas {
   private _texture: DataTexture = new DataTexture(new Uint8Array(1), 1, 1, RedFormat, UnsignedByteType);
-  /** Glyph entries, by font key string then character. */
+  /** By font key string, then character. */
   private readonly _glyphs = new Map<string, Map<string, GlyphInfo>>();
 
-  /** Replaced, and the previous one disposed, whenever the atlas grows. */
+  /** Replaced (old one disposed) when the atlas grows. */
   get texture(): DataTexture {
     return this._texture;
   }
@@ -63,29 +59,29 @@ export class SDFAtlas {
   readonly fontSize: number;
   /** Field distance outside the ink, in raster px. */
   readonly buffer: number;
-  /** tiny-sdf's cutoff: the field reads `1 - cutoff` at the ink edge, so this share of its range lies inside the ink. */
+  /** tiny-sdf cutoff: the field reads `1 - cutoff` at the ink edge; this share of its range lies inside the ink. */
   readonly cutoff: number;
   /** Distance, in raster px, over which the field runs from 0 to 1. */
   readonly radius: number;
 
-  /** What layout needs to read glyph entries. */
+  /** For reading glyph entries. */
   readonly metrics: AtlasMetrics;
 
   private _data: Uint8Array = new Uint8Array(1);
   private _width = 1;
   private readonly _cellSize: number;
-  /** Glyph cells per row: as many as fit the device limit across, set at construction. */
+  /** Cells per row, filling the device width limit. Fixed. */
   private readonly _cols: number;
   private _rows = 0;
   private _capacity = 0;
   private _slotCount = 0;
   private _warnedFull = false;
 
-  /** Set until three has uploaded the whole texture, after it was replaced or cleared. */
+  /** Set from a replace or clear until three uploads the whole texture. */
   private _fullUploadPending = true;
-  /** Texture rows queued as update ranges since the last upload. */
+  /** Rows queued as update ranges since the last upload. */
   private readonly _queuedRows = new Set<number>();
-  /** Texture rows the glyphs drawn by the running `setChars` touched. */
+  /** Rows drawn by the running `setChars`; last row exclusive. */
   private _touchedFirstRow = Infinity;
   private _touchedLastRow = -1;
 
@@ -94,7 +90,7 @@ export class SDFAtlas {
   private readonly _fontToSDF = new Map<string, TinySDF>();
 
   /**
-   * @throws {RangeError} If one glyph cell is larger than `maxSize`.
+   * @throws {RangeError} If a glyph cell exceeds `maxSize`.
    */
   constructor(options: SDFAtlasOptions) {
     const { fontSize, maxSize } = options;
@@ -102,13 +98,13 @@ export class SDFAtlas {
     this._maxSize = maxSize;
 
     this.buffer = sdfBuffer(fontSize);
-    // The field spans `radius * cutoff` px inside the ink and
-    // `radius * (1 - cutoff)` outside; at 0.495 both come to about `buffer`.
+    // Field spans `radius * cutoff` px inside the ink, `radius * (1 - cutoff)`
+    // outside; at 0.495 both are about `buffer`.
     this.cutoff = 0.495;
     this.radius = Math.ceil(this.buffer / (1 - this.cutoff));
-    // tiny-sdf rasterizes into a canvas of fontSize + 4 * buffer and allows a
-    // glyph one further buffer beyond it, so fontSize + 5 * buffer is the
-    // largest bitmap it can hand back. A smaller cell bleeds into the next.
+    // tiny-sdf's canvas is fontSize + 4 * buffer and a glyph may overrun it by
+    // one buffer: fontSize + 5 * buffer is its largest bitmap. A smaller cell
+    // bleeds into the next.
     this._cellSize = fontSize + this.buffer * 5;
     if (this._cellSize > maxSize) {
       throw new RangeError(`SDFAtlas: a ${this._cellSize} px glyph cell exceeds the ${maxSize} px texture limit; lower atlasFontSize`);
@@ -122,8 +118,8 @@ export class SDFAtlas {
   }
 
   /**
-   * Forgets every glyph and font; a later {@link setChars} registers them again.
-   * Entries already handed to layout are stale afterwards.
+   * Forgets every glyph and font; {@link setChars} registers them again.
+   * Entries and resolvers already handed out go stale.
    */
   clearGlyphs() {
     this._glyphs.clear();
@@ -134,7 +130,7 @@ export class SDFAtlas {
     this._requestFullUpload();
   }
 
-  /** Makes the next upload send the whole texture, dropping any queued rows. */
+  /** Next upload sends the whole texture; queued rows dropped. */
   private _requestFullUpload() {
     this._fullUploadPending = true;
     this._queuedRows.clear();
@@ -147,9 +143,9 @@ export class SDFAtlas {
   }
 
   /**
-   * Queues the rows the last draw touched as update ranges: three sends each as
-   * one row-wide `texSubImage2D`, counting 4 elements per texel whatever the format,
-   * so a range is `4 * width` long. Past {@link MAX_UPLOAD_ROWS} the whole texture goes.
+   * Queues the rows the last draw touched as update ranges. three uploads each
+   * as a row-wide `texSubImage2D` and counts 4 elements per texel whatever the
+   * format: a range is `4 * width`. Past {@link MAX_UPLOAD_ROWS}, full upload.
    */
   private _queueTouchedRows() {
     if (this._fullUploadPending) return;
@@ -162,13 +158,12 @@ export class SDFAtlas {
   }
 
   /**
-   * Rasterize any `(font, char)` pair not in the atlas yet, plus
-   * {@link FALLBACK_CHAR} for each font. Glyphs are rasterized with whatever
-   * font the canvas resolves at call time.
+   * Rasterizes every `(font, char)` pair not yet in the atlas, plus
+   * {@link FALLBACK_CHAR} per font, with whatever font the canvas resolves at
+   * call time.
    *
-   * @returns `dirty` if the texture contents changed; `resize` if the atlas grew
-   * and replaced {@link texture} with a taller one. Existing entries keep their
-   * `px` and `py`.
+   * @returns `dirty`: texture contents changed. `resize`: the atlas grew and
+   * {@link texture} was replaced by a taller one; entries keep `px` and `py`.
    */
   setChars(fontChars: FontChars[]): {
     dirty: boolean;
@@ -212,11 +207,10 @@ export class SDFAtlas {
   }
 
   /**
-   * Binds a lookup to one font. A character the font has no entry for resolves
-   * to {@link FALLBACK_CHAR}, or to a blank glyph if the atlas was full before
-   * the font's fallback was drawn.
+   * Lookup bound to one font. A miss resolves to {@link FALLBACK_CHAR}, or to a
+   * blank glyph if the atlas filled before the font's fallback was drawn.
    *
-   * @throws {Error} If no {@link setChars} call has registered `fontKey`.
+   * @throws {Error} If `fontKey` was never passed to {@link setChars}.
    */
   resolverFor(fontKey: FontKey): GlyphResolver {
     if (!this._fontToSDF.has(fontKeyStr(fontKey))) {
@@ -239,12 +233,12 @@ export class SDFAtlas {
 
   /**
    * Rasterizes glyphs into the next free slots and records their metrics.
-   * Entries already present are skipped. A glyph with no ink, such as a space,
-   * takes no slot; one with ink that finds no free slot is dropped.
+   * Skips existing entries. An inkless glyph (a space) takes no slot; an inked
+   * one with no free slot is dropped.
    *
-   * @returns How many glyphs were rasterized into a slot.
+   * @returns Glyphs drawn into a slot.
    *
-   * @throws {Error} If a font has no TinySDF instance registered.
+   * @throws {Error} If a font has no TinySDF registered.
    */
   private _drawChars(entries: { char: string; fontKey: FontKey }[]): number {
     let dropped = 0;
@@ -305,7 +299,7 @@ export class SDFAtlas {
   }
 
   /**
-   * Copies a rasterized glyph into the atlas data, row by row.
+   * Copies a glyph bitmap into the atlas data.
    *
    * @param src - Single-channel distance field, `w * h` bytes.
    */
@@ -319,12 +313,11 @@ export class SDFAtlas {
   }
 
   /**
-   * Adds rows of glyph cells towards `minChars` glyphs times the capacity
-   * multiplier, capped at the device's texture height. The width never changes,
-   * so every existing glyph keeps its position and the old bitmap is the first
-   * part of the new one.
+   * Adds cell rows towards `minChars * CAPACITY_MULTIPLIER` glyphs, capped at
+   * the device height. Width is fixed: glyphs keep their positions and the old
+   * data is a prefix of the new.
    *
-   * @returns `false` if the atlas already has every row it can get.
+   * @returns `false` if no row can be added.
    */
   private _resize(minChars: number): boolean {
     const maxRows = Math.floor(this._maxSize / this._cellSize);
@@ -345,7 +338,7 @@ export class SDFAtlas {
     this._texture.dispose();
     this._texture = new DataTexture(newData, width, height, RedFormat, UnsignedByteType);
     this._texture.flipY = false;
-    // No mipmaps: averaging a distance field across a thin stem erodes it.
+    // No mipmaps: averaging a distance field erodes thin stems.
     this._texture.generateMipmaps = false;
     this._texture.minFilter = LinearFilter;
     this._texture.magFilter = LinearFilter;

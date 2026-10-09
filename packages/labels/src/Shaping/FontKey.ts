@@ -6,12 +6,9 @@ export type FontStyle = (typeof STYLES)[number];
 
 export type FontWeightName = keyof typeof WEIGHT_ALIASES;
 
-/**
- * Immutable font identity, shared by reference. A change replaces the key; it is
- * never mutated in place.
- */
+/** Immutable, shared by reference. Replace, never mutate. */
 export interface FontKey {
-  /** CSS family name, or a comma-separated list of them. */
+  /** CSS family, or comma-separated family list. */
   readonly font: string;
   readonly weight: FontWeight;
   readonly style: FontStyle;
@@ -49,7 +46,7 @@ const ALIASES: ReadonlyMap<string, FontWeight> = new Map(Object.entries(WEIGHT_A
 const WEIGHT_SET: ReadonlySet<string> = new Set(WEIGHTS);
 const STYLE_SET: ReadonlySet<string> = new Set(STYLES);
 
-/** CSS generic families, which the canvas `font` shorthand takes unquoted. */
+/** CSS generic families: unquoted in the canvas `font` shorthand. */
 const GENERIC_FAMILIES: ReadonlySet<string> = new Set([
   'serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui',
   'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'emoji', 'math', 'fangsong',
@@ -63,18 +60,16 @@ function isFontStyle(token: string): token is FontStyle {
   return STYLE_SET.has(token);
 }
 
-/** A weight token or alias, ignoring case and hyphens, or `undefined`. */
+/** Weight for a token or alias, ignoring case and hyphens. `undefined` if unknown. */
 function weightOf(token: string): FontWeight | undefined {
   const t = token.toLowerCase().replace(/-/g, '');
   return isFontWeight(t) ? t : ALIASES.get(t);
 }
 
 /**
- * Canonical weight for a numeric weight, a weight string or an alias such as
- * `bold`.
+ * Canonical weight for a number, weight string or alias such as `bold`.
  *
- * @throws {RangeError} If the value is none of the nine CSS weights or a known
- * alias.
+ * @throws {RangeError} If not one of the nine CSS weights or a known alias.
  */
 export function normalizeFontWeight(value: FontWeight | FontWeightName | number): FontWeight {
   const weight = weightOf(String(value));
@@ -83,10 +78,9 @@ export function normalizeFontWeight(value: FontWeight | FontWeightName | number)
 }
 
 /**
- * Splits a font name such as `"Helvetica Neue Extra Bold Italic"` into its
- * family, weight and style. Weight and style words are read from the end, one
- * or two words at a time; the rest is the family. `weight` and `style` are
- * present only when the name carries them.
+ * Splits a name such as `"Helvetica Neue Extra Bold Italic"` into family,
+ * weight and style. Weight and style words are read from the end, one or two
+ * words at a time; the rest is the family. `weight`/`style` set only if named.
  */
 function parseFontName(descriptor: string): { font: string; weight?: FontWeight; style?: FontStyle } {
   const parts = descriptor.trim().split(/\s+/).filter(Boolean);
@@ -123,13 +117,12 @@ function parseFontName(descriptor: string): { font: string; weight?: FontWeight;
 }
 
 /**
- * Reads a MapLibre or Mapbox `text-font` stack: font names that carry their
- * weight and style, such as `['Open Sans Semibold', 'Arial Unicode MS Bold']`.
- * The first name sets the weight and style, normal when it names none; the
- * families of all names, in order, make the family list.
+ * Reads a MapLibre/Mapbox `text-font` stack of names carrying weight and
+ * style, such as `['Open Sans Semibold', 'Arial Unicode MS Bold']`. The first
+ * non-blank name sets weight and style (normal if unnamed). Yields the distinct
+ * families, in order; duplicates and blank names dropped.
  *
- * @returns A family list as {@link canvasFontFamily} reads it, with the weight
- * and style.
+ * @returns `font`: a family list as {@link canvasFontFamily} reads it.
  */
 export function parseFontStack(names: readonly string[]): { font: string; weight: FontWeight; style: FontStyle } {
   const families: string[] = [];
@@ -150,9 +143,8 @@ export function parseFontStack(names: readonly string[]): { font: string; weight
 }
 
 /**
- * The family part of a canvas `font` shorthand for `font`. Each family is
- * quoted unless it is a CSS generic family or already quoted, so a name with a
- * digit-led word such as `Font Awesome 6 Free` stays valid.
+ * Family part of a canvas `font` shorthand. Quotes every family that is
+ * neither a CSS generic family nor already quoted.
  */
 export function canvasFontFamily(font: string): string {
   return font

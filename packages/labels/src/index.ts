@@ -1,7 +1,4 @@
-/**
- * Instanced SDF labels for three.js: many labels drawn through one mesh and
- * placed so they do not overlap.
- */
+/** Instanced SDF labels for three.js: many labels in one mesh, placed without overlap. */
 
 export { InstancedLabelManager } from './InstancedLabelManager';
 

@@ -24,11 +24,11 @@ const LABEL_FLOATS = LABEL_TEXELS * 4;
 /** Floats one glyph occupies in the glyph data texture. */
 const GLYPH_FLOATS = GLYPH_TEXELS * 4;
 
-/** Instances the draw lists start at, and the slack a grow takes. */
+/** Initial draw-list capacity, in instances, and the growth factor. */
 const INITIAL_INSTANCES = 4096;
 const INSTANCE_SLACK = 1.5;
 
-/** Writes a label's texels as flat floats, {@link LABEL_FLOATS} of them at `at`. */
+/** Write a label's {@link LABEL_FLOATS} floats at `at`. */
 function writeLabelFloats(label: Label, out: Float32Array, at: number) {
   const { x, y, z } = label.position;
   out[at] = x;
@@ -69,13 +69,13 @@ function writeLabelFloats(label: Label, out: Float32Array, at: number) {
   out[at + 27] = 0;
 }
 
-/** Splits `v` into a float32 and the remainder it rounds away, into `high` and `low`. */
+/** Split `v` into its float32 rounding (`high`) and the remainder (`low`). */
 function splitDouble(v: Vector3, high: Vector3, low: Vector3) {
   high.set(Math.fround(v.x), Math.fround(v.y), Math.fround(v.z));
   low.set(v.x - high.x, v.y - high.y, v.z - high.z);
 }
 
-/** Writes glyphs as flat floats, {@link GLYPH_FLOATS} each, from `at`. */
+/** Write glyphs from `at`, {@link GLYPH_FLOATS} floats each. */
 function writeGlyphFloats(glyphs: GlyphInstance[], out: Float32Array, at: number) {
   let o = at;
   for (const { offset, glyph } of glyphs) {
@@ -98,7 +98,7 @@ function writeGlyphFloats(glyphs: GlyphInstance[], out: Float32Array, at: number
   }
 }
 
-/** Grows a staging buffer to hold `floats`, geometrically, without keeping its contents. */
+/** Grow a staging buffer to hold `floats`, geometrically. Contents are not kept. */
 function growStaging(buf: Float32Array<ArrayBuffer>, floats: number): Float32Array<ArrayBuffer> {
   if (buf.length >= floats) return buf;
   return new Float32Array(Math.max(floats, buf.length * 2));
@@ -119,14 +119,13 @@ export interface MeshChanges {
 }
 
 /**
- * Owns the mesh every label draws through, one instance per label, and the data
- * textures behind it.
+ * Owns the label mesh, one instance per label, and its data textures.
  *
  * Label and glyph data live in {@link InstancedDataTexture}s keyed by label id;
- * {@link LabelMeshManager.update} rewrites the labels it is given.
- * The draw list is separate: {@link LabelMeshManager.cull} rebuilds it.
+ * {@link LabelMeshManager.update} rewrites the given labels.
+ * {@link LabelMeshManager.cull} rebuilds the draw list.
  *
- * The mesh's own transform is ignored: label positions are world coordinates.
+ * The mesh's transform is ignored: label positions are world coordinates.
  */
 export class LabelMeshManager {
   readonly geom: InstancedBufferGeometry = new InstancedBufferGeometry();
@@ -144,7 +143,7 @@ export class LabelMeshManager {
 
   private _warnedFull = false;
 
-  /** Staging buffers for one `update` call, reused across calls and never shrunk. */
+  /** Staging for `update`. Reused, never shrunk. */
   private _labelStaging = new Float32Array(0);
   private _glyphStaging = new Float32Array(0);
 
@@ -182,9 +181,9 @@ export class LabelMeshManager {
   }
 
   /**
-   * Regrows the instance lists to hold `min` labels, keeping the `written`
-   * already staged by this cull. three refuses to resize a live attribute, so
-   * the attribute objects are replaced and the geometry disposed.
+   * Regrow the instance lists to hold `min` labels, keeping the first `written`.
+   * three cannot resize a live attribute: the attributes are replaced and the
+   * geometry disposed.
    */
   private _grow(min: number, written: number) {
     const n = Math.ceil(min * INSTANCE_SLACK);
@@ -203,10 +202,10 @@ export class LabelMeshManager {
   }
 
   /**
-   * Write label work to the data textures. Does not touch the draw list; call
-   * {@link LabelMeshManager.cull} for that.
+   * Write label work to the data textures. The draw list is left to
+   * {@link LabelMeshManager.cull}.
    *
-   * @param changes - Labels to write, and ids to free.
+   * @param changes - Labels to write, ids to free.
    * @param atlasReplaced - The atlas grew, replacing its texture.
    *
    * @returns Labels that did not fit, and were not written.
@@ -232,7 +231,7 @@ export class LabelMeshManager {
     return deferred;
   }
 
-  /** Keeps the labels that fit from each list, and appends the rest to `deferred`. */
+  /** Keep the labels that fit from each list; append the rest to `deferred`. */
   private _fit(lists: Label[][], deferred: Label[]): Label[][] {
     let labelRoom = this._labelData.freeItems;
     let glyphRoom = this._glyphData.freeItems;
@@ -249,7 +248,7 @@ export class LabelMeshManager {
     }));
   }
 
-  /** Makes the next render upload both data textures whole. */
+  /** Next render uploads both data textures whole. */
   requestFullUpload() {
     this._labelData.requestFullUpload();
     this._glyphData.requestFullUpload();
@@ -298,10 +297,10 @@ export class LabelMeshManager {
   }
 
   /**
-   * Rewrite the draw list: one instance per label that is placed or still
-   * fading out, carrying its glyph run and eased fade.
+   * Rewrite the draw list: one instance per placed or fading-out label, with its
+   * glyph run and eased fade.
    *
-   * @param labels - Labels that are placed or still fading, in any order.
+   * @param labels - Placed or fading labels, any order.
    */
   cull(labels: Iterable<Label>) {
     let pos = 0;
@@ -330,8 +329,7 @@ export class LabelMeshManager {
       pos++;
     }
 
-    // Upload only the slice drawn: the lists keep the high-water mark of every
-    // cull so far.
+    // Upload only the drawn slice; the lists keep their high-water mark.
     this.geom.instanceCount = pos;
     this._labelSpanAttr.addUpdateRange(0, pos * 3);
     this._labelSpanAttr.needsUpdate = true;
@@ -339,7 +337,7 @@ export class LabelMeshManager {
     this._labelFadeAttr.needsUpdate = true;
   }
 
-  /** Releases the geometry, both data textures and the material. */
+  /** Release the geometry, both data textures and the material. */
   dispose() {
     this.geom.dispose();
     this._labelData.dispose();

@@ -2,21 +2,21 @@ import type { Label } from '../Label';
 import { applyShaping, needsShaping, shaperLoaded } from './RTL';
 import { charSplitter } from './Graphemes';
 
-/** What character requests, line breaking and layout each need from a label's text, worked out once. */
+/** A label's text, analyzed once for character requests, line breaking and layout. */
 export interface TextAnalysis {
-  /** Whether the RTL shaper was loaded when this was worked out. */
+  /** Shaper load state at analysis time. */
   shaperLoaded: boolean;
-  /** The text layout places, shaped. */
+  /** Shaped text, as layout places it. */
   shaped: string;
-  /** The text holds an RTL code point. */
+  /** Holds an RTL code point. */
   rtl: boolean;
-  /** How `shaped` and its lines split into characters. */
+  /** Splits `shaped` and its lines into characters. */
   split: (s: string) => string[];
   /** `shaped` split into characters. */
   chars: string[];
 }
 
-/** The label's text analysis, cached on the label until its displayed text changes or layout has used it, and worked out again once the RTL shaper loads. */
+/** Cached on `label.analysis` until cleared there; redone once the RTL shaper loads. */
 export function analyze(label: Label): TextAnalysis {
   const loaded = shaperLoaded();
   const cached = label.analysis;

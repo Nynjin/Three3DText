@@ -7,22 +7,21 @@ import { LabelMeshManager, type LabelMesh } from './Rendering/LabelMeshManager';
 import { LabelCollisionEngine } from './Collision/LabelCollisionEngine';
 import { type LabelManagerConfig, DefaultLabelConfig } from './Types/LabelConfig';
 
-/** Longest step, in ms, one `cull` advances a fade by. */
+/** Longest fade step per `cull`, in ms. */
 const MAX_FADE_STEP_MS = 100;
 
 /**
- * Draws a set of labels through one mesh, placing them so they do not overlap.
+ * Draws labels through one mesh, placed without overlap.
  *
- * Add {@link mesh} to the scene, add labels, and call {@link cull} once per
- * frame before rendering. Label changes are committed by {@link update}, which
- * runs by itself while `config.autoUpdate` is on. {@link dispose} releases GPU
- * resources; it does not remove the mesh from its parent.
+ * Add {@link mesh} to the scene, add labels, call {@link cull} each frame
+ * before rendering. {@link update} commits label changes; automatic while
+ * `config.autoUpdate` is on. {@link dispose} does not remove the mesh from its parent.
  */
 export class InstancedLabelManager {
-  /** Settings, read live except where their docs say otherwise. */
+  /** Settings, read live unless their docs say otherwise. */
   readonly config: LabelManagerConfig;
 
-  /** The mesh to add to the scene. Its own transform is ignored. */
+  /** Add to the scene. Its own transform is ignored. */
   readonly mesh: LabelMesh;
 
   /**
@@ -35,26 +34,25 @@ export class InstancedLabelManager {
   private readonly _atlasManager: LabelAtlasManager;
   private readonly _meshManager: LabelMeshManager;
 
-  /** Earliest `performance.now()` at which a pass may open. */
+  /** Earliest `performance.now()` for the next pass. */
   private _nextPassTime = 0;
   private _lastFrameTime = 0;
-  /** `labelNear`, `labelFar`, `ndcCullMargin` and `renderPenaltyMultiplier` as the last pass saw them. */
+  /** `labelNear`, `labelFar`, `ndcCullMargin`, `renderPenaltyMultiplier` as last seen by `cull`. */
   private readonly _placementOptions = [NaN, NaN, NaN, NaN];
 
-  /**
-   * Labels the fade loop and the draw list read: every label that is fading, or
-   * placed and visible. A hidden label that has fully faded is not in it.
-   */
+  /** Labels fading, or placed and visible. Read by the fade loop and the draw list. */
   private readonly _live = new Set<Label>();
-  /** The set of drawn labels or their order changed since the draw list was written. */
+  /** Drawn set or order changed since the draw list was written. */
   private _drawListStale = false;
   private _updateQueued = false;
 
   /**
-   * @param renderer - Renderer the labels are drawn with. Its canvas size, in
-   * CSS px, sets label size and placement.
-   * @param options - Overrides merged over {@link DefaultLabelConfig}; an
-   * `undefined` value keeps the default.
+   * @param renderer - Its canvas size, in CSS px, sets label size and placement.
+   * @param options - Merged over {@link DefaultLabelConfig}; `undefined` keeps the default.
+   *
+   * @throws {RangeError} If `atlasFontSize` implies a glyph cell larger than the
+   * device's texture size.
+   * @throws {Error} If `downscale` is not a power of two.
    */
   constructor(renderer: WebGLRenderer, options: Partial<LabelManagerConfig> = {}) {
     const config: LabelManagerConfig = { ...DefaultLabelConfig };
@@ -88,10 +86,10 @@ export class InstancedLabelManager {
   }
 
   /**
-   * Take ownership of labels: they get glyphs, buffer slots and a first layout
-   * on the next update, and are placed by the next placement pass.
+   * Takes ownership: labels get glyphs, buffer slots and a first layout on the
+   * next update, and are placed by the next pass.
    *
-   * @param labels - Labels to add; any already owned are ignored.
+   * @param labels - Already owned ones are ignored.
    */
   addLabels(labels: Iterable<Label>) {
     this._atlasManager.addLabels(labels);
@@ -103,26 +101,27 @@ export class InstancedLabelManager {
   }
 
   /**
-   * Release labels: their buffer slots are freed on the next update. The label
-   * objects are left usable and can be added again.
+   * Releases labels; their buffer slots are freed on the next update. The labels
+   * stay usable and can be added again.
    *
-   * @param labels - Labels to remove; any not owned are ignored.
+   * @param labels - Unowned ones are ignored.
    */
   removeLabels(labels: Iterable<Label>) {
     this._atlasManager.removeLabels(labels);
   }
 
-  /** Releases every label at once. See {@link removeLabels}. */
+  /** Releases every label. See {@link removeLabels}. */
   clear() {
     this.removeLabels([...this._atlasManager.labels]);
   }
 
   /**
-   * Commit pending label work to the GPU. Runs on the microtask after a change
-   * while `config.autoUpdate` is on. With it off, call it after changes, and
-   * after `rtlReady` settles: the shaper queues a relayout of RTL labels.
+   * Commits pending label work to the GPU. Runs on the microtask after a change
+   * while `config.autoUpdate` is on. With it off, call it after changes, after
+   * `rtlReady` settles, and after a web font a label uses finishes loading.
    *
-   * Labels past the device's texture size are not drawn until others are removed.
+   * Labels past the data texture limit (4096 texels a side, or the device's
+   * limit if smaller) are not drawn until others are removed.
    */
   update() {
     if (!this._atlasManager.hasDirty) return;
@@ -130,12 +129,11 @@ export class InstancedLabelManager {
   }
 
   /**
-   * Runs placement, steps the fades and rewrites the draw list when something
-   * changed. Call once per rendered frame, before the renderer draws. A fade
-   * advances by at most 100 ms per call.
+   * Runs placement, steps fades, rewrites the draw list if needed. Call once per
+   * rendered frame, before drawing. A fade advances at most 100 ms per call.
    *
-   * @param camera - Its `projectionMatrix`, `matrixWorld` and
-   * `matrixWorldInverse` must be up to date.
+   * @param camera - `projectionMatrix`, `matrixWorld` and `matrixWorldInverse`
+   * must be current.
    */
   cull(camera: Camera) {
     const now = performance.now();
@@ -186,7 +184,7 @@ export class InstancedLabelManager {
     if (stale) this._writeDrawList();
   }
 
-  /** Puts `label` in the live set if its fade or placement calls for it, and marks the draw list stale. */
+  /** Adds `label` to the live set and marks the draw list stale. */
   private _touch(label: Label) {
     this._live.add(label);
     this._drawListStale = true;
@@ -198,8 +196,9 @@ export class InstancedLabelManager {
   }
 
   /**
-   * Releases every GPU resource and every label, which stop rendering and can be
-   * added to another manager. The mesh stays in its parent.
+   * Releases every GPU resource and every label; the labels stop rendering and
+   * can join another manager. The manager is unusable afterwards. The mesh stays
+   * in its parent.
    */
   dispose() {
     for (const label of this._atlasManager.labels) {
@@ -213,14 +212,12 @@ export class InstancedLabelManager {
     this.collision.dispose();
   }
 
-  /** A restored context starts with empty textures: the data textures are uploaded whole. */
+  /** A restored context has empty textures: re-upload the data textures whole. */
   private readonly _onContextRestored = () => {
     this._meshManager.requestFullUpload();
   };
 
-  /**
-   * Rasterizes pending glyphs, then lays out and writes pending label work.
-   */
+  /** Rasterizes pending glyphs, then lays out and writes pending label work. */
   private _sync() {
     const { atlas } = this._atlasManager;
     const { resize } = this._atlasManager.syncAtlas();

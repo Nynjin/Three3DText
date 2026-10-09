@@ -2,8 +2,7 @@ import { LABEL_PLACEMENT } from './LabelCommon.glsl';
 
 /**
  * One instance per label, quad sized to the union of its glyph bitmaps. The
- * quad only decides which pixels may be shaded; the fragment stage cuts the
- * glyph shapes out of the distance field.
+ * quad bounds the shaded pixels; the fragment stage cuts the glyphs out of the field.
  */
 export const LABEL_QUAD_VERT = /* glsl */ `
 ${LABEL_PLACEMENT}

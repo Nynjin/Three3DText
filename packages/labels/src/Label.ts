@@ -53,8 +53,8 @@ export enum RotationAlignment {
 /**
  * MapLibre `symbol-placement`.
  *
- * TODO: only `Point` is implemented. `Line` and `Line-Center` are accepted and
- * stored, but placement follows {@link RotationAlignment} alone.
+ * TODO: only `Point` is implemented. `Line` and `Line-Center` are stored;
+ * placement follows {@link RotationAlignment}.
  */
 export enum SymbolPlacement {
   Point = 0,
@@ -62,7 +62,7 @@ export enum SymbolPlacement {
   'Line-Center' = 2,
 }
 
-/** Bits of a label's change notification: what changed since the last one. */
+/** Change notification bits: what changed since the last one. */
 export const LabelChangeType = {
   None: 0,
   Font: 1 << 0,
@@ -74,7 +74,7 @@ export const LabelChangeType = {
   Dispose: 1 << 6,
 } as const;
 
-/** Set when a change can alter where the label may be placed. Not part of the public API. */
+/** Change that can alter placement. Not public. */
 export const PLACEMENT_CHANGE = 1 << 7;
 
 export type LabelChangeMask = number;
@@ -87,10 +87,7 @@ export interface TextPadding {
   left: number;
 }
 
-/**
- * A label's collision box in label-local space, in CSS px, y up: its ink after
- * the anchor and offset are applied, grown by `padding`.
- */
+/** Collision box, label-local CSS px, y up: ink after anchor and offset, grown by `padding`. */
 export interface LabelBounds {
   /** Left edge. */
   minX: number;
@@ -100,7 +97,7 @@ export interface LabelBounds {
   height: number;
 }
 
-/** Centre and size, in CSS px, of the area a label draws over: the union of its glyph bitmaps. */
+/** Centre and size, in CSS px, of the union of the label's glyph bitmaps. */
 export interface LabelQuad {
   cx: number;
   cy: number;
@@ -108,23 +105,18 @@ export interface LabelQuad {
   height: number;
 }
 
-/**
- * Called when a label changes, with a {@link LabelChangeType} mask and the label
- * itself, so one listener can serve many labels. Bits not named in
- * `LabelChangeType` may be set and are reserved.
- */
+/** Gets a {@link LabelChangeType} mask and the label. Unnamed bits are reserved. */
 export type LabelChangeListener = (changes: LabelChangeMask, label: Label) => void;
 
 /**
- * A label's properties. Units follow the Mapbox style specification: sizes in
- * CSS px of the renderer's canvas, spacing and offsets in em (multiples of
- * `fontSize`). Sizes hold on a label facing the camera; a map-aligned label
+ * Units follow the Mapbox style spec: sizes in CSS px of the renderer's canvas,
+ * spacing and offsets in em (multiples of `fontSize`). A map-aligned label
  * seen at an angle is foreshortened.
  */
 export interface LabelOptions {
   text: string;
 
-  /** Anchor point, in world units. */
+  /** Anchor, in world units. */
   position?: [number, number, number] | Vector3;
   /** Orientation under {@link RotationAlignment.Map}. A tuple is XYZ Euler angles, in radians. */
   rotation?: [number, number, number] | Euler | Quaternion;
@@ -132,18 +124,17 @@ export interface LabelOptions {
   offset?: [number, number] | Vector2;
 
   /**
-   * A string is a CSS `font-family` list, used as written: `'Arial Black, sans-serif'`.
+   * String: CSS `font-family` list, trimmed; empty means the default font.
    * Weight and style come from {@link fontWeight} and {@link fontStyle}.
    *
-   * An array is a MapLibre or Mapbox `text-font` stack, such as
-   * `['Open Sans Semibold', 'Arial Unicode MS Bold']`. Each name carries its
-   * weight and style as trailing words; the first name sets {@link fontWeight}
-   * and {@link fontStyle} (normal when it names none), and the families of all
-   * names, in order, are the family list. A `fontWeight` or `fontStyle` given in
-   * the same call takes precedence.
+   * Array: MapLibre `text-font` stack, e.g. `['Open Sans Semibold', 'Arial Unicode MS Bold']`.
+   * Trailing words of a name give weight and style; the first name sets
+   * {@link fontWeight} and {@link fontStyle} (normal if it names none). The
+   * family list is the distinct families, in order. A `fontWeight` or
+   * `fontStyle` in the same call wins.
    */
   font?: string | readonly string[];
-  /** Text height, in CSS px. */
+  /** Em size, in CSS px. */
   fontSize?: number;
   fontWeight?: FontWeight | FontWeightName | number;
   fontStyle?: FontStyle;
@@ -157,7 +148,7 @@ export interface LabelOptions {
   textAlign?: TextAlign;
   anchorX?: TextAnchorX;
   anchorY?: TextAnchorY;
-  /** Space around the text reserved from other labels, in CSS px; it does not move the text. One number, or `[top, right, bottom, left]`. */
+  /** Space reserved from other labels, in CSS px; does not move the text. One number or `[top, right, bottom, left]`. */
   padding?: TextPadding | number | [number, number, number, number];
 
   color?: string | number | Color | Vector3;
@@ -165,10 +156,7 @@ export interface LabelOptions {
   opacity?: number;
 
   haloColor?: string | number | Color | Vector3;
-  /**
-   * How far the halo extends from the ink edge, in CSS px. The field reaches a
-   * quarter of `fontSize` past the ink; a wider halo draws no further.
-   */
+  /** Halo extent past the ink edge, in CSS px. Draws no further than a quarter of `fontSize`. */
   haloWidth?: number;
   /** Fade-out distance past {@link haloWidth}, in CSS px. */
   haloBlur?: number;
@@ -176,9 +164,9 @@ export interface LabelOptions {
   haloOpacity?: number;
 
   rotationAlignment?: RotationAlignment;
-  /** TODO: stored and sent to the shader, but not acted on. See {@link SymbolPlacement}. */
+  /** TODO: stored, not acted on. See {@link SymbolPlacement}. */
   symbolPlacement?: SymbolPlacement;
-  /** Places the label even over others; it still takes its region. */
+  /** Place even over other labels; still reserves its region. */
   allowOverlap?: boolean;
   visible?: boolean;
 
@@ -188,13 +176,12 @@ export interface LabelOptions {
 let nextLabelId = 0;
 
 /**
- * One label. Every setter notifies the manager holding it, except a set that
- * leaves the value unchanged. The objects returned
- * by `position`, `rotation`, `offset`, `color`, `haloColor` and `padding` are the
- * label's own: an edit in place is not detected, so assign a new value instead.
+ * A setter notifies listeners when the value changes. Objects returned by
+ * `position`, `rotation`, `offset`, `color`, `haloColor` and `padding` are the
+ * label's own: in-place edits are not detected; assign a new value.
  */
 export class Label {
-  /** The first listener, kept inline: a label usually has one, its manager. */
+  /** First listener; later ones go in `_moreListeners`. */
   private _listener: LabelChangeListener | undefined;
   private _moreListeners: LabelChangeListener[] | undefined;
 
@@ -234,42 +221,38 @@ export class Label {
   private _visible: boolean = true;
 
   /**
-   * How far the label has faded out: 0 fully drawn, 1 invisible. The manager
-   * steps it each cull, towards 0 while {@link shouldRender} and {@link visible}
-   * hold and towards 1 otherwise.
+   * Fade-out: 0 fully drawn, 1 invisible. Stepped each cull towards 0 while
+   * {@link shouldRender} and {@link visible} hold, else towards 1.
    */
   occlusionFade: number = 1;
 
   /**
-   * Whether placement gave the label a slot on the last pass. Written by the
-   * collision engine; setting it by hand is overwritten on the next pass.
+   * Whether the label holds a placement slot. Written by placement; set false
+   * when the label leaves the mesh (removal, dispose, not fitting). A hand-set
+   * value is overwritten.
    */
   shouldRender: boolean = false;
 
-  /** Collision box, written by layout. Zero-sized until the label is laid out. */
+  /** Collision box, written by layout. Zero until laid out. */
   bounds: LabelBounds = { minX: 0, minY: 0, width: 0, height: 0 };
 
-  /** Area the shader draws over, written by layout. */
+  /** Area the shader draws over. Written by layout. */
   quad: LabelQuad = { cx: 0, cy: 0, width: 0, height: 0 };
 
-  /** Positioned glyphs with ink, in label-local space. Written by layout. */
+  /** Positioned glyphs with ink, label-local. Written by layout. */
   glyphs: GlyphInstance[] = [];
 
   /**
-   * The text analysis the atlas manager and layout share, cleared when the displayed text changes and after layout.
+   * Cached text analysis; cleared when the displayed text changes and after layout.
    *
    * @internal
    */
   analysis: TextAnalysis | undefined;
 
-  /**
-   * @throws {RangeError} If `fontWeight` is not a CSS weight from 100 to 900 in
-   * steps of 100, or one of the weight names.
-   */
+  /** @throws {RangeError} If `fontWeight` is not 100 to 900 in steps of 100, or a weight name. */
   constructor(options: LabelOptions) {
     this._id = `label-${nextLabelId++}`;
     this._apply(options);
-    // Defaults for what the options left out.
     this._position = orNew(this._position, Vector3);
     this._rotation = orNew(this._rotation, Quaternion);
     this._offset = orNew(this._offset, Vector2);
@@ -277,7 +260,7 @@ export class Label {
     this._haloColor = orNew(this._haloColor, Color);
   }
 
-  /** Unique among the labels of this module instance. */
+  /** Unique within this module instance. */
   get id() {
     return this._id;
   }
@@ -336,17 +319,17 @@ export class Label {
     this._emit(this._apply({ offset: value }));
   }
 
-  /** The label's font identity, shared by reference. Never mutate it. */
+  /** Shared by reference. Never mutate. */
   get fontKey(): FontKey {
     return this._fontKey;
   }
 
-  /** Cached identity of {@link fontKey}, for grouping labels by font. */
+  /** String form of {@link fontKey}; equal strings, same font. */
   get fontKeyStr(): string {
     return this._fontKeyStr;
   }
 
-  /** The CSS family list: what a string was given as, or the families of a `text-font` stack. */
+  /** CSS family list: the trimmed string (empty gives the default font), or a `text-font` stack's distinct families, in order. */
   get font(): string {
     return this._fontKey.font;
   }
@@ -368,9 +351,9 @@ export class Label {
   }
 
   /**
-   * Accepts a number or an alias name; always reads back as the canonical weight.
+   * Number or weight name; reads back as the canonical weight.
    *
-   * @throws {RangeError} If the value is not a CSS weight or a known alias.
+   * @throws {RangeError} If not a CSS weight or weight name.
    */
   set fontWeight(value: FontWeight | FontWeightName | number) {
     this._emit(this._apply({ fontWeight: value }));
@@ -488,7 +471,7 @@ export class Label {
     this._emit(this._apply({ haloOpacity: value }));
   }
 
-  /** @returns Whether the halo has both width and opacity to draw with. */
+  /** @returns Whether halo width and opacity are both above 0. */
   hasHalo(): boolean {
     return this._haloWidth > 0 && this._haloOpacity > 0;
   }
@@ -523,7 +506,7 @@ export class Label {
     this._emit(this._apply({ allowOverlap: value }));
   }
 
-  /** Both the flag and a non-zero {@link opacity}: a label at 0 reads false. */
+  /** The flag and a non-zero {@link opacity}. */
   get visible() {
     return this._visible && this._opacity > 0;
   }
@@ -533,11 +516,9 @@ export class Label {
   }
 
   /**
-   * Apply several properties with a single change notification.
+   * Applies several properties with one notification. Omitted ones are left alone.
    *
-   * @param options - Properties to change; the rest are left alone.
-   *
-   * @throws {RangeError} If `fontWeight` is not a CSS weight or a known alias.
+   * @throws {RangeError} If `fontWeight` is not a CSS weight or weight name.
    *
    * @returns This label.
    */
@@ -547,7 +528,7 @@ export class Label {
   }
 
   /**
-   * Writes `options` onto the label without notifying.
+   * Writes `options` without notifying.
    *
    * @returns What changed.
    */
@@ -576,7 +557,7 @@ export class Label {
       }
     }
 
-    // An explicit `fontWeight` or `fontStyle` overrides the ones a `text-font` stack names.
+    // An explicit `fontWeight` or `fontStyle` beats the stack's.
     if (options.font !== undefined || options.fontWeight !== undefined || options.fontStyle !== undefined) {
       const given = options.font;
       const stack = given !== undefined && typeof given !== 'string' ? parseFontStack(given) : undefined;
@@ -643,8 +624,8 @@ export class Label {
       }
     }
 
-    // Colours, `symbolPlacement` and opacities that stay above 0 only change what
-    // is drawn; the other style options also change a label's box or what counts as hidden.
+    // Colours, `symbolPlacement` and opacity changes not crossing 0 affect drawing
+    // only; the rest can affect placement.
     if (options.color !== undefined) {
       const next = toColor(options.color);
       if (differs(next, this._color)) {
@@ -699,10 +680,7 @@ export class Label {
     return changes;
   }
 
-  /**
-   * @returns A copy of every option, with a fresh id and no listeners. Layout
-   * output is not copied; a manager lays the copy out when it is added.
-   */
+  /** @returns Copy of every option, with a new id and no listeners. Layout output is not copied. */
   clone(): Label {
     return new Label({
       text: this._text,
@@ -735,8 +713,8 @@ export class Label {
   }
 
   /**
-   * Announces the label is finished, which makes any manager holding it release
-   * its slots, then drops every listener. The object itself stays usable.
+   * Emits {@link LabelChangeType.Dispose}, which releases the label from its
+   * manager, then drops every listener. The label stays usable.
    */
   dispose() {
     this._emit(LabelChangeType.Dispose);
@@ -745,9 +723,7 @@ export class Label {
   }
 
   /**
-   * Subscribe to this label's own property changes.
-   *
-   * @param listener - Called with a {@link LabelChangeType} bitmask.
+   * Subscribes to property changes. A listener already subscribed is not added twice.
    *
    * @returns Unsubscribe function.
    */
@@ -759,7 +735,7 @@ export class Label {
   }
 
   /**
-   * Unsubscribe a listener given to {@link onChange}; one that is not subscribed is ignored.
+   * Undoes {@link onChange}. An unknown listener is ignored.
    *
    * @internal
    */
@@ -774,7 +750,7 @@ export class Label {
     if (at >= 0) more.splice(at, 1);
   }
 
-  /** Notifies listeners of what changed. A `None` mask is dropped. */
+  /** A `None` mask is dropped. */
   private _emit(changes: LabelChangeMask): void {
     const first = this._listener;
     if (changes === LabelChangeType.None || first === undefined) return;
@@ -791,17 +767,17 @@ function parsePadding(value: TextPadding | number | [number, number, number, num
   return { ...value };
 }
 
-/** The field a constructor option left unset: `current`, or a new default. */
+/** `current`, or a new `Type`. */
 function orNew<T>(current: T | undefined, Type: new () => T): T {
   return current ?? new Type();
 }
 
-/** Whether `next` is a change: `current` is unset, or holds another value. */
+/** `current` is unset or not equal to `next`. */
 function differs<T extends { equals(other: T): boolean }>(next: T, current: T | undefined): boolean {
   return current === undefined || !next.equals(current);
 }
 
-/** Colour strings already parsed, by string; holds at most `MAX_PARSED_COLORS`. */
+/** Parsed colour strings; at most `MAX_PARSED_COLORS`. */
 const PARSED_COLORS = new Map<string, Color>();
 const MAX_PARSED_COLORS = 512;
 

@@ -12,11 +12,10 @@ export interface ScreenAABB {
 }
 
 /**
- * Projects labels to screen-aligned boxes, in CSS px of the target. Label
- * positions are world coordinates.
+ * Projects labels (world positions) to screen-aligned boxes, CSS px of the target.
  *
  * Call {@link LabelProjector.setFrame} first, then
- * {@link LabelProjector.checkVisible} to reject labels by position and
+ * {@link LabelProjector.checkVisible} to cull by position and
  * {@link LabelProjector.project} on the rest.
  */
 export class LabelProjector {
@@ -38,13 +37,12 @@ export class LabelProjector {
   }
 
   /**
-   * Fix the frame every later `checkVisible` and `project` resolves against. Both
-   * matrices are copied, so the caller may reuse its own.
+   * Set the frame later `checkVisible` and `project` calls use. Matrices are copied.
    *
    * @param view - Camera `matrixWorldInverse`.
    * @param proj - Camera `projectionMatrix`.
-   * @param targetW - Width of the target, in CSS px.
-   * @param targetH - Height of the target, in CSS px.
+   * @param targetW - In CSS px.
+   * @param targetH - In CSS px.
    */
   setFrame(
     view: Matrix4,
@@ -59,10 +57,8 @@ export class LabelProjector {
   }
 
   /**
-   * Whether the label's position lies in front of the camera and within the
-   * screen widened by `config.ndcCullMargin`, on x and y. The label's extent is not
-   * considered, so passing means worth projecting, not on screen. A NaN
-   * position fails.
+   * Whether the position is in front of the camera and inside the screen widened
+   * by `config.ndcCullMargin` on x and y. Ignores the label's extent. NaN fails.
    */
   checkVisible(label: Label): boolean {
     const ve = this._view.elements;
@@ -84,12 +80,10 @@ export class LabelProjector {
   }
 
   /**
-   * Project a label's bounds, grown by however far its halo reaches past the
-   * padding, into `out`. `out` is written only when this returns `true`, and is
-   * not clamped to the target.
+   * Project a label's bounds, grown by the halo's reach past the padding, into
+   * `out`. `out` is written only on `true`, and not clamped to the target.
    *
-   * @returns `true` if the label has bounds and every corner lies in front of
-   * the eye.
+   * @returns `true` if the label has bounds and every corner is in front of the eye.
    */
   project(label: Label, out: ScreenAABB): boolean {
     let { minX: bx, minY: by, width: bw, height: bh } = label.bounds;
@@ -129,7 +123,7 @@ export class LabelProjector {
       maxX = -Infinity,
       maxY = -Infinity;
 
-    // The 4 corners as a 2-bit code; only their min/max matters, not the order.
+    // Corners as a 2-bit code; order is irrelevant.
     for (let i = 0; i < 4; i++) {
       const localX = (bx + (i & 1) * bw) * worldPerPx;
       const localY = (by + ((i >> 1) & 1) * bh) * worldPerPx;

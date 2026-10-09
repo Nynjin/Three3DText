@@ -2,21 +2,19 @@ import type { Label } from '../Label';
 import type { GlyphResolver } from './GlyphRun';
 
 /**
- * Finds where a label's text breaks: after every `\n`, and where a line would
- * pass `maxWidth`. A width break falls after the line's last space, or between
- * characters when the line has none. Spaces never overflow a line; they stay at
- * its end. Spaces before a line's first other character are neither measured
- * nor break points. Measures the characters layout draws.
+ * Line breaks: after every `\n`, and where a line would pass `maxWidth`. A
+ * width break falls after the line's last space, else between characters.
+ * Spaces never overflow; they stay at the line end. Leading spaces are neither
+ * measured nor break points.
  *
- * @param label - Label whose `maxWidth` and `letterSpacing` (in em) and `fontSize` are read.
+ * @param label - Reads `maxWidth`, `letterSpacing` (em) and `fontSize`.
  * @param resolve - Glyph lookup bound to the label's font.
- * @param glyphScale - Raster px to CSS px, the factor layout applies.
- * @param text - The text layout will place, already shaped.
+ * @param glyphScale - Raster px to CSS px.
+ * @param text - Shaped text.
  * @param chars - `text` split into the characters layout draws.
  *
- * @returns `breakIndices`, the offset just past the end of each line in UTF-16
- * code units, and `breakChars`, the same in characters. Lines keep their
- * trailing spaces and `\n`.
+ * @returns `breakIndices`: end of each line, in UTF-16 code units;
+ * `breakChars`: the same, in characters. Lines keep trailing spaces and `\n`.
  */
 export default function lineBreak(
   label: Label,
@@ -38,7 +36,7 @@ export default function lineBreak(
   while (k < chars.length) {
     let lineLen = 0;
     let lineWidth = 0;
-    // Just past the line's last space, where a width break goes.
+    // Width break point: just past the last space.
     let afterSpaceK = -1;
     let afterSpaceAt = -1;
     let broke = false;
@@ -61,7 +59,7 @@ export default function lineBreak(
         continue;
       }
 
-      // Without a finite maxWidth only `\n` breaks, so nothing is measured.
+      // Infinite maxWidth: only `\n` breaks; nothing measured.
       const charW = maxWidth < Infinity
         ? resolve(c).advance * glyphScale + (lineLen > 0 ? letterSpacing : 0)
         : 0;

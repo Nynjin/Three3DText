@@ -9,17 +9,15 @@ export interface TextBounds {
 }
 
 /**
- * Shift that moves the label's anchor point onto its origin.
+ * Shift moving the label's anchor point onto its origin.
+ * {@link TextAnchorY.Baseline}: the first line's baseline, y 0, whatever `bounds`.
  *
- * {@link TextAnchorY.Baseline} anchors on the first line's baseline, which is
- * y 0 in label-local space, so it ignores `bounds`.
- *
- * @param label - Label whose `anchorX` and `anchorY` are read.
+ * @param label - Reads `anchorX` and `anchorY`.
  * @param bounds - Extent to anchor within.
  * @param offsetX - Extra shift right, in CSS px.
  * @param offsetY - Extra shift down, in CSS px.
  *
- * @returns The shift to add to every glyph offset.
+ * @returns Shift to add to every glyph offset.
  */
 export default function anchorText(
   label: Label,

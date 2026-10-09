@@ -1,9 +1,8 @@
 import { TEXEL_FETCH } from './LabelCommon.glsl';
 
 /**
- * Ink and halo for a whole label, in one pass. One walk over the label's glyphs
- * gives the nearest ink: the ink is what lies inside the field's edge, the halo
- * what lies just outside it.
+ * Ink and halo for a whole label in one pass. One walk over the glyphs finds the
+ * nearest ink: ink lies inside the field's edge, halo just outside.
  */
 export const LABEL_FRAG = /* glsl */ `
 ${TEXEL_FETCH}
@@ -22,11 +21,10 @@ flat in float vOcclusionFade;
 
 out vec4 outColor;
 
-// Smallest field gradient the AA ramp may assume, per screen pixel. It binds
-// only past 1 / (MIN_FWIDTH * uRadius) screen pixels per atlas texel, where the
-// edge ramp then widens past a pixel.
+// Floor on the field gradient per screen px for the AA ramp. Binds past
+// 1 / (MIN_FWIDTH * uRadius) screen px per atlas texel, widening the ramp past a px.
 const float MIN_FWIDTH = 0.003;
-// Blur floor, in screen pixels, so haloBlur 0 still has a soft edge.
+// Blur floor, in screen px. Applies at haloBlur 0.
 const float MIN_BLUR_PX = 0.75;
 // Field left for the falloff once the solid band is clamped.
 const float MIN_FALLOFF = 0.05;
@@ -34,8 +32,8 @@ const float MIN_FALLOFF = 0.05;
 void main() {
   #include <logdepthbuf_fragment>
 
-  // CSS px per screen pixel. Derivatives are undefined in divergent flow, so
-  // they are taken here, before the loop and any discard.
+  // CSS px per screen px. Derivatives are undefined in divergent flow: keep
+  // before the loop and any discard.
   float localPerPx = 0.5 * (length(dFdx(vLocal)) + length(dFdy(vLocal)));
 
   vec4 t2 = labelFetch(vLabelTexel, 2);
@@ -48,26 +46,23 @@ void main() {
   float haloWidth = t4.x;
   float haloBlur = t4.y;
 
-  // The field grows towards ink and every glyph shares one radius, so the
-  // nearest ink is the largest sample.
+  // Field grows towards ink and glyphs share one radius: nearest ink is the largest sample.
   float bestSdf = -1.0;
-  // CSS px per atlas texel, the same for every glyph of a label.
+  // CSS px per atlas texel, same for every glyph of a label.
   float localPerAtlasPx = 0.0;
 
-  // The label's glyphs are a linked list. vGlyphCount only bounds the walk, so
-  // a broken link cannot hang the shader.
+  // Glyphs form a linked list. vGlyphCount bounds the walk against a broken link.
   int gi = vGlyphBase;
   int nextGi = -1;
   for (int i = 0; i < vGlyphCount && gi >= 0; ++i, gi = nextGi) {
-    // Read before visiting, so every exit from the body still advances.
+    // Read first: every exit from the body must advance.
     nextGi = int(glyphFetch(gi, 0).x);
 
     vec4 g1 = glyphFetch(gi, 1);
     vec2 rel = vLocal - g1.xy;
     if (any(greaterThan(abs(rel), g1.zw * 0.5))) continue;
 
-    // Bitmap-local, y flipped to the atlas' rows, clamped so the bilinear tap
-    // cannot reach the neighbouring cell.
+    // Bitmap-local, y flipped to atlas rows, clamped to keep the bilinear tap in the cell.
     vec4 g2 = glyphFetch(gi, 2);
     vec2 texel = g2.xy + vec2(rel.x / g1.z + 0.5, 0.5 - rel.y / g1.w) * g2.zw;
     texel = clamp(texel, g2.xy + 0.5, g2.xy + g2.zw - 0.5);
@@ -76,10 +71,10 @@ void main() {
     localPerAtlasPx = g1.z / g2.z;
   }
 
-  if (localPerAtlasPx == 0.0) discard; // over no bitmap: no field to shade
+  if (localPerAtlasPx == 0.0) discard; // over no bitmap
 
-  // The field stores (1 - cutoff) - distance / radius, distance in atlas
-  // texels: the ink edge is at 1 - cutoff and the field runs out at 0.
+  // Field = (1 - cutoff) - distance / radius, distance in atlas texels:
+  // ink edge at 1 - cutoff, field ends at 0.
   float sdfPerLocal = 1.0 / (uRadius * localPerAtlasPx);
   float fw = max(localPerPx * sdfPerLocal, MIN_FWIDTH);
   float edge = 1.0 - uCutoff;
@@ -91,8 +86,8 @@ void main() {
   if (haloOpacity > 0.0 && haloWidth > 0.0) {
     float d = max(edge - bestSdf, 0.0);
 
-    // Clamp the solid band short of the field's limit, or the halo would end on
-    // the bitmap's square border; the falloff takes what is left.
+    // Solid band stops short of the field's end, or the halo ends on the
+    // bitmap's square border. The falloff gets the rest.
     float haloWidthSDF = min(haloWidth * sdfPerLocal, edge - MIN_FALLOFF);
     float haloBlurSDF = min(
       max(haloBlur * sdfPerLocal, fw * MIN_BLUR_PX),
@@ -103,8 +98,7 @@ void main() {
     haloAlpha = (1.0 - smoothstep(0.0, 1.0, t)) * haloOpacity * visibility;
   }
 
-  // Ink over halo, mixed in the output colour space, where the blend function
-  // also mixes. Straight alpha out, which is what the blend function expects.
+  // Ink over halo, mixed in output colour space like the blend. Straight alpha out.
   float behind = haloAlpha * (1.0 - inkAlpha);
   float alpha = inkAlpha + behind;
   if (alpha <= 0.0) discard;
