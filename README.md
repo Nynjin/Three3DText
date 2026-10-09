@@ -110,7 +110,7 @@ npm run dev
 
 `npm run dev` builds the library, rebuilds its JavaScript on every change, and serves the app at `http://localhost:3000`.
 
-In the `@itowns/labels` mode, the **Label settings** panel edits the manager options while the labels run, each shown with its option name and a description on hover. `downscale` and `atlasFontSize` are read once, so changing them starts the labels over.
+In the `@itowns/labels` mode, the **Label settings** panel edits the manager options while the labels run, each shown with its option name and a description on hover. It also sets how the labels are drawn (halo, rotation alignment, allow overlap) and the scene: a globe in geocentric metres with a logarithmic depth buffer, and a block to drag in front of the labels. `downscale` and `atlasFontSize` are read once, so changing them starts the labels over. **Reset camera**, under the renderer list, returns the camera to its start.
 
 ```bash
 npm run build       # library, then a production build of the app
