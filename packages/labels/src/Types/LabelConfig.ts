@@ -1,76 +1,66 @@
-/**
- * Label manager settings. The manager keeps its own copy, `manager.config`, and
- * reads it live, except for the fields marked as read at construction.
- */
+/** Label manager settings, read live except fields marked read at construction. */
 export interface LabelManagerConfig {
   /**
-   * Font size every glyph is rasterized at, in raster px. Labels drawn at twice it or
-   * more show lumpy edges. Read at construction.
+   * Raster size of every glyph, in px. Edges turn lumpy at twice it or more.
+   * Read at construction; throws if the implied glyph cell exceeds the device's
+   * texture size. A label's `fontSize` scales glyphs without rasterizing again.
    */
   atlasFontSize: number;
-  /** Atlas headroom on a resize, at least 1, within the device's texture size. Read at construction. */
-  atlasCapacityMultiplier: number;
 
-  /** Commit pending work on the microtask after a change. Off means calling `update()`. */
+  /** Commit pending work on the microtask after a change. Off: commit by hand. */
   autoUpdate: boolean;
 
-  /**
-   * Minimum time between placement pass starts, in milliseconds, rounded up to a
-   * whole multiple when a pass outruns it.
-   */
+  /** Minimum time between pass starts, in ms; rounded up to a whole multiple when a pass overruns. */
   placementIntervalMs: number;
 
   /**
-   * Time one frame spends on placement before resuming on the next, in
-   * milliseconds. A target, not a cap: a frame runs at least one step, and the
-   * sort is one step.
+   * Placement time per frame, in ms. A target, not a cap: a frame runs at least
+   * one step, and the sort is one step.
    */
   placementBudgetMs: number;
 
-  /** Time for a label to fade fully in or out, in milliseconds. `0` shows and hides at once. */
+  /** Full fade in or out, in ms. `0` is instant. */
   fadeDurationMs: number;
 
-  /** Fade curve. 1 is linear; lower fades in faster, higher fades out faster. */
+  /** Opacity is the linear fade raised to this power. 1 is linear. */
   fadeGamma: number;
 
-  /** CSS px per occupancy cell edge, a power of two. Read at construction. */
+  /**
+   * Collision grid at 1/`downscale` of the canvas resolution. Power of two;
+   * 1 is pixel-exact, larger is faster and coarser. Read at construction.
+   */
   downscale: number;
 
   /**
-   * Fraction of its cells, from 0 to 1, an already placed label may find taken
-   * and still keep. A label placed for the first time needs all of its cells free.
-   * Known issue: a small label covering less than this fraction of a large
-   * placed label's box can sit on top of it.
+   * On-screen move, in CSS px, of a label placed by the last pass that opens a
+   * pass. With none placed, any view change does.
    */
-  occlusionTolerance: number;
+  moveThresholdPx: number;
 
   /**
-   * Largest element-wise change of the view-projection matrix since the last
-   * pass below which the camera counts as still and placement is skipped.
-   * Translation elements scale with world coordinates, so a scene far from the
-   * origin needs a larger value.
+   * How far past the screen edge, in NDC, an anchor may sit and still be
+   * considered. A label is placed only with its whole box on screen.
    */
-  viewProjThreshold: number;
-
-  /** NDC units past the cube a label's position may sit and still be projected. */
   ndcCullMargin: number;
 
-  /** Camera distance below which a label is not placed, in world units. `0` disables it. */
+  /** Camera distance, in world units, below which a label is not placed and fades out. `0` disables. */
   labelNear: number;
-  /** Camera distance beyond which a label is not placed, in world units. `Infinity` disables it. */
+  /** Camera distance, in world units, beyond which a label is not placed and fades out. `Infinity` disables. */
   labelFar: number;
 
   /**
-   * Sort penalty on labels not placed by the last pass: their squared distance
-   * is multiplied by it, so a contender must be `sqrt(renderPenaltyMultiplier)`
-   * times nearer to take a placed label's region.
+   * Squared-distance multiplier on labels not placed by the last pass: a
+   * contender must be `sqrt(renderPenaltyMultiplier)` times nearer to take a
+   * placed label's region.
    */
   renderPenaltyMultiplier: number;
+
+  /** Whether what was drawn before the labels hides them. */
+  depthTest: boolean;
 }
 
 export const DefaultLabelConfig: LabelManagerConfig = {
   atlasFontSize: 32,
-  atlasCapacityMultiplier: 1.5,
 
   autoUpdate: true,
   placementIntervalMs: 200,
@@ -79,8 +69,7 @@ export const DefaultLabelConfig: LabelManagerConfig = {
   fadeGamma: 3,
 
   downscale: 4,
-  occlusionTolerance: 0.2,
-  viewProjThreshold: 0.05,
+  moveThresholdPx: 1,
 
   ndcCullMargin: 0.2,
 
@@ -88,4 +77,6 @@ export const DefaultLabelConfig: LabelManagerConfig = {
   labelFar: Infinity,
 
   renderPenaltyMultiplier: 1.5,
+
+  depthTest: false,
 };

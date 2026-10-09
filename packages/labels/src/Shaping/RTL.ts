@@ -6,13 +6,12 @@ interface RTLModule {
   processBidirectionalText: (text: string, breakIndices: number[]) => string[];
 }
 
-/** The loaded shaper: `null` until {@link rtlReady} settles, and for good after a load failure. */
+/** `null` until loaded; for good after a load failure. */
 let rtl: RTLModule | null = null;
 
 /**
- * Settles once the WASM shaper has loaded or failed to load; never rejects.
- * Until it loads, and for good after a failure, text is laid out unshaped and
- * in logical order.
+ * Settles when the WASM shaper loads or fails; never rejects. Until loaded
+ * (for good on failure), text stays unshaped and in logical order.
  */
 export const rtlReady: Promise<void> = (rtlText as Promise<RTLModule>)
   .then((module) => {
@@ -22,19 +21,27 @@ export const rtlReady: Promise<void> = (rtlText as Promise<RTLModule>)
     console.error('RTL shaping unavailable, falling back to unshaped text', error);
   });
 
+export function shaperLoaded(): boolean {
+  return rtl !== null;
+}
+
 export function applyShaping(text: string): string {
   if (!text || !rtl) return text;
   return rtl.applyArabicShaping(text);
 }
 
-/** The lines of `text` in visual order. Text with no RTL code point is only split, keeping its joiners. */
+/**
+ * Lines of `text` in visual order. Text with no RTL code point, or any text
+ * while the shaper is not loaded, is only split (kept in logical order, joiners
+ * intact).
+ */
 export function reorderParagraph(text: string, breakIndices: number[]): string[] {
   if (!text) return [''];
   if (!rtl || !needsShaping(text)) return splitAtBreaks(text, breakIndices);
   return rtl.processBidirectionalText(text, breakIndices);
 }
 
-/** Whether the text holds a code point from an RTL script, which shaping reorders or reshapes. */
+/** True if `text` holds an RTL-script code point. */
 export function needsShaping(text: string): boolean {
   for (const char of text) {
     const cp = char.codePointAt(0);
@@ -45,7 +52,7 @@ export function needsShaping(text: string): boolean {
 
 const LETTER = /\p{L}/u;
 
-/** Whether the first strongly directional letter is from an RTL script. */
+/** True if an RTL code point comes before any other letter. */
 export function isParagraphRTL(text: string): boolean {
   for (const char of text) {
     const cp = char.codePointAt(0);
@@ -70,7 +77,7 @@ function isRTLCodePoint(cp: number): boolean {
   );
 }
 
-/** Line split with no reordering, standing in for the bidi pass. */
+/** Splits at `breakIndices`, no reordering. */
 function splitAtBreaks(text: string, breakIndices: number[]): string[] {
   const lines: string[] = [];
   let start = 0;

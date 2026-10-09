@@ -2,16 +2,16 @@ import { needsShaping } from './RTL';
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
-/** Combining marks (variation selectors included), joiners and astral code points: text that needs segmenting. */
+/** Marks (variation selectors included), ZWJ, astral code points: text needing grapheme segmentation. */
 const CLUSTERED = /\p{M}|‍|[\u{10000}-\u{10FFFF}]/u;
 
-/**
- * The user-perceived characters of `text`, in order: a joined emoji, a flag or
- * a letter with its combining marks is one element.
- */
+/** User-perceived characters: a joined emoji, a flag, a letter with its marks. */
 function graphemes(text: string): string[] {
-  if (!CLUSTERED.test(text)) return text.split('');
   return Array.from(segmenter.segment(text), s => s.segment);
+}
+
+function codeUnits(text: string): string[] {
+  return text.split('');
 }
 
 function codePoints(text: string): string[] {
@@ -19,10 +19,11 @@ function codePoints(text: string): string[] {
 }
 
 /**
- * How a label's shaped text splits into the characters layout draws and the
- * atlas holds: user-perceived characters, or code points for text with an RTL
- * script, whose bidi pass drops joiners. Decide once per label, for all its lines.
+ * Splitter into the characters layout draws and the atlas holds: code points
+ * for RTL text (the bidi pass drops joiners), else graphemes, or UTF-16 code
+ * units when nothing clusters. Chosen from the whole text; all lines split alike.
  */
-export function charSplitter(text: string): (s: string) => string[] {
-  return needsShaping(text) ? codePoints : graphemes;
+export function charSplitter(text: string, rtl: boolean = needsShaping(text)): (s: string) => string[] {
+  if (rtl) return codePoints;
+  return CLUSTERED.test(text) ? graphemes : codeUnits;
 }

@@ -3,12 +3,12 @@ import type { Group } from 'three';
 import {
   InstancedLabelManager,
   Label,
-  RotationAlignment,
   TextAnchorX,
   TextAnchorY,
   rtlReady,
 } from '@itowns/labels';
 import type { Item } from '../Types/Item';
+import type { LabelSettings, LabelStyle } from '../Commons/LabelSettings';
 import { useFrame, useThree } from '@react-three/fiber';
 
 /** Halo distance and fade-out, in CSS px. */
@@ -17,17 +17,20 @@ const HALO_BLUR = 10;
 
 export interface InstancedLabelsProps {
   items: Item[];
-  halo: boolean;
+  style: LabelStyle;
+  /** Manager options. Those read at construction apply on remount. */
+  settings: LabelSettings;
 }
 
-function makeLabel(item: Item, halo: boolean): Label {
+function makeLabel(item: Item, { halo, rotationAlignment, allowOverlap }: LabelStyle): Label {
   const style = item.style;
 
   return new Label({
     text: item.text,
     position: item.position,
     rotation: item.rotation,
-    rotationAlignment: RotationAlignment.Map,
+    rotationAlignment,
+    allowOverlap,
     color: style.fillColor,
     haloColor: style.haloColor,
     haloWidth: halo ? HALO_WIDTH : 0,
@@ -43,15 +46,18 @@ function makeLabel(item: Item, halo: boolean): Label {
   });
 }
 
-export function InstancedLabelComponent({ items, halo }: InstancedLabelsProps) {
+export function InstancedLabelComponent({ items, style, settings }: InstancedLabelsProps) {
+  const { halo, rotationAlignment, allowOverlap } = style;
   const groupRef = useRef<Group>(null);
   const camera = useThree(state => state.camera);
   const renderer = useThree(state => state.gl);
 
   const managerRef = useRef<InstancedLabelManager | null>(null);
   const labelMapRef = useRef(new Map<number, Label>());
-  /** The halo setting the labels were last built or updated with. */
-  const haloRef = useRef(halo);
+  /** The style the labels were last built or updated with. */
+  const styleRef = useRef(style);
+  /** Settings the manager is constructed with. */
+  const initialSettings = useRef(settings);
 
   // Created, attached and disposed together, so a remount starts from a new
   // manager and an empty label map. Declared first: the effects below run after
@@ -60,7 +66,7 @@ export function InstancedLabelComponent({ items, halo }: InstancedLabelsProps) {
     const group = groupRef.current;
     if (!group) return;
 
-    const manager = new InstancedLabelManager(renderer, { autoUpdate: false });
+    const manager = new InstancedLabelManager(renderer, { ...initialSettings.current, autoUpdate: false });
     group.add(manager.mesh);
     managerRef.current = manager;
     labelMapRef.current = new Map();
@@ -73,6 +79,11 @@ export function InstancedLabelComponent({ items, halo }: InstancedLabelsProps) {
       managerRef.current = null;
     };
   }, [renderer]);
+
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (manager) Object.assign(manager.config, settings);
+  }, [settings, renderer]);
 
   useEffect(() => {
     const manager = managerRef.current;
@@ -92,7 +103,7 @@ export function InstancedLabelComponent({ items, halo }: InstancedLabelsProps) {
     const toAdd: Label[] = [];
     for (const item of items) {
       if (!labelMap.has(item.key)) {
-        const label = makeLabel(item, haloRef.current);
+        const label = makeLabel(item, styleRef.current);
         labelMap.set(item.key, label);
         toAdd.push(label);
       }
@@ -105,13 +116,22 @@ export function InstancedLabelComponent({ items, halo }: InstancedLabelsProps) {
 
   useEffect(() => {
     const manager = managerRef.current;
-    if (!manager || haloRef.current === halo) return;
-    haloRef.current = halo;
+    const last = styleRef.current;
+    if (
+      !manager
+      || (last.halo === halo && last.rotationAlignment === rotationAlignment && last.allowOverlap === allowOverlap)
+    ) return;
+    styleRef.current = { halo, rotationAlignment, allowOverlap };
     for (const label of labelMapRef.current.values()) {
-      label.set({ haloWidth: halo ? HALO_WIDTH : 0, haloBlur: halo ? HALO_BLUR : 0 });
+      label.set({
+        haloWidth: halo ? HALO_WIDTH : 0,
+        haloBlur: halo ? HALO_BLUR : 0,
+        rotationAlignment,
+        allowOverlap,
+      });
     }
     manager.update();
-  }, [halo, renderer]);
+  }, [halo, rotationAlignment, allowOverlap, renderer]);
 
   useFrame(() => {
     managerRef.current?.cull(camera);

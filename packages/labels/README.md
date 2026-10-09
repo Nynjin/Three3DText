@@ -1,16 +1,14 @@
 # @itowns/labels
 
-Text labels for [three.js](https://threejs.org/), drawn through one instanced mesh
-from a glyph atlas built at runtime, and placed on screen so they do not overlap.
-Ink and halo come from one signed distance field in a single pass. Units and
-option names follow the text properties of the
+Map-style text labels for [three.js](https://threejs.org/): many labels in one draw
+call, overlapping ones hidden. Options and units follow the text properties of the
 [Mapbox style specification](https://docs.mapbox.com/style-spec/reference/layers/#symbol).
 
-Dependencies are `three` as a peer, `@mapbox/tiny-sdf` to rasterize glyphs from
-any font the browser can draw, and `@mapbox/mapbox-gl-rtl-text` for Arabic
-shaping and bidirectional reordering.
-
-**Requires WebGL2**: the label material is GLSL3.
+* Glyphs rasterized at runtime from any font the browser can draw, into one signed
+  distance field atlas; ink and halo from that field
+* Arabic shaping and bidirectional text
+* Requires WebGL2
+* Dependencies: `three` (peer), `@mapbox/tiny-sdf`, `@mapbox/mapbox-gl-rtl-text`
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/Nynjin/Three3DText/main/docs/images/overview.png" alt="Place-name labels in seven scripts and emoji at a range of sizes, each language with its own halo colour" width="900">
@@ -40,14 +38,15 @@ npm install -D @types/three
 ```ts
 import { InstancedLabelManager, Label, TextAnchorX, TextAnchorY } from '@itowns/labels';
 
-const manager = new InstancedLabelManager(renderer);
+const manager = new InstancedLabelManager(renderer); // a THREE.WebGLRenderer
 scene.add(manager.mesh);
 
 manager.addLabels([
   new Label({
     text: 'Villejuif',
     position: [0, 0, 0],
-    font: 'Arial Bold',
+    font: 'Arial',
+    fontWeight: 'bold',
     fontSize: 16,
     color: '#1d2b36',
     haloColor: '#ffffff',
@@ -57,41 +56,44 @@ manager.addLabels([
   }),
 ]);
 
-// Every frame, before rendering:
-manager.cull(camera);
+renderer.setAnimationLoop(() => {
+  manager.cull(camera); // every frame, before rendering
+  renderer.render(scene, camera);
+});
 ```
 
-Changes to labels, and adding or removing them, are committed on the next
-microtask. With `autoUpdate: false`, call `manager.update()` after changes
-instead, and once more after `rtlReady` settles: loading the RTL shaper queues a
-relayout of RTL labels. `manager.dispose()` releases GPU resources and leaves the
-mesh in its parent.
+* Update: set a property (`label.text = 'Paris'`) or several with `label.set({ … })`.
+* Remove: `manager.removeLabel(label)`, `manager.removeLabels(labels)`.
+* Changes commit on the next microtask. With `autoUpdate: false`, call
+  `manager.update()` after changes, after `rtlReady` settles, and after a web font
+  a label uses finishes loading.
+* Canvas resizes need no call.
+* `manager.dispose()`: frees GPU resources; the manager is unusable afterwards. Its
+  labels can join another manager. The mesh stays in its parent.
 
 ## Units
 
-A size in **px** is a CSS pixel of the renderer's canvas on a label facing the
-camera, at any distance: a 16 px label is as tall as 16 px CSS text. A
-map-aligned label seen at an angle is foreshortened. Spacing and offsets are in
-**em**, multiples of `fontSize`. Label positions are world coordinates; the
-mesh's own transform is ignored.
+* **px**: CSS pixels of the canvas, on a label facing the camera, at any distance.
+  A map-aligned label seen at an angle is foreshortened.
+* **em**: multiples of `fontSize`.
+* `position`: world coordinates; the mesh's own transform is ignored.
 
 ## Label options
 
-Set on construction, through the matching property, or several at once with
-`label.set({ … })`, which notifies once. A change to text, font or layout lays the
-label out again; colour, opacity or transform only rewrite its data.
+Set on construction, through the property, or with `label.set({ … })` (one
+notification).
 
-| Option | Unit | Default | Mapbox property |
+| Option | Values | Default | Mapbox property |
 | --- | --- | --- | --- |
 | `text` | | | `text-field` |
 | `textTransform` | `None`, `Uppercase`, `Lowercase`, `Capitalize` | `None` | `text-transform` |
-| `font` | CSS family, optionally followed by weight and style words (`'Open Sans Semi Bold Italic'`) | `'Arial'` | `text-font` |
-| `fontWeight` | CSS weight, number or name | `400` | |
+| `font` | CSS family list, or `text-font` array | `'Arial'` | `text-font` |
+| `fontWeight` | CSS weight, number or name | `'400'` | |
 | `fontStyle` | `normal`, `italic`, `oblique` | `normal` | |
-| `fontSize` | px | `20` | `text-size` |
+| `fontSize` | px, em size | `20` | `text-size` |
 | `letterSpacing` | em | `0` | `text-letter-spacing` |
 | `lineHeight` | em | `1.2` | `text-line-height` |
-| `maxWidth` | em; `Infinity` breaks only at `\n` | `Infinity` | `text-max-width` |
+| `maxWidth` | em; `Infinity`: break at `\n` only | `Infinity` | `text-max-width` |
 | `textAlign` | `Auto`, `Left`, `Center`, `Right`, `Justify` | `Auto` | `text-justify` |
 | `anchorX` | `Left`, `Center`, `Right` | `Left` | `text-anchor` |
 | `anchorY` | `Top`, `Middle`, `Bottom`, `Baseline` | `Top` | `text-anchor` |
@@ -104,38 +106,48 @@ label out again; colour, opacity or transform only rewrite its data.
 | `haloBlur` | px | `0` | `text-halo-blur` |
 | `haloOpacity` | 0 to 1, times `opacity` | `1` | |
 | `rotationAlignment` | `Map`, `Viewport` | `Map` | `text-rotation-alignment` |
-| `symbolPlacement` | `Point`; `Line` and `Line-Center` are accepted and placed as `Point` | `Point` | `symbol-placement` |
+| `symbolPlacement` | `Point`; `Line`, `Line-Center` placed as `Point` | `Point` | `symbol-placement` |
+| `allowOverlap` | | `false` | `text-allow-overlap` |
 | `rotation` | XYZ Euler radians, `Euler` or `Quaternion`; `Map` only | identity | |
 | `position` | world units | origin | |
 | `visible` | | `true` | |
 
-`padding` reserves space around the text from other labels; it does not move the
-text. `Auto` alignment is right-aligned when the text's first letter is from an
-RTL script. `Capitalize` upper-cases the first letter of each word, and an
-apostrophe does not start a word.
+* `font`: a string is used as a CSS family list (`'Arial Black, sans-serif'`); an
+  array is a `text-font` stack whose names carry weight and style
+  (`['Open Sans Semibold', 'Arial Unicode MS Bold']`). An explicit `fontWeight` or
+  `fontStyle` wins over the stack's.
+* `padding`: space kept free of other labels; does not move the text.
+* `\n` starts a paragraph. `Auto`: right-aligned when the paragraph starts with an
+  RTL letter. `Justify`: every line but a paragraph's last.
+* `Capitalize`: first letter of each word; an apostrophe does not start a word.
+* Halo: at most a quarter of `fontSize` past the ink (5 px at `fontSize` 20).
 
-The objects `position`, `rotation`, `offset`, `color`, `haloColor` and `padding`
-return are the label's own. Editing one in place is not detected: assign a new
-value instead.
-
-### Halo reach
-
-The distance field carries a quarter of `fontSize` past the ink, so that is the
-furthest a halo draws: at `fontSize` 20, `haloWidth + haloBlur` beyond 5 px draws
-no wider. Placement reserves the halo's reach, less whatever `padding` already
-covers.
+> [!NOTE]
+> `position`, `rotation`, `offset`, `color`, `haloColor` and `padding` return the
+> label's own objects. Editing one in place is not detected: assign a new value.
 
 ## Placement
 
-`cull` opens a placement pass at most every `placementIntervalMs`, when the
-camera moved more than `viewProjThreshold` or labels changed. Labels are placed
-nearest first on a screen-space occupancy grid; a label that finds its region
-taken is not drawn. A pass spreads over frames, spending about
-`placementBudgetMs` in each: a frame always runs at least one step, and sorting
-the candidates is a single step. Fades step by elapsed time in every `cull`.
+`cull` places labels nearest first on a screen-space occupancy grid, in passes at
+most every `placementIntervalMs`, each spread over frames at about
+`placementBudgetMs` per frame. A pass opens when the camera moves a placed label by
+`moveThresholdPx`, or when labels, the canvas or the config change in a way that
+can move or hide them. Style-only changes (colours, an opacity that stays above 0)
+open none.
 
-A hidden label (`visible: false` or `opacity: 0`) disappears at once and frees
-its region on the next pass.
+* Box crossing the canvas edge: not drawn.
+* Region taken: not drawn, unless `allowOverlap`; that label still takes its region.
+* Hidden (`visible: false`, `opacity: 0`), nearer than `labelNear` or beyond
+  `labelFar`: fades out and frees its region on the next pass.
+* Fades advance by elapsed time, at most 100 ms per `cull`.
+
+### Depth
+
+* `depthTest` on: labels are hidden by what was drawn before them; works with a
+  logarithmic depth buffer.
+* Off: labels draw over everything.
+* Only the front face draws: a `Map` label seen from behind is invisible but still
+  takes its region.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/Nynjin/Three3DText/main/docs/images/fading.webp" alt="Labels fading in and out as the camera orbits" width="720">
@@ -145,53 +157,43 @@ its region on the next pass.
 
 ## Configuration
 
-The manager takes a `Partial<LabelManagerConfig>` merged over
-`DefaultLabelConfig`, and keeps its own copy as `manager.config`. Edits to it
-apply from the next `cull`, except for the fields read at construction.
+`new InstancedLabelManager(renderer, config)` takes a `Partial<LabelManagerConfig>`
+over `DefaultLabelConfig`. `manager.config` is the live copy: edits apply from the
+next `cull`, except fields read at construction.
 
-| Field | Unit | Default | |
+| Field | Meaning | Default | Note |
 | --- | --- | --- | --- |
-| `atlasFontSize` | px glyphs are rasterized at; labels at twice it or more show lumpy edges | `32` | read at construction |
-| `atlasCapacityMultiplier` | atlas headroom on growth, at least 1 | `1.5` | read at construction |
+| `atlasFontSize` | px glyphs are rasterized at; labels at twice it or more get lumpy edges | `32` | construction only |
 | `autoUpdate` | commit changes on the next microtask | `true` | |
 | `placementIntervalMs` | ms between pass starts | `200` | |
 | `placementBudgetMs` | ms of placement per frame | `3` | |
-| `fadeDurationMs` | ms per fade; `0` shows and hides at once | `650` | |
+| `fadeDurationMs` | ms per fade; `0`: instant | `650` | |
 | `fadeGamma` | fade curve; 1 is linear | `3` | |
-| `downscale` | CSS px per grid cell, a power of two; a label claims every cell its box touches | `4` | read at construction |
-| `occlusionTolerance` | fraction, 0 to 1, of its cells a placed label may lose and stay | `0.2` | |
-| `viewProjThreshold` | largest change of any view-projection matrix element | `0.05` | |
-| `ndcCullMargin` | NDC units past the frustum a label's position may sit | `0.2` | |
-| `labelNear`, `labelFar` | world units | `0`, `Infinity` | |
-| `renderPenaltyMultiplier` | factor on the squared distance of a label not yet placed | `1.5` | |
-
-`viewProjThreshold` compares translation elements too, which grow with world
-coordinates: a scene far from the origin, such as an Earth-centred one, needs a
-larger value.
+| `downscale` | collision grid at 1/`downscale` of the canvas; power of two | `4` | construction only |
+| `moveThresholdPx` | CSS px a placed label moves before a new pass | `1` | |
+| `ndcCullMargin` | NDC units past the screen edge an anchor may sit and still be considered | `0.2` | |
+| `labelNear`, `labelFar` | world units; outside them, not placed | `0`, `Infinity` | |
+| `renderPenaltyMultiplier` | factor on the squared distance of a label the last pass did not place | `1.5` | |
+| `depthTest` | hidden by what was drawn before | `false` | |
 
 ## Limits
 
-* Glyphs are rasterized once, with whatever font the browser resolves at that
-  moment: load a web font before adding labels that use it.
-* The atlas never frees a glyph. It grows up to the device's texture size; once
-  full, new characters draw as `?` and a warning is logged once.
-* Layout uses each character's own advance: no kerning and no ligatures.
-  Shaping covers Arabic joining forms and bidirectional reordering.
-* Emoji draw as single-colour silhouettes in the label's colour.
-* In text with an RTL script, combining marks, such as Hebrew vowel points,
-  draw as separate glyphs.
-* Lines break at spaces and `\n`, and mid-word when a word is wider than
-  `maxWidth`.
-* A character the font lacks is drawn with the browser's fallback font, or as a
-  missing-glyph box.
-* Only point placement: text does not follow lines.
-* A label already placed keeps its place while less than `occlusionTolerance` of its
-  box is covered, so a small label can sit on top of a large one.
+* Atlas never frees a glyph; once at the device's texture size, new characters
+  draw as `?` and a warning is logged.
+* Label data: at most 4096 texels a side, or the device's texture size if smaller.
+* No kerning, no ligatures.
+* Emoji draw in the label's colour only.
+* Only point placement: text does not follow lines. No `text-ignore-placement`.
+* Web font loaded later: every glyph rasterized and every label laid out again.
+* One manager per label at a time.
+* Lines break at spaces and `\n`, and mid-word when a word exceeds `maxWidth`.
+* Characters the font lacks: browser fallback font, or a missing-glyph box.
+* RTL text: combining marks (Hebrew vowel points) draw as separate glyphs.
 
 ## Development
 
 The package lives in the [Three3DText repository](https://github.com/Nynjin/Three3DText),
-alongside the benchmark app it is developed against.
+with the benchmark app it is developed against.
 
 ## License
 

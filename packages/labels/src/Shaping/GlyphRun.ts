@@ -1,15 +1,14 @@
 import type { Vector2, Quaternion } from 'three';
 
 /**
- * One glyph's bitmap and metrics. `px`/`py`/`pw`/`ph` locate the bitmap in the
- * atlas texture, in texels. The other fields are raster px in an atlas entry,
- * and CSS px on a glyph that layout placed.
+ * One glyph's bitmap and metrics. `px`/`py`/`pw`/`ph`: atlas texels. Other
+ * fields: raster px in an atlas entry, CSS px once placed by layout.
  */
 export interface GlyphInfo {
-  /** Bitmap position in the atlas texture. */
+  /** Bitmap position in the atlas. */
   px: number;
   py: number;
-  /** Bitmap size in the atlas texture. `0` for a glyph with no ink, such as a space. */
+  /** Bitmap size in the atlas. `0` for an inkless glyph, such as a space. */
   pw: number;
   ph: number;
 
@@ -20,17 +19,17 @@ export interface GlyphInfo {
   left: number;
   /** Bitmap top edge, above the baseline. */
   top: number;
-  /** Pen advance to the next glyph. */
+  /** Pen advance. */
   advance: number;
 }
 
 export type GlyphResolver = (char: string) => GlyphInfo;
 
-/** What layout needs to interpret {@link GlyphInfo}, in raster px. */
+/** For reading {@link GlyphInfo}. Raster px. */
 export interface AtlasMetrics {
-  /** Raster font size the glyphs were rasterized at. */
+  /** Rasterization font size. */
   fontSize: number;
-  /** SDF buffer around every glyph bitmap, both sides together: the ink box is `w - padding` by `h - padding`. */
+  /** SDF buffer, both sides summed: the ink box is `w - padding` by `h - padding`. */
   padding: number;
 }
 
@@ -42,9 +41,9 @@ export interface GlyphInstance {
   offset: Vector2;
 
   /**
-   * Per-glyph orientation, for text following a line.
+   * Per-glyph orientation, for line-following text.
    *
-   * TODO: unused; the label draws as one quad oriented by its own rotation.
+   * TODO: unused; the label draws as one quad.
    */
   rotation?: Quaternion;
 }
