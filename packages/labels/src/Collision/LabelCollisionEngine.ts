@@ -67,6 +67,7 @@ export class LabelCollisionEngine {
   private readonly _shownXY: number[] = [];
   private readonly _scratchXY = [0, 0];
   private readonly _scratchAABB: ScreenAABB = { x0: 0, y0: 0, x1: 0, y1: 0 };
+  private readonly _scratchIconAABB: ScreenAABB = { x0: 0, y0: 0, x1: 0, y1: 0 };
   private readonly _tmpVec2 = new Vector2();
 
   /** In-flight pass, suspended between chunks. */
@@ -264,29 +265,40 @@ export class LabelCollisionEngine {
    * @param order - Permutation of `_candidates`, nearest first.
    */
   private _placeChunk(order: Int32Array, from: number, to: number) {
-    const maxX = this._screenW - 1;
-    const maxY = this._screenH - 1;
-    const aabb = this._scratchAABB;
+    const text = this._scratchAABB;
+    const icon = this._scratchIconAABB;
 
     for (let i = from; i < to; i++) {
       const label = this._candidates[order[i]];
       if (!this._isTracked(label)) continue;
 
-      // Fails if the box crosses the viewport edge or the label was hidden since collection.
-      const placeable
-        = label.visible
-          && this._projector.project(label, aabb)
-          && aabb.x0 >= 0
-          && aabb.y0 >= 0
-          && aabb.x1 <= maxX
-          && aabb.y1 <= maxY;
+      const hasText = label.glyphs.length > 0;
+      const ib = label.iconBounds;
+      const hasIcon = ib.width > 0;
 
-      if (!placeable) {
-        this._setPlaced(label, false);
-        continue;
+      // A part fails if its box crosses the viewport edge or the label was hidden since collection.
+      let placeText = hasText && label.visible && this._projector.project(label, text) && this._onScreen(text)
+        && this._bitmap.test(text.x0, text.y0, text.x1, text.y1, label.allowOverlap);
+      let placeIcon = hasIcon && label.visible
+        && this._projector.projectRect(label, ib.minX, ib.minY, ib.width, ib.height, icon) && this._onScreen(icon)
+        && this._bitmap.test(icon.x0, icon.y0, icon.x1, icon.y1, label.iconAllowOverlap);
+
+      // MapLibre's pairing: a part not marked optional needs the other.
+      const iconWithoutText = label.textOptional || !hasText;
+      const textWithoutIcon = label.iconOptional || !hasIcon;
+      if (!iconWithoutText && !textWithoutIcon) {
+        placeText = placeIcon = placeText && placeIcon;
+      } else if (!textWithoutIcon) {
+        placeText = placeText && placeIcon;
+      } else if (!iconWithoutText) {
+        placeIcon = placeIcon && placeText;
       }
 
-      this._setPlaced(label, this._bitmap.tryClaim(aabb.x0, aabb.y0, aabb.x1, aabb.y1, label.allowOverlap));
+      // Both parts are tested before either claims, so they never collide with each other.
+      if (placeText) this._bitmap.claim(text.x0, text.y0, text.x1, text.y1);
+      if (placeIcon) this._bitmap.claim(icon.x0, icon.y0, icon.x1, icon.y1);
+
+      this._setPlaced(label, placeText, placeIcon);
       if (label.shouldRender && this._screenOf(this._lastVP, label.position, this._scratchXY)) {
         this._shown.push(label);
         this._shownXY.push(this._scratchXY[0], this._scratchXY[1]);
@@ -328,7 +340,7 @@ export class LabelCollisionEngine {
         = distSq >= nearSq
           && distSq <= farSq
           && label.visible
-          && label.glyphs.length > 0
+          && (label.glyphs.length > 0 || label.iconBounds.width > 0)
           // The sorter throws on an infinite key.
           && Number.isFinite(key)
           && this._projector.checkVisible(label);
@@ -346,10 +358,19 @@ export class LabelCollisionEngine {
     return count;
   }
 
-  private _setPlaced(label: Label, placed: boolean) {
-    if (label.shouldRender === placed) return;
-    label.shouldRender = placed;
+  /** Writes the placed parts; `shouldRender` is either. Notifies on any change. */
+  private _setPlaced(label: Label, text: boolean, icon = text) {
+    const any = text || icon;
+    if (label.placedText === text && label.placedIcon === icon && label.shouldRender === any) return;
+    label.placedText = text;
+    label.placedIcon = icon;
+    label.shouldRender = any;
     this._onPlacementChange(label);
+  }
+
+  /** Whether a projected box lies wholly on the canvas. */
+  private _onScreen(box: ScreenAABB): boolean {
+    return box.x0 >= 0 && box.y0 >= 0 && box.x1 <= this._screenW - 1 && box.y1 <= this._screenH - 1;
   }
 
   /**
