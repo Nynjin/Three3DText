@@ -122,7 +122,7 @@ export class InstancedLabelManager {
    * while `config.autoUpdate` is on. With it off, call it after changes, and
    * after `rtlReady` settles: the shaper queues a relayout of RTL labels.
    *
-   * @throws {RangeError} If the label data outgrows the device's texture size.
+   * Labels past the device's texture size are not drawn until others are removed.
    */
   update() {
     if (!this._atlasManager.hasDirty) return;
@@ -254,7 +254,15 @@ export class InstancedLabelManager {
     for (const label of add) layout(label);
     for (const label of relayout) layout(label);
 
-    this._meshManager.update({ add, relayout, update, remove: disposedIds }, resize);
+    const deferred = this._meshManager.update({ add, relayout, update, remove: disposedIds }, resize);
+    if (deferred.length > 0) {
+      this.collision.removeLabels(deferred.map(label => label.id));
+      for (const label of deferred) {
+        label.shouldRender = false;
+        this._touch(label);
+      }
+      this._atlasManager.requeue(deferred);
+    }
     this._writeDrawList();
   }
 }

@@ -145,6 +145,13 @@ export class LabelAtlasManager {
     return result;
   }
 
+  /** Marks the tracked ones among `labels` for a relayout on the next sync. */
+  requeue(labels: Iterable<Label>) {
+    for (const label of labels) {
+      if (this.labels.has(label)) this._markDirty(label, DirtyLevel.Relayout);
+    }
+  }
+
   /** Takes the pending work, grouped by level, and clears it. The arrays are the caller's. */
   flushDirty(): DirtyLabels {
     const flushed: DirtyLabels = { placement: this._placementDirty, add: [], relayout: [], update: [], dispose: [] };

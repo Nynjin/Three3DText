@@ -209,6 +209,7 @@ apply from the next `cull`, except for the fields read at construction.
   and pending work onto the label.
 * The atlas never frees a glyph. It grows up to the device's texture size; once
   full, new characters draw as `?` and a warning is logged once.
+* The number of labels and glyphs drawn is capped by the device's texture size.
 * Layout uses each character's own advance: no kerning and no ligatures. Shaping
   covers Arabic joining forms and bidirectional reordering.
 * Emoji draw as single-colour silhouettes in the label's colour.

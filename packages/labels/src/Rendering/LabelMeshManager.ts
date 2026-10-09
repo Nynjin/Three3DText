@@ -142,6 +142,8 @@ export class LabelMeshManager {
   private readonly _glyphData: InstancedDataTexture;
   private readonly _atlas: SDFAtlas;
 
+  private _warnedFull = false;
+
   /** Staging buffers for one `update` call, reused across calls and never shrunk. */
   private _labelStaging = new Float32Array(0);
   private _glyphStaging = new Float32Array(0);
@@ -206,20 +208,45 @@ export class LabelMeshManager {
    *
    * @param changes - Labels to write, and ids to free.
    * @param atlasReplaced - The atlas grew, replacing its texture.
+   *
+   * @returns Labels that did not fit, and were not written.
    */
-  update(changes: MeshChanges, atlasReplaced: boolean) {
+  update(changes: MeshChanges, atlasReplaced: boolean): Label[] {
     const { add, relayout, update, remove } = changes;
-
     const uniforms = this.mesh.material.uniforms;
-    // Growth replaces a texture before an update can throw for size.
-    try {
-      this._labelData.update(this._stageLabels([add, relayout, update]), remove);
-      this._glyphData.update(this._stageGlyphs([add, relayout]), remove);
-    } finally {
-      uniforms.uLabelTex.value = this._labelData.texture;
-      uniforms.uGlyphTex.value = this._glyphData.texture;
-      if (atlasReplaced) uniforms.uAtlas.value = this._atlas.texture;
+    this._labelData.update([], remove);
+    this._glyphData.update([], remove);
+    const deferred: Label[] = [];
+    const [addFit, relayoutFit] = this._fit([add, relayout], deferred);
+    this._labelData.update(this._stageLabels([addFit, relayoutFit, update]), []);
+    this._glyphData.update(this._stageGlyphs([addFit, relayoutFit]), []);
+
+    uniforms.uLabelTex.value = this._labelData.texture;
+    uniforms.uGlyphTex.value = this._glyphData.texture;
+    if (atlasReplaced) uniforms.uAtlas.value = this._atlas.texture;
+
+    if (deferred.length > 0 && !this._warnedFull) {
+      this._warnedFull = true;
+      console.warn(`LabelMeshManager: texture size limit reached; ${deferred.length} labels not drawn`);
     }
+    return deferred;
+  }
+
+  /** Keeps the labels that fit from each list, and appends the rest to `deferred`. */
+  private _fit(lists: Label[][], deferred: Label[]): Label[][] {
+    let labelRoom = this._labelData.freeItems;
+    let glyphRoom = this._glyphData.freeItems;
+    return lists.map(labels => labels.filter((label) => {
+      const labelItems = this._labelData.itemCountOf(label.id) === 0 ? 1 : 0;
+      const glyphItems = label.glyphs.length - this._glyphData.itemCountOf(label.id);
+      if (labelItems > labelRoom || glyphItems > glyphRoom) {
+        deferred.push(label);
+        return false;
+      }
+      labelRoom -= labelItems;
+      glyphRoom -= glyphItems;
+      return true;
+    }));
   }
 
   /** Makes the next render upload both data textures whole. */

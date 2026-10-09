@@ -85,6 +85,16 @@ export class InstancedDataTexture {
     return this._keyToTexelIndices.get(key);
   }
 
+  /** Items left before the device's texture size limit. */
+  get freeItems(): number {
+    return Math.floor((this._maxWidth * this._maxWidth) / this._texelsPerItem) - this._usedSlots;
+  }
+
+  /** @returns How many items the key holds. */
+  itemCountOf(key: string): number {
+    return this._keyToTexelIndices.get(key)?.length ?? 0;
+  }
+
   /** @returns The texel index of the key's first item, or `undefined` if the key holds none. */
   getFirstTexelIndexOf(key: string): number | undefined {
     return this._keyToTexelIndices.get(key)?.[0];
