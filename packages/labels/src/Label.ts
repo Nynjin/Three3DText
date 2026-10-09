@@ -256,13 +256,6 @@ export class Label {
   glyphs: GlyphInstance[] = [];
 
   /**
-   * What the manager holding this label has to do with it on its next sync.
-   *
-   * @internal
-   */
-  dirtyLevel = 0;
-
-  /**
    * The text analysis the atlas manager and layout share, cleared when the displayed text changes and after layout.
    *
    * @internal

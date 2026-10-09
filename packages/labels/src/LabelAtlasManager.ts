@@ -54,8 +54,10 @@ export class LabelAtlasManager {
   /** Characters requested since the last {@link syncAtlas}, per font. */
   private readonly _pendingChars = new Map<string, FontCharSet>();
 
-  /** Labels with a non-zero `dirtyLevel`, in the order they became dirty. */
-  private _dirtyLabels: Label[] = [];
+  /** What each label needs on the next sync, in the order they became dirty. */
+  private readonly _dirty = new Map<Label, DirtyLevel>();
+  /** A web font loaded: the atlas is cleared on the next sync. */
+  private _fontsChanged = false;
   /** Set by any change that can alter placement, until the next flush; a value that changes and comes back still leaves it set. */
   private _placementDirty = false;
   /** Shared by every tracked label, which passes itself in. */
@@ -80,7 +82,7 @@ export class LabelAtlasManager {
 
   /** Whether anything is waiting for a sync. */
   get hasDirty(): boolean {
-    return this._dirtyLabels.length > 0 || this._placementDirty;
+    return this._dirty.size > 0 || this._placementDirty;
   }
 
   /**
@@ -99,8 +101,8 @@ export class LabelAtlasManager {
       this._requestChars(label);
       // Removed and re-added before a flush: it may still hold its slots, or
       // never have had any; a relayout rewrites or allocates as needed.
-      if ((label.dirtyLevel as DirtyLevel) === DirtyLevel.Dispose) {
-        label.dirtyLevel = DirtyLevel.Relayout;
+      if (this._dirty.get(label) === DirtyLevel.Dispose) {
+        this._dirty.set(label, DirtyLevel.Relayout);
       } else {
         this._markDirty(label, DirtyLevel.Add);
       }
@@ -138,6 +140,10 @@ export class LabelAtlasManager {
    * was replaced by a taller one. Existing glyphs keep their position.
    */
   syncAtlas(): { dirty: boolean; resize: boolean } {
+    if (this._fontsChanged) {
+      this._fontsChanged = false;
+      this.atlas.clearGlyphs();
+    }
     if (this._pendingChars.size === 0) return { dirty: false, resize: false };
 
     const result = this.atlas.setChars([...this._pendingChars.values()]);
@@ -156,15 +162,13 @@ export class LabelAtlasManager {
   flushDirty(): DirtyLabels {
     const flushed: DirtyLabels = { placement: this._placementDirty, add: [], relayout: [], update: [], dispose: [] };
     this._placementDirty = false;
-    for (const label of this._dirtyLabels) {
-      const level = label.dirtyLevel as DirtyLevel;
-      label.dirtyLevel = DirtyLevel.None;
+    for (const [label, level] of this._dirty) {
       if (level === DirtyLevel.Add) flushed.add.push(label);
       else if (level === DirtyLevel.Relayout) flushed.relayout.push(label);
       else if (level === DirtyLevel.Update) flushed.update.push(label);
       else if (level === DirtyLevel.Dispose) flushed.dispose.push(label);
     }
-    this._dirtyLabels = [];
+    this._dirty.clear();
     if (flushed.relayout.length > 0) flushed.placement = true;
     return flushed;
   }
@@ -186,8 +190,7 @@ export class LabelAtlasManager {
   dispose() {
     for (const label of this.labels) label.offChange(this._onLabel);
     this.labels.clear();
-    for (const label of this._dirtyLabels) label.dirtyLevel = DirtyLevel.None;
-    this._dirtyLabels = [];
+    this._dirty.clear();
     this._fontChars.clear();
     this._pendingChars.clear();
     this._listeners.clear();
@@ -227,9 +230,9 @@ export class LabelAtlasManager {
     return false;
   }
 
-  /** Rasterizes every requested character again, and relays out every label. */
+  /** Rasterizes every requested character again on the next sync, and relays out every label. */
   private _rasterizeAgain() {
-    this.atlas.clearGlyphs();
+    this._fontsChanged = true;
     for (const [key, { fontKey, chars }] of this._fontChars) {
       this._pendingChars.set(key, { fontKey, chars: new Set(chars) });
     }
@@ -288,10 +291,7 @@ export class LabelAtlasManager {
 
   /** Raise the label's pending work to `level`; never lowers it. */
   private _markDirty(label: Label, level: DirtyLevel) {
-    const current = label.dirtyLevel as DirtyLevel;
-    if (level <= current) return;
-    if (current === DirtyLevel.None) this._dirtyLabels.push(label);
-    label.dirtyLevel = level;
+    if (level > (this._dirty.get(label) ?? DirtyLevel.None)) this._dirty.set(label, level);
   }
 
   /** Notifies every {@link LabelAtlasManager.onChange} listener. */
