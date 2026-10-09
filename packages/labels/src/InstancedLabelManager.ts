@@ -70,6 +70,7 @@ export class InstancedLabelManager {
     this._atlasManager = new LabelAtlasManager(config, maxTextureSize);
     this._meshManager = new LabelMeshManager(config, this._atlasManager.atlas, maxTextureSize);
     this.mesh = this._meshManager.mesh;
+    this.mesh.material.depthTest = config.depthTest;
 
     this._atlasManager.onChange(() => {
       if (!this.config.autoUpdate || this._updateQueued) return;
@@ -140,6 +141,8 @@ export class InstancedLabelManager {
     const now = performance.now();
     const frameDelta = Math.min(now - this._lastFrameTime, MAX_FADE_STEP_MS);
     this._lastFrameTime = now;
+
+    this.mesh.material.depthTest = this.config.depthTest;
 
     // A change to an option a pass reads opens a pass.
     const { labelNear, labelFar, ndcCullMargin, renderPenaltyMultiplier } = this.config;

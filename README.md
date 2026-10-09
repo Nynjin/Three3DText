@@ -36,6 +36,7 @@ Instanced text renderers for Three.js draw from font files (`.ttf`, `.woff`, or 
 * Labels fade in and out as they win and lose their place
 * Near and far distance limits, and frustum rejection before collision
 * Map-aligned or viewport-aligned rotation per label
+* `allowOverlap` per label, and a `depthTest` switch for whether what was drawn before the labels hides them
 * Placement passes at most every `placementIntervalMs`, spread over frames within `placementBudgetMs`
 
 | Without placement | With placement |

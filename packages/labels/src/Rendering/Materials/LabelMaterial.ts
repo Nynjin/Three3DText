@@ -30,8 +30,7 @@ export function createLabelMaterial(
       uEyeLow: { value: new Vector3() },
     },
     transparent: true,
-    // Blended surfaces do not write depth. The test stays on, so a label is
-    // still occluded by anything drawn before it.
+    // Blended surfaces do not write depth. The manager sets `depthTest` from its config.
     depthWrite: false,
     depthTest: true,
   });

@@ -292,7 +292,7 @@ export class LabelCollisionEngine {
         continue;
       }
 
-      this._setPlaced(label, this._bitmap.tryClaim(aabb.x0, aabb.y0, aabb.x1, aabb.y1));
+      this._setPlaced(label, this._bitmap.tryClaim(aabb.x0, aabb.y0, aabb.x1, aabb.y1, label.allowOverlap));
       if (label.shouldRender && this._screenOf(this._lastVP, label.position, this._scratchXY)) {
         this._shown.push(label);
         this._shownXY.push(this._scratchXY[0], this._scratchXY[1]);

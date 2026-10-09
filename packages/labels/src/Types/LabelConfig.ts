@@ -63,6 +63,9 @@ export interface LabelManagerConfig {
    * times nearer to take a placed label's region.
    */
   renderPenaltyMultiplier: number;
+
+  /** Whether what was drawn before the labels hides them. */
+  depthTest: boolean;
 }
 
 export const DefaultLabelConfig: LabelManagerConfig = {
@@ -83,4 +86,6 @@ export const DefaultLabelConfig: LabelManagerConfig = {
   labelFar: Infinity,
 
   renderPenaltyMultiplier: 1.5,
+
+  depthTest: false,
 };

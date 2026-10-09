@@ -55,12 +55,12 @@ export class BitmapOccupancy {
   }
 
   /**
-   * Claim an inclusive pixel rectangle if none of it is claimed. A rejected
-   * rectangle leaves the grid untouched.
+   * Claim an inclusive pixel rectangle if none of it is claimed, or regardless
+   * with `allowOverlap`. A rejected rectangle leaves the grid untouched.
    *
-   * @returns `false` if the region was taken, inverted, or off the grid.
+   * @returns `false` if the region was taken (unless `allowOverlap`), inverted, or off the grid.
    */
-  tryClaim(x0: number, y0: number, x1: number, y1: number): boolean {
+  tryClaim(x0: number, y0: number, x1: number, y1: number, allowOverlap = false): boolean {
     const cx0 = this._cellLow(Math.floor(x0));
     const cy0 = this._cellLow(Math.floor(y0));
     const cx1 = this._cellHigh(Math.floor(x1), this._width);
@@ -68,7 +68,7 @@ export class BitmapOccupancy {
     // Inverted or wholly off-grid once clamped.
     if (cx0 > cx1 || cy0 > cy1) return false;
 
-    if (!this._isRegionEmpty(cx0, cy0, cx1, cy1)) return false;
+    if (!allowOverlap && !this._isRegionEmpty(cx0, cy0, cx1, cy1)) return false;
     this._claim(cx0, cy0, cx1, cy1);
     return true;
   }

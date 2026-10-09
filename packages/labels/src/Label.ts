@@ -74,7 +74,7 @@ export const LabelChangeType = {
   Dispose: 1 << 6,
 } as const;
 
-/** Set beside `Style` when a change can alter where the label may be placed. Not part of the public API. */
+/** Set when a change can alter where the label may be placed. Not part of the public API. */
 export const PLACEMENT_CHANGE = 1 << 7;
 
 export type LabelChangeMask = number;
@@ -178,6 +178,8 @@ export interface LabelOptions {
   rotationAlignment?: RotationAlignment;
   /** TODO: stored and sent to the shader, but not acted on. See {@link SymbolPlacement}. */
   symbolPlacement?: SymbolPlacement;
+  /** Places the label even over others; it still takes its region. */
+  allowOverlap?: boolean;
   visible?: boolean;
 
   textTransform?: TextTransform;
@@ -227,6 +229,7 @@ export class Label {
 
   private _rotationAlignment: RotationAlignment = RotationAlignment.Map;
   private _symbolPlacement: SymbolPlacement = SymbolPlacement.Point;
+  private _allowOverlap: boolean = false;
 
   private _visible: boolean = true;
 
@@ -519,6 +522,14 @@ export class Label {
     this._emit(this._apply({ symbolPlacement: value }));
   }
 
+  get allowOverlap() {
+    return this._allowOverlap;
+  }
+
+  set allowOverlap(value: boolean) {
+    this._emit(this._apply({ allowOverlap: value }));
+  }
+
   /** Both the flag and a non-zero {@link opacity}: a label at 0 reads false. */
   get visible() {
     return this._visible && this._opacity > 0;
@@ -682,6 +693,11 @@ export class Label {
       changes |= LabelChangeType.Style;
     }
 
+    if (options.allowOverlap !== undefined && options.allowOverlap !== this._allowOverlap) {
+      this._allowOverlap = options.allowOverlap;
+      changes |= PLACEMENT_CHANGE;
+    }
+
     if (options.visible !== undefined && options.visible !== this._visible) {
       this._visible = options.visible;
       changes |= LabelChangeType.Visibility;
@@ -719,6 +735,7 @@ export class Label {
       haloOpacity: this._haloOpacity,
       rotationAlignment: this._rotationAlignment,
       symbolPlacement: this._symbolPlacement,
+      allowOverlap: this._allowOverlap,
       visible: this._visible,
       textTransform: this._textTransform,
     });

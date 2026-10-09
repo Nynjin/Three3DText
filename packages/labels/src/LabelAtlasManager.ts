@@ -79,7 +79,7 @@ export class LabelAtlasManager {
 
   /** Whether anything is waiting for a sync. */
   get hasDirty(): boolean {
-    return this._dirtyLabels.length > 0;
+    return this._dirtyLabels.length > 0 || this._placementDirty;
   }
 
   /**
@@ -200,7 +200,8 @@ export class LabelAtlasManager {
 
     if (changes & PLACEMENT_CHANGES) this._placementDirty = true;
     const needsLayout = changes & (LabelChangeType.Font | LabelChangeType.Text | LabelChangeType.Layout);
-    this._markDirty(label, needsLayout ? DirtyLevel.Relayout : DirtyLevel.Update);
+    // A placement-only change leaves the mesh data as it is.
+    if (changes & ~PLACEMENT_CHANGE) this._markDirty(label, needsLayout ? DirtyLevel.Relayout : DirtyLevel.Update);
     this._emit();
   }
 

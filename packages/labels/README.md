@@ -106,6 +106,7 @@ label out again; colour, opacity or transform only rewrite its data.
 | `haloOpacity` | 0 to 1, times `opacity` | `1` | |
 | `rotationAlignment` | `Map`, `Viewport` | `Map` | `text-rotation-alignment` |
 | `symbolPlacement` | `Point`; `Line` and `Line-Center` are accepted and placed as `Point` | `Point` | `symbol-placement` |
+| `allowOverlap` | | `false` | `text-allow-overlap` |
 | `rotation` | XYZ Euler radians, `Euler` or `Quaternion`; `Map` only | identity | |
 | `position` | world units | origin | |
 | `visible` | | `true` | |
@@ -137,7 +138,8 @@ Setting a property to its current value or a change that only affects style
 (`color`, `haloColor`, `symbolPlacement`, and an `opacity` or `haloOpacity` that
 stays above 0) does not trigger a pass. Labels are placed
 nearest first on a screen-space occupancy grid; a label that finds its region
-taken is not drawn. A pass spreads over frames, spending about
+taken is not drawn, unless it has `allowOverlap`: that label is placed anyway and
+still takes its region. A pass spreads over frames, spending about
 `placementBudgetMs` in each: a frame always runs at least one step, and sorting
 the candidates is a single step.
 
@@ -154,8 +156,9 @@ placed and fades out the same way.
 
 ### Depth
 
-Labels are depth tested against what was drawn before them, and work with a
-renderer's logarithmic depth buffer.
+With `depthTest` on, labels are depth tested against what was drawn before them
+and work with a renderer's logarithmic depth buffer. With it off, labels draw over
+everything.
 
 ## Configuration
 
@@ -176,6 +179,7 @@ apply from the next `cull`, except for the fields read at construction.
 | `ndcCullMargin` | NDC units past the frustum a label's position may sit | `0.2` | |
 | `labelNear`, `labelFar` | world units; a label beyond them is not placed and fades out | `0`, `Infinity` | |
 | `renderPenaltyMultiplier` | factor on the squared distance of a label not yet placed | `1.5` | |
+| `depthTest` | whether what was drawn before the labels hides them | `false` | |
 
 ## Limits
 
@@ -197,6 +201,8 @@ apply from the next `cull`, except for the fields read at construction.
 * A character the font lacks is drawn with the browser's fallback font, or as a
   missing-glyph box.
 * Only point placement: text does not follow lines.
+* `allowOverlap` places a label over others; the region it takes still keeps later
+  labels away. There is no `text-ignore-placement`.
 
 ## Development
 
