@@ -12,7 +12,7 @@ interface Line {
 }
 
 /**
- * Horizontal placement for one line within the paragraph's width.
+ * Horizontal placement for one line within the width of the label's widest line.
  *
  * @param label - Label whose `textAlign` is read.
  * @param line - The line being placed. Its direction resolves {@link TextAlign.Auto},

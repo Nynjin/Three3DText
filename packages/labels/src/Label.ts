@@ -27,7 +27,7 @@ export enum TextAnchorY {
 }
 
 export enum TextAlign {
-  /** Left, or Right when the text's first strong letter is from an RTL script. */
+  /** Left, or Right for a paragraph whose first strong letter is from an RTL script. */
   Auto = 0,
   Left = 1,
   Center = 2,
@@ -166,7 +166,7 @@ export interface LabelOptions {
 
   haloColor?: string | number | Color | Vector3;
   /**
-   * Distance of the halo from the ink edge, in CSS px. The field reaches a
+   * How far the halo extends from the ink edge, in CSS px. The field reaches a
    * quarter of `fontSize` past the ink; a wider halo draws no further.
    */
   haloWidth?: number;
@@ -263,7 +263,7 @@ export class Label {
   dirtyLevel = 0;
 
   /**
-   * The text analysis the atlas manager and layout share, cleared when the text changes.
+   * The text analysis the atlas manager and layout share, cleared when the displayed text changes and after layout.
    *
    * @internal
    */
@@ -650,8 +650,8 @@ export class Label {
       }
     }
 
-    // Colours and opacities only change what is drawn; the rest of the style
-    // options also change a label's box or what counts as hidden.
+    // Colours, `symbolPlacement` and opacities that stay above 0 only change what
+    // is drawn; the other style options also change a label's box or what counts as hidden.
     if (options.color !== undefined) {
       const next = toColor(options.color);
       if (differs(next, this._color)) {

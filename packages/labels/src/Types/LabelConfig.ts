@@ -6,7 +6,8 @@ export interface LabelManagerConfig {
   /**
    * Font size every glyph is rasterized at, in raster px. Labels drawn at twice it or
    * more show lumpy edges. Read at construction. Construction throws if the
-   * glyph cell this size implies exceeds the device's texture size.
+   * glyph cell this size implies exceeds the device's texture size. A label's
+   * `fontSize` scales the glyphs; changing it never rasterizes them again.
    */
   atlasFontSize: number;
 
@@ -29,7 +30,7 @@ export interface LabelManagerConfig {
   /** Time for a label to fade fully in or out, in milliseconds. `0` shows and hides at once. */
   fadeDurationMs: number;
 
-  /** Fade curve. 1 is linear; lower fades in faster, higher fades out faster. */
+  /** Opacity is the linear fade raised to this power, over the same fade time. 1 is linear. */
   fadeGamma: number;
 
   /**
@@ -46,10 +47,13 @@ export interface LabelManagerConfig {
    */
   moveThresholdPx: number;
 
-  /** NDC units past the cube a label's position may sit and still be projected. */
+  /**
+   * NDC units past the screen edge a label's anchor may sit and still be
+   * considered. A label is placed only when its whole box is on screen.
+   */
   ndcCullMargin: number;
 
-  /** Camera distance below which a label is not placed, in world units. `0` disables it. */
+  /** Camera distance below which a label is not placed and fades out, in world units. `0` disables it. */
   labelNear: number;
   /**
    * Camera distance beyond which a label is not placed and fades out, in world

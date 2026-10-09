@@ -28,7 +28,7 @@ const PLACEMENT_CHANGES = LabelChangeType.Font | LabelChangeType.Text | LabelCha
 
 /** Dirty labels grouped by what the renderer has to do with them. */
 export interface DirtyLabels {
-  /** Something changed that can alter placement: a layout, a transform, visibility or a halo. */
+  /** Something changed that can alter placement. */
   placement: boolean;
   add: Label[];
   relayout: Label[];
@@ -56,6 +56,7 @@ export class LabelAtlasManager {
 
   /** Labels with a non-zero `dirtyLevel`, in the order they became dirty. */
   private _dirtyLabels: Label[] = [];
+  /** Set by any change that can alter placement, until the next flush; a value that changes and comes back still leaves it set. */
   private _placementDirty = false;
   /** Shared by every tracked label, which passes itself in. */
   private readonly _onLabel = (changes: number, label: Label) => this._onLabelChange(label, changes);
@@ -165,7 +166,7 @@ export class LabelAtlasManager {
    * Subscribe to "something needs a sync". Fires once per `addLabels` or
    * `removeLabels` call that changed anything, once per label change
    * notification, once when the RTL shaper loads if a tracked label needs
-   * shaping, and once per loaded web font that a requested font lists.
+   * shaping, and once per font-loading event that loads a family a requested font lists.
    *
    * @returns Unsubscribe function.
    */

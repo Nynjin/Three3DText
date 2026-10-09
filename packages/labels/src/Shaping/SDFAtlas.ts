@@ -42,7 +42,8 @@ export interface FontChars {
 
 /**
  * One single-channel distance-field texture holding the glyphs of every font,
- * keyed by font and character. A glyph is never freed, only forgotten all at
+ * keyed by font (family list, weight and style) and character: a character in
+ * two weights takes two slots. A glyph is never freed, only forgotten all at
  * once by {@link clearGlyphs}.
  * Once the texture reaches the device's size limit and every slot is taken, a
  * new character resolves to its font's {@link FALLBACK_CHAR}, and a warning is
@@ -147,8 +148,8 @@ export class SDFAtlas {
 
   /**
    * Queues the rows the last draw touched as update ranges: three sends each as
-   * one row-wide `texSubImage2D`, reading the single channel as RGBA floats, so a
-   * range is `4 * width` long. Past {@link MAX_UPLOAD_ROWS} the whole texture goes.
+   * one row-wide `texSubImage2D`, counting 4 elements per texel whatever the format,
+   * so a range is `4 * width` long. Past {@link MAX_UPLOAD_ROWS} the whole texture goes.
    */
   private _queueTouchedRows() {
     if (this._fullUploadPending) return;

@@ -14,8 +14,8 @@ export class BitmapOccupancy {
   private _bits = new Uint32Array(1);
 
   /**
-   * @param downscale - Divisor of the pixel size on each axis, so a cell covers
-   * `downscale` × `downscale` px. Must be a power of two.
+   * @param downscale - Divisor of the screen size on each axis, so a cell covers
+   * `downscale` × `downscale` CSS px. Must be a power of two.
    *
    * @throws {Error} If `downscale` is not a power-of-two integer of at least 1.
    */

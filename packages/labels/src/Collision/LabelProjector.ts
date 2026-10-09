@@ -59,8 +59,8 @@ export class LabelProjector {
   }
 
   /**
-   * Whether the label's position lies in front of the camera and inside the
-   * frustum widened by `config.ndcCullMargin`. The label's extent is not
+   * Whether the label's position lies in front of the camera and within the
+   * screen widened by `config.ndcCullMargin`, on x and y. The label's extent is not
    * considered, so passing means worth projecting, not on screen. A NaN
    * position fails.
    */

@@ -274,7 +274,7 @@ export class LabelMeshManager {
    * Rewrite the draw list: one instance per label that is placed or still
    * fading out, carrying its glyph run and eased fade.
    *
-   * @param labels - Every label the manager owns, in any order.
+   * @param labels - Labels that are placed or still fading, in any order.
    */
   cull(labels: Iterable<Label>) {
     let pos = 0;

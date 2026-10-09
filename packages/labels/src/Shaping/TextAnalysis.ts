@@ -16,7 +16,7 @@ export interface TextAnalysis {
   chars: string[];
 }
 
-/** The label's text analysis, cached on the label until its text changes or layout has used it. */
+/** The label's text analysis, cached on the label until its displayed text changes or layout has used it, and worked out again once the RTL shaper loads. */
 export function analyze(label: Label): TextAnalysis {
   const loaded = shaperLoaded();
   const cached = label.analysis;

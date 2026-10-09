@@ -25,19 +25,19 @@ Instanced text renderers for Three.js draw from font files (`.ttf`, `.woff`, or 
 
 **Text and layout.** Line breaks at `\n` and wrapping to a `maxWidth`, left, center, right and justified alignment, anchors on both axes including the baseline, letter spacing, line height, offsets and collision padding. Units follow the [Mapbox style specification](https://docs.mapbox.com/style-spec/reference/layers/#symbol): sizes in CSS px, spacing and offsets in em.
 
-**Fonts and scripts.** One atlas for every font in the scene. A MapLibre or Mapbox `text-font` array works as it is (`['Open Sans Semibold', 'Arial Unicode MS Bold']`); a CSS family list plus a weight and style does too. Arabic shaping and bidirectional reordering come from [`@mapbox/mapbox-gl-rtl-text`](https://github.com/mapbox/mapbox-gl-rtl-text). Joined emoji, skin tones and combining accents draw as one glyph.
+**Fonts and scripts.** One atlas for every font in the scene. A MapLibre or Mapbox `text-font` array works as it is (`['Open Sans Semibold', 'Arial Unicode MS Bold']`); a CSS family list plus a weight and style does too. Arabic shaping and bidirectional reordering come from [`@mapbox/mapbox-gl-rtl-text`](https://github.com/mapbox/mapbox-gl-rtl-text). Joined emoji, skin tones and, outside right-to-left text, combining accents draw as one glyph.
 
 **Styling.** Ink colour and opacity, and a halo with its own colour, opacity, width and blur, both from one distance field in a single pass.
 
 **Placement.**
 
-* Screen-space collision on a packed-bit occupancy grid, one bit per `downscale`-square cell
+* Screen-space collision on a packed-bit occupancy grid at 1/`downscale` of the screen resolution
 * Nearest labels placed first, with a sort penalty on labels the last pass did not place
 * Labels fade in and out as they win and lose their place
-* Near and far distance limits, and frustum rejection before collision
+* Near and far distance limits, beyond which a label fades out, and frustum rejection before collision
 * Map-aligned or viewport-aligned rotation per label
 * `allowOverlap` per label, and a `depthTest` switch for whether what was drawn before the labels hides them
-* Placement passes at most every `placementIntervalMs`, spread over frames within `placementBudgetMs`
+* Placement passes at most every `placementIntervalMs`, spread over frames at about `placementBudgetMs` each
 
 | Without placement | With placement |
 | :---: | :---: |
@@ -54,7 +54,7 @@ Instanced text renderers for Three.js draw from font files (`.ttf`, `.woff`, or 
 
 ## Benchmark
 
-Every renderer draws the same seeded labels, with the same per-label size, weight, style and colours where it supports them. Troika and UIKit draw a single font family; UIKit draws the halo as a backing plate.
+Every renderer draws the same seeded labels, with the same relative per-label size, and the same weight, style and colours where it supports them. Troika and UIKit draw a single font family; UIKit draws the halo as a backing plate.
 
 ### Drawing every label
 
