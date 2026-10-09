@@ -6,17 +6,17 @@ renderer is published separately and carries its own notices under
 
 ## MIT
 
-### @react-three/drei 10.7.7
+### @react-three/drei 10.7.9
 
 > Copyright (c) 2020 react-spring
 
-### @react-three/fiber 9.5.0
+### @react-three/fiber 9.8.1
 
 > Copyright (c) Paul Henschel (https://github.com/drcmda)
 >
 > The package declares MIT in its metadata and ships no licence text.
 
-### @react-three/uikit 1.0.60
+### @react-three/uikit 1.0.76
 
 > Copyright 2024 Bela Bohlender
 >
@@ -58,7 +58,7 @@ renderer is published separately and carries its own notices under
 
 > Copyright © 2010-2025 three.js authors
 
-### troika-three-text 0.52.4
+### troika-three-text 0.53.0
 
 > Copyright (c) 2019 ProtectWise
 >
