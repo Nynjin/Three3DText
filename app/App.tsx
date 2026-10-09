@@ -26,6 +26,8 @@ import {
   type SceneOptions,
 } from './Commons/LabelSettings';
 import { FOCUS, LABEL, NUMBER_INPUT, PANEL, ROW } from './Commons/Ui';
+import { DEFAULT_ICON_STYLE, IconSettingsPanel, type IconStyle } from './Commons/IconSettings';
+import { loadSprite, type Sprite } from './Commons/Icons';
 
 const MODES = [
   ['uikit', 'UIKit'],
@@ -70,6 +72,19 @@ function App() {
   const [count, setCount] = useState(100);
   const [labelSettings, setLabelSettings] = useState<LabelSettings>(DEFAULT_LABEL_SETTINGS);
   const [scene, setScene] = useState<SceneOptions>(DEFAULT_SCENE);
+  const [icons, setIcons] = useState<IconStyle>(DEFAULT_ICON_STYLE);
+  const [sprite, setSprite] = useState<Sprite | null>(null);
+  const [spriteStatus, setSpriteStatus] = useState('No sprite loaded.');
+
+  const onLoadSprite = () => {
+    setSpriteStatus('Loading…');
+    loadSprite(icons.spriteUrl, icons.spriteHiDpi)
+      .then((loaded) => {
+        setSprite(loaded);
+        setSpriteStatus(`${Object.keys(loaded.index).length} images loaded.`);
+      })
+      .catch((error: unknown) => setSpriteStatus(error instanceof Error ? error.message : String(error)));
+  };
 
   const seed = 12345;
   const items = useMemo(
@@ -116,6 +131,10 @@ function App() {
           scene={scene}
           onSceneChange={setScene}
         />
+      )}
+
+      {mode === 'custom-instanced' && (
+        <IconSettingsPanel style={icons} onChange={setIcons} spriteStatus={spriteStatus} onLoadSprite={onLoadSprite} />
       )}
 
       {mode !== 'custom-instanced' && (
@@ -207,6 +226,8 @@ function App() {
                         items={items}
                         style={labelStyle}
                         settings={labelSettings}
+                        icons={icons}
+                        sprite={sprite}
                       />
                     )}
       </Canvas>

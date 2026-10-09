@@ -248,6 +248,16 @@ export class LabelMeshManager {
     }));
   }
 
+  /** Label data texture; replaced when it grows. */
+  get labelTexture() {
+    return this._labelData.texture;
+  }
+
+  /** First texel of a label in {@link labelTexture}, or `undefined` without a slot. */
+  labelTexelOf(id: string): number | undefined {
+    return this._labelData.getFirstTexelIndexOf(id);
+  }
+
   /** Next render uploads both data textures whole. */
   requestFullUpload() {
     this._labelData.requestFullUpload();
@@ -307,7 +317,7 @@ export class LabelMeshManager {
     const gamma = this._config.fadeGamma;
 
     for (const label of labels) {
-      if (label.occlusionFade === 1 && !(label.shouldRender && label.visible)) continue;
+      if (label.occlusionFade === 1 && !(label.placedText && label.visible)) continue;
 
       const glyphIndices = this._glyphData.getTexelIndicesOf(label.id);
       if (!glyphIndices || glyphIndices.length === 0) continue;

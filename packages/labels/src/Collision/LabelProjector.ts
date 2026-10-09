@@ -102,6 +102,18 @@ export class LabelProjector {
       bh += bottom + top;
     }
 
+    return this.projectRect(label, bx, by, bw, bh, out);
+  }
+
+  /**
+   * Project a label-local box (CSS px, y up) at the label's anchor into `out`,
+   * as {@link project} does its bounds.
+   *
+   * @returns `true` if the box is not empty and every corner is in front of the eye.
+   */
+  projectRect(label: Label, bx: number, by: number, bw: number, bh: number, out: ScreenAABB): boolean {
+    if (bw === 0 || bh === 0) return false;
+
     const ve = this._view.elements;
     const pe = this._proj.elements;
     const p = label.position;

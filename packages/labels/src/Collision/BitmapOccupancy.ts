@@ -57,16 +57,34 @@ export class BitmapOccupancy {
    * @returns `false` if the region was taken (unless `allowOverlap`), inverted, or off the grid.
    */
   tryClaim(x0: number, y0: number, x1: number, y1: number, allowOverlap = false): boolean {
+    if (!this.test(x0, y0, x1, y1, allowOverlap)) return false;
+    this.claim(x0, y0, x1, y1);
+    return true;
+  }
+
+  /**
+   * Whether {@link tryClaim} would succeed, without claiming.
+   *
+   * @returns `false` if the region is taken (unless `allowOverlap`), inverted, or off the grid.
+   */
+  test(x0: number, y0: number, x1: number, y1: number, allowOverlap = false): boolean {
     const cx0 = this._cellLow(Math.floor(x0));
     const cy0 = this._cellLow(Math.floor(y0));
     const cx1 = this._cellHigh(Math.floor(x1), this._width);
     const cy1 = this._cellHigh(Math.floor(y1), this._height);
     // Inverted or wholly off-grid once clamped.
     if (cx0 > cx1 || cy0 > cy1) return false;
+    return allowOverlap || this._isRegionEmpty(cx0, cy0, cx1, cy1);
+  }
 
-    if (!allowOverlap && !this._isRegionEmpty(cx0, cy0, cx1, cy1)) return false;
+  /** Marks an inclusive px rectangle taken, whatever it overlaps. Inverted or off-grid: no-op. */
+  claim(x0: number, y0: number, x1: number, y1: number): void {
+    const cx0 = this._cellLow(Math.floor(x0));
+    const cy0 = this._cellLow(Math.floor(y0));
+    const cx1 = this._cellHigh(Math.floor(x1), this._width);
+    const cy1 = this._cellHigh(Math.floor(y1), this._height);
+    if (cx0 > cx1 || cy0 > cy1) return;
     this._claim(cx0, cy0, cx1, cy1);
-    return true;
   }
 
   // ─── Internals ────────────────────────────────────────────────────────────
