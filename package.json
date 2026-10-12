@@ -15,7 +15,7 @@
     "notices": "node scripts/notices.mjs"
   },
   "dependencies": {
-    "@itowns/labels": "^0.2.0",
+    "@itowns/labels": "^0.3.0",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.1",
     "@react-three/uikit": "^1.0.76",
