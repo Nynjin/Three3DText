@@ -1,29 +1,29 @@
 import { Vector2 } from 'three';
-import type { Label } from '../Label';
+import { type Label, TextAlign } from '../Label';
 import type { AtlasMetrics, GlyphInfo, GlyphInstance, GlyphResolver } from './GlyphRun';
 import lineBreak from './LineBreak';
 import textAlign from './TextAlign';
-import { applyShaping, reorderParagraph, isParagraphRTL } from './RTL';
+import { reorderParagraph, isParagraphRTL } from './RTL';
+import { analyze } from './TextAnalysis';
 import anchorText from './TextAnchors';
-import { charSplitter } from './Graphemes';
 
 /** Characters trimmed from both ends of every line. */
-const LINE_TRIM = new Set([' ', '\n', '\r']);
+const LINE_TRIM = new Set([' ', '\n', '\r', '\r\n']);
 
 /**
- * Positions a label's glyphs, then writes them, its collision box and its draw
- * quad back onto the label.
+ * Lays out a label's glyphs and writes `glyphs`, `bounds` (collision box) and
+ * `quad` (draw quad) onto it, in CSS px, y up, shifted by anchor and offset.
+ * Clears `label.analysis`.
  *
- * Reads `fontSize` and `padding` in CSS px, and `maxWidth`, `letterSpacing`,
- * `lineHeight` and `offset` in em. Writes `glyphs`, `bounds` and `quad` in CSS
- * px, y up, already shifted by the anchor and offset. The anchor is taken on the
- * ink; `padding` then grows `bounds` only.
+ * Reads `fontSize` and `padding` in CSS px; `maxWidth`, `letterSpacing`,
+ * `lineHeight` and `offset` in em. Anchors on the ink; `padding` grows
+ * `bounds` only.
  *
- * @param label - Label to lay out. Mutated in place.
+ * @param label - Mutated in place.
  * @param resolve - Glyph lookup bound to the label's font.
- * @param metrics - Metrics of the atlas the resolver reads from.
+ * @param metrics - Metrics of the atlas `resolve` reads.
  *
- * @returns The same label.
+ * @returns `label`.
  */
 export default function layoutText(
   label: Label,
@@ -35,17 +35,25 @@ export default function layoutText(
   // Raster px -> CSS px.
   const scale = label.fontSize / metrics.fontSize;
 
-  const shapedText = applyShaping(label.getDisplayText());
-  const paragraphIsRTL = isParagraphRTL(shapedText);
-  const breakIndices = lineBreak(label, resolve, scale, shapedText);
-  const visualLines = reorderParagraph(shapedText, breakIndices);
+  const analysis = analyze(label);
+  const shapedText = analysis.shaped;
+  const { breakIndices, breakChars } = lineBreak(label, resolve, scale, shapedText, analysis.chars);
 
   const letterSpacing = label.letterSpacing * label.fontSize;
   const lineHeight = label.lineHeight * label.fontSize;
 
-  // The unit the atlas is keyed by, chosen from the whole text.
-  const split = charSplitter(shapedText);
-  const lineChars = visualLines.map(line => trimLine(split(line)));
+  // No RTL: lines are slices of `analysis.chars`.
+  let lineChars: string[][];
+  if (analysis.rtl) {
+    lineChars = reorderParagraph(shapedText, breakIndices).map(line => trimLine(analysis.split(line)));
+  } else {
+    lineChars = [];
+    let from = 0;
+    for (const to of breakChars) {
+      lineChars.push(trimLine(analysis.chars.slice(from, to)));
+      from = to;
+    }
+  }
   const resolvedLines = lineChars.map(cps => cps.map(resolve));
 
   const lineWidths = resolvedLines.map((resolved) => {
@@ -53,17 +61,18 @@ export default function layoutText(
     for (const g of resolved) w += g.advance * scale;
     return w + letterSpacing * Math.max(0, resolved.length - 1);
   });
+  const paragraphs = paragraphsOf(shapedText, breakIndices, analysis.rtl);
   const maxLineWidth = Math.max(0, ...lineWidths);
 
+  const justify = label.textAlign === TextAlign.Justify;
   for (let lineIdx = 0; lineIdx < lineChars.length; lineIdx++) {
     const cps = lineChars[lineIdx];
     const resolved = resolvedLines[lineIdx];
 
     const { alignOffsetX, extraSpacePerWordGap } = textAlign(
       label,
-      { idx: lineIdx, text: cps.join(''), width: lineWidths[lineIdx], count: lineChars.length },
+      { text: justify ? cps.join('') : '', width: lineWidths[lineIdx], ...paragraphs[Math.min(lineIdx, paragraphs.length - 1)] },
       maxLineWidth,
-      paragraphIsRTL,
     );
 
     let cursor = alignOffsetX;
@@ -88,6 +97,7 @@ export default function layoutText(
   }
 
   label.glyphs = glyphs;
+  label.analysis = undefined;
 
   if (glyphs.length === 0) {
     label.bounds = { minX: 0, minY: 0, width: 0, height: 0 };
@@ -95,7 +105,7 @@ export default function layoutText(
     return label;
   }
 
-  // Ink box, and the union of the bitmaps the shader draws.
+  // Ink box, and the union of drawn bitmaps.
   const inset = (metrics.padding * scale) / 2;
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   let qMinX = Infinity, qMaxX = -Infinity, qMinY = Infinity, qMaxY = -Infinity;
@@ -141,6 +151,30 @@ export default function layoutText(
   return label;
 }
 
+/**
+ * Paragraph direction and `endsParagraph` for each line `breakIndices` cuts,
+ * in logical order. The bidi pass keeps one visual line per logical line.
+ */
+function paragraphsOf(text: string, breakIndices: number[], rtl: boolean): { isRTL: boolean; endsParagraph: boolean }[] {
+  const out: { isRTL: boolean; endsParagraph: boolean }[] = [];
+  const direction = new Map<number, boolean>();
+  let start = 0;
+  for (let i = 0; i < breakIndices.length; i++) {
+    const end = breakIndices[i];
+    const endsParagraph = i === breakIndices.length - 1 || text[end - 1] === '\n';
+    const paragraphStart = rtl ? text.lastIndexOf('\n', start - 1) + 1 : 0;
+    let isRTL = rtl ? direction.get(paragraphStart) : false;
+    if (isRTL === undefined) {
+      const paragraphEnd = text.indexOf('\n', paragraphStart);
+      isRTL = isParagraphRTL(text.slice(paragraphStart, paragraphEnd < 0 ? text.length : paragraphEnd));
+      direction.set(paragraphStart, isRTL);
+    }
+    out.push({ isRTL, endsParagraph });
+    start = end;
+  }
+  return out.length > 0 ? out : [{ isRTL: false, endsParagraph: true }];
+}
+
 /** Drops spaces and line breaks from both ends of a line. */
 function trimLine(cps: string[]): string[] {
   let start = 0;
@@ -150,7 +184,7 @@ function trimLine(cps: string[]): string[] {
   return start === 0 && end === cps.length ? cps : cps.slice(start, end);
 }
 
-/** An atlas entry with its size and metrics in CSS px. */
+/** Atlas entry with size and metrics in CSS px. */
 function scaleGlyph(g: GlyphInfo, scale: number): GlyphInfo {
   return {
     px: g.px,

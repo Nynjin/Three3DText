@@ -1,30 +1,34 @@
-import { type Label, LabelChangeType } from './Label';
+import { type Label, LabelChangeType, PLACEMENT_CHANGE } from './Label';
 import type { FontKey } from './Shaping/FontKey';
 import { SDFAtlas } from './Shaping/SDFAtlas';
-import { applyShaping, needsShaping, rtlReady } from './Shaping/RTL';
-import { charSplitter } from './Shaping/Graphemes';
+import { needsShaping, reorderParagraph, rtlReady } from './Shaping/RTL';
+import { analyze } from './Shaping/TextAnalysis';
 import type { LabelManagerConfig } from './Types/LabelConfig';
 
 /**
- * What a label needs on the next sync. A label marked twice before a flush
- * keeps the higher level, so an add followed by a style change stays an add.
- * A dispose outranks everything except a later re-add, which turns it into a
+ * Work a label needs on the next sync. The higher level wins: an add then a
+ * style change stays an add. Dispose outranks all; a later re-add makes it a
  * relayout.
  */
 export const enum DirtyLevel {
   None = 0,
-  /** Label data only: style, transform or visibility changed. */
+  /** Label data only: style, transform or visibility. */
   Update = 1,
-  /** Glyph instances are stale: text, font or layout changed. */
+  /** Glyph instances stale: text, font or layout. */
   Relayout = 2,
-  /** Newly added, so it needs buffer slots and a first layout. */
+  /** Needs buffer slots and a first layout. */
   Add = 3,
-  /** Gone: free its buffer slots. */
+  /** Free its buffer slots. */
   Dispose = 4,
 }
 
-/** Dirty labels grouped by what the renderer has to do with them. */
+const PLACEMENT_CHANGES = LabelChangeType.Font | LabelChangeType.Text | LabelChangeType.Layout
+  | LabelChangeType.Transform | LabelChangeType.Visibility | PLACEMENT_CHANGE;
+
+/** Dirty labels, by level. */
 export interface DirtyLabels {
+  /** A change can alter placement. */
+  placement: boolean;
   add: Label[];
   relayout: Label[];
   update: Label[];
@@ -36,48 +40,52 @@ interface FontCharSet {
   chars: Set<string>;
 }
 
-/**
- * Owns the SDF atlas shared by every font, and tracks which labels need work
- * before the next draw.
- */
+/** Owns the SDF atlas shared by every font; tracks pending work per label. */
 export class LabelAtlasManager {
   readonly atlas: SDFAtlas;
   readonly labels = new Set<Label>();
 
-  /** Every character requested so far, per font. */
+  /** Every character requested, per font. */
   private readonly _fontChars = new Map<string, FontCharSet>();
-  /** Characters requested since the last {@link syncAtlas}, per font. */
+  /** Requested since the last {@link syncAtlas}, per font. */
   private readonly _pendingChars = new Map<string, FontCharSet>();
 
+  /** Pending level per label, in the order they became dirty. */
   private readonly _dirty = new Map<Label, DirtyLevel>();
-  private readonly _unsubs = new Map<Label, () => void>();
+  /** A web font loaded: clear the atlas on the next sync. */
+  private _fontsChanged = false;
+  /** Set by any placement-affecting change until the next flush, even one later reverted. */
+  private _placementDirty = false;
+  /** Shared by every tracked label. */
+  private readonly _onLabel = (changes: number, label: Label) => this._onLabelChange(label, changes);
   private readonly _listeners = new Set<() => void>();
 
   /**
-   * @param config - Reads `atlasFontSize` and `atlasCapacityMultiplier` once.
+   * @param config - `atlasFontSize` is read once.
    * @param maxTextureSize - Largest texture side the device accepts, in texels.
    */
   constructor(config: LabelManagerConfig, maxTextureSize: number) {
     this.atlas = new SDFAtlas({
       fontSize: config.atlasFontSize,
-      capacityMultiplier: config.atlasCapacityMultiplier,
       maxSize: maxTextureSize,
     });
 
     // Labels added before the shaper loaded were laid out from unshaped text.
     void rtlReady.then(() => this._relayoutShaped());
+
+    fontSet()?.addEventListener('loadingdone', this._onFontsLoaded);
   }
 
-  /** Whether anything is waiting for a sync. */
+  /** Whether anything awaits a sync. */
   get hasDirty(): boolean {
-    return this._dirty.size > 0;
+    return this._dirty.size > 0 || this._placementDirty;
   }
 
   /**
-   * Start tracking labels: request their characters, mark them for a first
-   * layout, and subscribe to their changes.
+   * Tracks labels: requests their characters, marks them for a first layout,
+   * subscribes to their changes.
    *
-   * @param labels - Labels to add; any already tracked are ignored.
+   * @param labels - Already tracked ones are ignored.
    */
   addLabels(labels: Iterable<Label>) {
     let added = false;
@@ -87,14 +95,13 @@ export class LabelAtlasManager {
 
       this.labels.add(label);
       this._requestChars(label);
-      // Removed and re-added before a flush: it may still hold its slots, or
-      // never have had any; a relayout rewrites or allocates as needed.
+      // Re-added before a flush, with or without slots: a relayout handles both.
       if (this._dirty.get(label) === DirtyLevel.Dispose) {
         this._dirty.set(label, DirtyLevel.Relayout);
       } else {
         this._markDirty(label, DirtyLevel.Add);
       }
-      this._unsubs.set(label, label.onChange(changes => this._onLabelChange(label, changes)));
+      label.onChange(this._onLabel);
       added = true;
     }
 
@@ -102,10 +109,10 @@ export class LabelAtlasManager {
   }
 
   /**
-   * Stop tracking labels and mark them for disposal, so the next flush frees
-   * their buffer slots. Their atlas glyphs stay.
+   * Untracks labels and marks them for disposal; the next flush frees their
+   * buffer slots. Their atlas glyphs stay.
    *
-   * @param labels - Labels to remove; any not tracked are ignored.
+   * @param labels - Untracked ones are ignored.
    */
   removeLabels(labels: Iterable<Label>) {
     let removed = false;
@@ -113,8 +120,7 @@ export class LabelAtlasManager {
     for (const label of labels) {
       if (!this.labels.delete(label)) continue;
 
-      this._unsubs.get(label)?.();
-      this._unsubs.delete(label);
+      label.offChange(this._onLabel);
       this._markDirty(label, DirtyLevel.Dispose);
       removed = true;
     }
@@ -123,47 +129,51 @@ export class LabelAtlasManager {
   }
 
   /**
-   * Rasterizes the characters requested since the last call. Must run before
-   * {@link flushDirty}: a resize moves every existing glyph, which marks all
-   * labels for relayout.
+   * Rasterizes characters requested since the last call.
    *
-   * @returns `dirty` if the texture contents changed; `resize` if the texture
-   * was replaced and every glyph moved.
+   * @returns `dirty`: texture contents changed. `resize`: texture replaced by a
+   * taller one. Existing glyphs keep their position, except on the sync after a
+   * web font load, which clears the atlas.
    */
   syncAtlas(): { dirty: boolean; resize: boolean } {
+    if (this._fontsChanged) {
+      this._fontsChanged = false;
+      this.atlas.clearGlyphs();
+    }
     if (this._pendingChars.size === 0) return { dirty: false, resize: false };
 
     const result = this.atlas.setChars([...this._pendingChars.values()]);
     this._pendingChars.clear();
-
-    if (result.resize) {
-      for (const label of this.labels) this._markDirty(label, DirtyLevel.Relayout);
-    }
-
     return result;
   }
 
-  /** Takes the pending work, grouped by level, and clears it. The arrays are the caller's. */
+  /** Marks the tracked ones among `labels` for relayout. */
+  requeue(labels: Iterable<Label>) {
+    for (const label of labels) {
+      if (this.labels.has(label)) this._markDirty(label, DirtyLevel.Relayout);
+    }
+  }
+
+  /** Takes and clears pending work, by level. The arrays are the caller's. */
   flushDirty(): DirtyLabels {
-    const flushed: DirtyLabels = { add: [], relayout: [], update: [], dispose: [] };
-    const byLevel = new Map<DirtyLevel, Label[]>([
-      [DirtyLevel.Add, flushed.add],
-      [DirtyLevel.Relayout, flushed.relayout],
-      [DirtyLevel.Update, flushed.update],
-      [DirtyLevel.Dispose, flushed.dispose],
-    ]);
-
-    for (const [label, level] of this._dirty) byLevel.get(level)?.push(label);
-
+    const flushed: DirtyLabels = { placement: this._placementDirty, add: [], relayout: [], update: [], dispose: [] };
+    this._placementDirty = false;
+    for (const [label, level] of this._dirty) {
+      if (level === DirtyLevel.Add) flushed.add.push(label);
+      else if (level === DirtyLevel.Relayout) flushed.relayout.push(label);
+      else if (level === DirtyLevel.Update) flushed.update.push(label);
+      else if (level === DirtyLevel.Dispose) flushed.dispose.push(label);
+    }
     this._dirty.clear();
+    if (flushed.relayout.length > 0) flushed.placement = true;
     return flushed;
   }
 
   /**
-   * Subscribe to "something needs a sync". Fires once per `addLabels` or
-   * `removeLabels` call that changed anything, once per label change
-   * notification, and once when the RTL shaper loads if a tracked label needs
-   * shaping.
+   * Subscribes to "a sync is needed". Fires once per: `addLabels` or
+   * `removeLabels` call that changed anything; label change notification; RTL
+   * shaper load, if a tracked label needs shaping; font-loading event loading
+   * a family a requested font lists.
    *
    * @returns Unsubscribe function.
    */
@@ -172,19 +182,19 @@ export class LabelAtlasManager {
     return () => this._listeners.delete(listener);
   }
 
-  /** Drops every label and subscription, and disposes the atlas. */
+  /** Drops every label and subscription; disposes the atlas. */
   dispose() {
-    for (const unsub of this._unsubs.values()) unsub();
-    this._unsubs.clear();
+    for (const label of this.labels) label.offChange(this._onLabel);
     this.labels.clear();
     this._dirty.clear();
     this._fontChars.clear();
     this._pendingChars.clear();
     this._listeners.clear();
+    fontSet()?.removeEventListener('loadingdone', this._onFontsLoaded);
     this.atlas.dispose();
   }
 
-  /** Translates a {@link LabelChangeType} bitmask into a dirty level. */
+  /** Maps a {@link LabelChangeType} mask to a dirty level. */
   private _onLabelChange(label: Label, changes: number) {
     if (changes & LabelChangeType.Dispose) {
       this.removeLabels([label]);
@@ -195,12 +205,38 @@ export class LabelAtlasManager {
       this._requestChars(label);
     }
 
+    if (changes & PLACEMENT_CHANGES) this._placementDirty = true;
     const needsLayout = changes & (LabelChangeType.Font | LabelChangeType.Text | LabelChangeType.Layout);
-    this._markDirty(label, needsLayout ? DirtyLevel.Relayout : DirtyLevel.Update);
+    // Placement-only: mesh data unchanged.
+    if (changes & ~PLACEMENT_CHANGE) this._markDirty(label, needsLayout ? DirtyLevel.Relayout : DirtyLevel.Update);
     this._emit();
   }
 
-  /** Re-requests characters and relays out the labels the shaper changes. */
+  private readonly _onFontsLoaded = (event: Event) => {
+    const { fontfaces } = event as FontFaceSetLoadEvent;
+    if (fontfaces.some(face => this._usesFamily(face.family))) this._rasterizeAgain();
+  };
+
+  /** Whether any label font lists `family`, ignoring case and quotes. */
+  private _usesFamily(family: string): boolean {
+    const wanted = unquote(family);
+    for (const { fontKey } of this._fontChars.values()) {
+      if (fontKey.font.split(',').some(name => unquote(name) === wanted)) return true;
+    }
+    return false;
+  }
+
+  /** Re-rasterizes every requested character on the next sync; relays out every label. */
+  private _rasterizeAgain() {
+    this._fontsChanged = true;
+    for (const [key, { fontKey, chars }] of this._fontChars) {
+      this._pendingChars.set(key, { fontKey, chars: new Set(chars) });
+    }
+    for (const label of this.labels) this._markDirty(label, DirtyLevel.Relayout);
+    this._emit();
+  }
+
+  /** Re-requests characters and relays out labels that need shaping. */
   private _relayoutShaped() {
     let marked = false;
 
@@ -215,8 +251,8 @@ export class LabelAtlasManager {
   }
 
   /**
-   * Queues the label's characters its font has not been asked for yet. A new
-   * font is queued even with no characters, so the atlas registers it.
+   * Queues characters not yet requested for the label's font. A new font is
+   * queued even empty: the atlas must register it.
    */
   private _requestChars(label: Label) {
     const key = label.fontKeyStr;
@@ -227,12 +263,17 @@ export class LabelAtlasManager {
       this._pendingFor(label);
     }
 
-    const shaped = applyShaping(label.getDisplayText());
-    for (const char of charSplitter(shaped)(shaped)) {
-      if (known.chars.has(char)) continue;
-      known.chars.add(char);
-      this._pendingFor(label).chars.add(char);
-    }
+    const { shaped, rtl, split, chars } = analyze(label);
+    const request = (list: string[]) => {
+      for (const char of list) {
+        if (known.chars.has(char)) continue;
+        known.chars.add(char);
+        this._pendingFor(label).chars.add(char);
+      }
+    };
+    request(chars);
+    // The bidi pass mirrors brackets in right-to-left runs: `(` draws as `)`.
+    if (rtl) for (const line of reorderParagraph(shaped, [])) request(split(line));
   }
 
   private _pendingFor(label: Label): FontCharSet {
@@ -244,14 +285,22 @@ export class LabelAtlasManager {
     return pending;
   }
 
-  /** Raise the label's pending work to `level`; never lowers it. */
+  /** Raises the label's level to `level`; never lowers it. */
   private _markDirty(label: Label, level: DirtyLevel) {
-    const current = this._dirty.get(label) ?? DirtyLevel.None;
-    if (level > current) this._dirty.set(label, level);
+    if (level > (this._dirty.get(label) ?? DirtyLevel.None)) this._dirty.set(label, level);
   }
 
   /** Notifies every {@link LabelAtlasManager.onChange} listener. */
   private _emit() {
     for (const listener of this._listeners) listener();
   }
+}
+
+/** `undefined` outside a browser page. */
+function fontSet(): FontFaceSet | undefined {
+  return (globalThis as { document?: { fonts?: FontFaceSet } }).document?.fonts;
+}
+
+function unquote(name: string): string {
+  return name.trim().replace(/^["']|["']$/g, '').toLowerCase();
 }
