@@ -68,6 +68,8 @@ renderer.setAnimationLoop(() => {
   `manager.update()` after changes, after `rtlReady` settles, and after a web font
   a label uses finishes loading.
 * Canvas resizes need no call.
+* Drawing on demand: draw while `manager.isSettled` is `false`; once `true`, stop
+  until a label or the camera changes.
 * `manager.dispose()`: frees GPU resources; the manager is unusable afterwards. Its
   labels can join another manager. The mesh stays in its parent.
 
@@ -139,7 +141,8 @@ open none.
 * Region taken: not drawn, unless `allowOverlap`; that label still takes its region.
 * Hidden (`visible: false`, `opacity: 0`), nearer than `labelNear` or beyond
   `labelFar`: fades out and frees its region on the next pass.
-* Fades advance by elapsed time, at most 100 ms per `cull`.
+* Fades advance by elapsed time, at most 100 ms per `cull`, none on the first `cull`
+  after settling.
 
 ### Depth
 

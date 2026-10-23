@@ -61,6 +61,7 @@ export class LabelCollisionEngine {
   /** View-projection matrix of the last pass opened. */
   private readonly _lastVP = new Matrix4();
   private readonly _frustumMatrix = new Matrix4();
+  private readonly _scratchVP = new Matrix4();
 
   /** Labels the last pass placed, and their anchors' screen position then, in CSS px. */
   private readonly _shown: Label[] = [];
@@ -132,6 +133,23 @@ export class LabelCollisionEngine {
   /** Whether a placement pass is part-way through. */
   get isPassActive(): boolean {
     return this._pass !== null;
+  }
+
+  /**
+   * Whether a pass may be due for this camera: a label change, a canvas resize or
+   * a view move (`config.moveThresholdPx`). Changes nothing.
+   *
+   * @param camera - As for {@link beginPass}.
+   */
+  needsPass(camera: Camera): boolean {
+    if (this._byId.size === 0) return false;
+    if (this._dirty) return true;
+
+    const size = this._renderer.getSize(this._tmpVec2);
+    if (Math.max(1, size.x) !== this._screenW || Math.max(1, size.y) !== this._screenH) return true;
+
+    this._scratchVP.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    return this._viewMoved(this._scratchVP);
   }
 
   /**
