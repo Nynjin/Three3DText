@@ -10,6 +10,8 @@ export {
   type LabelChangeListener,
   type LabelChangeMask,
   type TextPadding,
+  type SymbolAnchor,
+  type IconTextFit,
   LabelChangeType,
   RotationAlignment,
   SymbolPlacement,
@@ -26,5 +28,9 @@ export type { FontKey, FontStyle, FontWeight, FontWeightName } from './Shaping/F
 export type { GlyphInfo, GlyphInstance } from './Shaping/GlyphRun';
 
 export { rtlReady } from './Shaping/RTL';
+
+export type { ImageSource, ImageOptions, SpriteIndexEntry } from './Images/ImageAtlas';
+
+export { imageToSDF } from './Images/ImageSDF';
 
 export type { LabelMesh } from './Rendering/LabelMeshManager';
