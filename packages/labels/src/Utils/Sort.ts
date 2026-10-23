@@ -7,13 +7,11 @@ const MAX_KEY_BITS = 31;
 const MAX_DIGIT_BITS = 16;
 
 /**
- * Least-significant-digit radix sort returning a permutation of indices; `keys`
- * is not modified.
+ * LSD radix sort returning an index permutation; `keys` is not modified.
  *
- * Keys are quantised into `keyBits` by mapping the batch's own `[min, max]`
- * onto it, so the order is approximate: keys that quantise to the same bucket,
- * `(max - min) / (2 ** keyBits - 1)` wide, keep their input order, and orders
- * from two calls are not comparable. Ties come out in ascending index order.
+ * Keys are quantised to `keyBits` over the batch's own `[min, max]`, so the
+ * order is approximate: keys in one bucket, `(max - min) / (2 ** keyBits - 1)`
+ * wide, keep input order, and orders from separate calls are not comparable.
  *
  * @example
  * ```ts
@@ -29,28 +27,22 @@ export class RadixSorter {
   private readonly _keyMax: number;
   private readonly _passes: number;
 
-  /** One histogram of `_radix` slots per pass, laid out end to end. */
+  /** One `_radix`-slot histogram per pass, end to end. */
   private readonly _histograms: Int32Array;
 
-  /** Quantised keys, indexed by input position. */
+  /** Quantised keys, by input index. */
   private _quantised = new Int32Array(0);
 
-  /**
-   * Ping-pong index buffers. `_indicesSrc` holds the result once
-   * {@link RadixSorter.sort} returns.
-   */
+  /** Ping-pong index buffers; `_indicesSrc` holds the result after {@link RadixSorter.sort}. */
   private _indicesSrc = new Int32Array(0);
   private _indicesDst = new Int32Array(0);
 
   /**
-   * @param keyBits - Precision of the quantised key, from 1 to
-   * {@link MAX_KEY_BITS}.
-   * @param digitBits - Bits consumed per pass, from 1 to
-   * {@link MAX_DIGIT_BITS}, and no more than `keyBits`. Fewer bits means more
-   * passes over the data but a smaller histogram.
+   * @param keyBits - Quantised key precision, 1 to {@link MAX_KEY_BITS}.
+   * @param digitBits - Bits per pass, 1 to {@link MAX_DIGIT_BITS}, at most
+   * `keyBits`. Fewer: more passes, smaller histogram.
    *
-   * @throws {Error} If either argument is not an integer within its range, or
-   * if `digitBits` exceeds `keyBits`.
+   * @throws {Error} If either is not an integer in range, or `digitBits` exceeds `keyBits`.
    */
   constructor(keyBits = 20, digitBits = 10) {
     assertBitCount('keyBits', keyBits, MAX_KEY_BITS);
@@ -69,20 +61,20 @@ export class RadixSorter {
   }
 
   /**
-   * Order the first `n` keys without moving them.
+   * Orders the first `n` keys without moving them.
    *
    * @returns Indices `0` to `n - 1` by ascending key. Reused buffer: `length`
-   * is the capacity, not `n`, and the next call overwrites it.
+   * is capacity, not `n`; the next call overwrites it.
    *
-   * @throws {RangeError} If `n > 1` and a key is ±Infinity, or every key is NaN. A NaN
-   * among finite keys is tolerated, quantising to `0`.
+   * @throws {RangeError} If `n > 1` and a key is ±Infinity or every key is NaN.
+   * A NaN among finite keys quantises to `0`.
    */
   sort(keys: ArrayLike<number>, n = keys.length): Int32Array {
     if (n <= 0) return EMPTY;
     this._ensureCapacity(n);
     if (n === 1) return this._identity(1);
 
-    // Quantising needs the key range up front, hence one extra read of `keys`.
+    // Key range first: one extra read of `keys`.
     let lo = Infinity;
     let hi = -Infinity;
     for (let i = 0; i < n; i++) {
@@ -118,8 +110,7 @@ export class RadixSorter {
       }
     }
 
-    // Exclusive prefix sum per pass: each slot becomes the first output
-    // position for its digit, and is bumped as that digit is emitted.
+    // Exclusive prefix sum per pass: each slot becomes its digit's next output position.
     for (let base = 0; base < histogramEnd; base += radix) {
       let slot = 0;
       for (let digit = base, end = base + radix; digit < end; digit++) {
@@ -132,15 +123,13 @@ export class RadixSorter {
     let src = this._indicesSrc;
     let dst = this._indicesDst;
 
-    // Pass 0 permutes the implicit identity order, reading `quantised`
-    // sequentially, so `src` needs no initialisation.
+    // Pass 0 reads the implicit identity order: `src` needs no initialisation.
     for (let i = 0; i < n; i++) {
       dst[histograms[quantised[i] & mask]++] = i;
     }
     [src, dst] = [dst, src];
 
-    // Remaining passes reorder the previous pass's output. Each is stable, so
-    // ordering by the least significant digit first leaves `src` fully sorted.
+    // Stable passes, least significant digit first: `src` ends fully sorted.
     for (let base = radix, shift = digitBits; base < histogramEnd; base += radix, shift += digitBits) {
       for (let i = 0; i < n; i++) {
         const index = src[i];
@@ -154,7 +143,7 @@ export class RadixSorter {
     return src;
   }
 
-  /** Identity permutation: the answer when the keys carry no order. */
+  /** Identity permutation of the first `n`. */
   private _identity(n: number): Int32Array {
     const src = this._indicesSrc;
     for (let i = 0; i < n; i++) {
@@ -163,10 +152,7 @@ export class RadixSorter {
     return src;
   }
 
-  /**
-   * Grow the working buffers to at least `n`, geometrically. Contents are not
-   * preserved: `sort` rewrites every entry it reads.
-   */
+  /** Grows working buffers to at least `n`, geometrically. Contents are not preserved. */
   private _ensureCapacity(n: number): void {
     if (this._quantised.length >= n) return;
     const capacity = Math.max(n, this._quantised.length * 2);
@@ -175,8 +161,6 @@ export class RadixSorter {
     this._indicesDst = new Int32Array(capacity);
   }
 }
-
-// Utils
 
 /** @throws {Error} If `value` is not an integer between 1 and `max`. */
 function assertBitCount(name: string, value: number, max: number): void {

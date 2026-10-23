@@ -8,7 +8,7 @@ const FONT_STYLES = ['normal', 'italic'] as const;
 const FONT_SIZES = [16, 18, 22, 28, 36, 48];
 const FILL_COLORS = ['#14181c', '#1d2b36', '#2c2118', '#331c24', '#17301f'];
 
-/** Label font size, in CSS px, that Troika, UIKit and CSS3D draw at their base size. */
+/** Label font size, in CSS px, that maps to one world unit in Troika and CSS3D and to UIKit's base size. */
 export const BASE_FONT_SIZE_PX = 24;
 
 function pick<T>(values: readonly T[], random: () => number): T {
