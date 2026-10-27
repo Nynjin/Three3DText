@@ -69,7 +69,7 @@ renderer.setAnimationLoop(() => {
   a label uses finishes loading.
 * Canvas resizes need no call.
 * Drawing on demand: draw while `manager.isSettled` is `false`; once `true`, stop
-  until a label or the camera changes.
+  until a label, a `config` option or the camera changes.
 * `manager.dispose()`: frees GPU resources; the manager is unusable afterwards. Its
   labels can join another manager. The mesh stays in its parent.
 

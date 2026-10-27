@@ -48,6 +48,8 @@ export class InstancedLabelManager {
   private _updateQueued = false;
   /** The last `cull` left nothing to do. See {@link isSettled}. */
   private _settled = false;
+  /** Label work committed, or textures reset, since the last `cull`. */
+  private _needsFrame = false;
   /** The only pending label work is deferred labels, waiting for room in the data textures. */
   private _waitingForRoom = false;
 
@@ -136,11 +138,11 @@ export class InstancedLabelManager {
 
   /**
    * The last {@link cull} left no pending change, placement pass or fade: drawing
-   * can stop until a label or the camera changes. Labels waiting for data-texture
-   * room do not count.
+   * can stop until a label, an option or the camera changes. Labels waiting for
+   * data-texture room do not count.
    */
   get isSettled(): boolean {
-    return this._settled && !this._hasPendingWork();
+    return this._settled && !this._needsFrame && !this._hasPendingWork();
   }
 
   /**
@@ -155,6 +157,7 @@ export class InstancedLabelManager {
     const now = performance.now();
     const frameDelta = this._settled ? 0 : Math.min(now - this._lastFrameTime, MAX_FADE_STEP_MS);
     this._lastFrameTime = now;
+    this._needsFrame = false;
 
     this.mesh.material.depthTest = this.config.depthTest;
 
@@ -242,10 +245,12 @@ export class InstancedLabelManager {
   /** A restored context has empty textures: re-upload the data textures whole. */
   private readonly _onContextRestored = () => {
     this._meshManager.requestFullUpload();
+    this._needsFrame = true;
   };
 
   /** Rasterizes pending glyphs, then lays out and writes pending label work. */
   private _sync() {
+    this._needsFrame = true;
     const { atlas } = this._atlasManager;
     const { resize } = this._atlasManager.syncAtlas();
     const { placement, add, relayout, update, dispose } = this._atlasManager.flushDirty();
