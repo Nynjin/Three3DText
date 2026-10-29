@@ -15,7 +15,8 @@ const MAX_FADE_STEP_MS = 100;
  *
  * Add {@link mesh} to the scene, add labels, call {@link cull} each frame
  * before rendering. {@link update} commits label changes; automatic while
- * `config.autoUpdate` is on. {@link dispose} does not remove the mesh from its parent.
+ * `config.autoUpdate` is on. An app that draws on demand can stop drawing once
+ * {@link isSettled}. {@link dispose} does not remove the mesh from its parent.
  */
 export class InstancedLabelManager {
   /** Settings, read live unless their docs say otherwise. */
@@ -45,6 +46,12 @@ export class InstancedLabelManager {
   /** Drawn set or order changed since the draw list was written. */
   private _drawListStale = false;
   private _updateQueued = false;
+  /** The last `cull` left nothing to do. See {@link isSettled}. */
+  private _settled = false;
+  /** Label work committed, or textures reset, since the last `cull`. */
+  private _needsFrame = false;
+  /** The only pending label work is deferred labels, waiting for room in the data textures. */
+  private _waitingForRoom = false;
 
   /**
    * @param renderer - Its canvas size, in CSS px, sets label size and placement.
@@ -71,6 +78,7 @@ export class InstancedLabelManager {
     this.mesh.material.depthTest = config.depthTest;
 
     this._atlasManager.onChange(() => {
+      this._waitingForRoom = false;
       if (!this.config.autoUpdate || this._updateQueued) return;
       this._updateQueued = true;
       queueMicrotask(() => {
@@ -129,16 +137,27 @@ export class InstancedLabelManager {
   }
 
   /**
+   * The last {@link cull} left no pending change, placement pass or fade: drawing
+   * can stop until a label, an option or the camera changes. Labels waiting for
+   * data-texture room do not count.
+   */
+  get isSettled(): boolean {
+    return this._settled && !this._needsFrame && !this._hasPendingWork();
+  }
+
+  /**
    * Runs placement, steps fades, rewrites the draw list if needed. Call once per
-   * rendered frame, before drawing. A fade advances at most 100 ms per call.
+   * rendered frame, before drawing. A fade advances at most 100 ms per call, and
+   * none on the first call after settling.
    *
    * @param camera - `projectionMatrix`, `matrixWorld` and `matrixWorldInverse`
    * must be current.
    */
   cull(camera: Camera) {
     const now = performance.now();
-    const frameDelta = Math.min(now - this._lastFrameTime, MAX_FADE_STEP_MS);
+    const frameDelta = this._settled ? 0 : Math.min(now - this._lastFrameTime, MAX_FADE_STEP_MS);
     this._lastFrameTime = now;
+    this._needsFrame = false;
 
     this.mesh.material.depthTest = this.config.depthTest;
 
@@ -168,6 +187,7 @@ export class InstancedLabelManager {
     const duration = this.config.fadeDurationMs;
     const fadeDelta = duration > 0 ? frameDelta / duration : Infinity;
     let stale = this._drawListStale;
+    let fading = false;
 
     for (const label of this._live) {
       // Placement drops a hidden label on its next pass.
@@ -177,11 +197,21 @@ export class InstancedLabelManager {
         label.occlusionFade = label.occlusionFade < target
           ? Math.min(target, label.occlusionFade + fadeDelta)
           : Math.max(target, label.occlusionFade - fadeDelta);
+        if (label.occlusionFade !== target) fading = true;
       }
       if (label.occlusionFade === 1 && target === 1) this._live.delete(label);
     }
 
     if (stale) this._writeDrawList();
+
+    // Cheapest first: `needsPass` projects the placed labels.
+    this._settled = !fading && !this.collision.isPassActive && !this._hasPendingWork()
+      && !this.collision.needsPass(camera);
+  }
+
+  /** Label changes are waiting for {@link update}, other than deferred labels. */
+  private _hasPendingWork(): boolean {
+    return this._atlasManager.hasDirty && !this._waitingForRoom;
   }
 
   /** Adds `label` to the live set and marks the draw list stale. */
@@ -215,10 +245,12 @@ export class InstancedLabelManager {
   /** A restored context has empty textures: re-upload the data textures whole. */
   private readonly _onContextRestored = () => {
     this._meshManager.requestFullUpload();
+    this._needsFrame = true;
   };
 
   /** Rasterizes pending glyphs, then lays out and writes pending label work. */
   private _sync() {
+    this._needsFrame = true;
     const { atlas } = this._atlasManager;
     const { resize } = this._atlasManager.syncAtlas();
     const { placement, add, relayout, update, dispose } = this._atlasManager.flushDirty();
@@ -260,6 +292,8 @@ export class InstancedLabelManager {
       }
       this._atlasManager.requeue(deferred);
     }
+    // `requeue` marks them dirty again without notifying.
+    this._waitingForRoom = deferred.length > 0;
     this._writeDrawList();
   }
 }
