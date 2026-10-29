@@ -62,6 +62,14 @@ export enum SymbolPlacement {
   'Line-Center' = 2,
 }
 
+/** MapLibre anchor names: the part of a box placed on the anchor point. */
+export type SymbolAnchor
+  = | 'center' | 'left' | 'right' | 'top' | 'bottom'
+    | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+
+/** MapLibre `icon-text-fit`: the axes on which the icon is stretched around the text. */
+export type IconTextFit = 'none' | 'width' | 'height' | 'both';
+
 /** Change notification bits: what changed since the last one. */
 export const LabelChangeType = {
   None: 0,
@@ -171,6 +179,36 @@ export interface LabelOptions {
   visible?: boolean;
 
   textTransform?: TextTransform;
+
+  /** Id of an image added to the manager (`addImage`, `addSprite`). Empty: no icon. */
+  iconImage?: string;
+  /** Factor on the image's size in CSS px (image px / `pixelRatio`). */
+  iconSize?: number;
+  /** Point of the icon placed on the anchor. Ignored on axes `iconTextFit` fits. */
+  iconAnchor?: SymbolAnchor;
+  /** Shift from the anchor, in image px times `iconSize`; +x right, +y down. */
+  iconOffset?: [number, number] | Vector2;
+  iconTextFit?: IconTextFit;
+  /** Space added around the text on fitted axes, in CSS px. One number or `[top, right, bottom, left]`. */
+  iconTextFitPadding?: TextPadding | number | [number, number, number, number];
+  /** Space reserved around the icon from other labels, in CSS px. One number or `[top, right, bottom, left]`. */
+  iconPadding?: TextPadding | number | [number, number, number, number];
+  /** From 0 to 1. Independent of `opacity`. */
+  iconOpacity?: number;
+  /** SDF images only. */
+  iconColor?: string | number | Color | Vector3;
+  /** SDF images only. */
+  iconHaloColor?: string | number | Color | Vector3;
+  /** SDF images only. Halo extent past the edge, in CSS px; reaches no further than the image's field. */
+  iconHaloWidth?: number;
+  /** SDF images only. Fade-out distance past {@link iconHaloWidth}, in CSS px. */
+  iconHaloBlur?: number;
+  /** Place the icon even over other labels; still reserves its region. */
+  iconAllowOverlap?: boolean;
+  /** The text may be drawn without the icon when only the icon collides. */
+  iconOptional?: boolean;
+  /** The icon may be drawn without the text when only the text collides. */
+  textOptional?: boolean;
 }
 
 let nextLabelId = 0;
@@ -220,18 +258,49 @@ export class Label {
 
   private _visible: boolean = true;
 
+  private _iconImage = '';
+  private _iconSize = 1;
+  private _iconAnchor: SymbolAnchor = 'center';
+  private _iconOffset: [number, number] = [0, 0];
+  private _iconTextFit: IconTextFit = 'none';
+  private _iconTextFitPadding: TextPadding = { top: 0, right: 0, bottom: 0, left: 0 };
+  private _iconPadding: TextPadding = { top: 2, right: 2, bottom: 2, left: 2 };
+  private _iconOpacity = 1;
+  private _iconColor!: Color;
+  private _iconHaloColor!: Color;
+  private _iconHaloWidth = 0;
+  private _iconHaloBlur = 0;
+  private _iconAllowOverlap = false;
+  private _iconOptional = false;
+  private _textOptional = false;
+
   /**
-   * Fade-out: 0 fully drawn, 1 invisible. Stepped each cull towards 0 while
-   * {@link shouldRender} and {@link visible} hold, else towards 1.
+   * Text fade-out: 0 fully drawn, 1 invisible. Stepped each cull towards 0 while
+   * {@link placedText} and {@link visible} hold, else towards 1.
    */
   occlusionFade: number = 1;
 
+  /** Icon fade-out, as {@link occlusionFade}, following {@link placedIcon}. */
+  iconFade: number = 1;
+
   /**
-   * Whether the label holds a placement slot. Written by placement; set false
-   * when the label leaves the mesh (removal, dispose, not fitting). A hand-set
-   * value is overwritten.
+   * Whether the label holds a placement slot: its text, its icon or both.
+   * Written by placement; set false when the label leaves the mesh (removal,
+   * dispose, not fitting). A hand-set value is overwritten.
    */
   shouldRender: boolean = false;
+
+  /** Whether the last pass placed the text. Written by placement. */
+  placedText: boolean = false;
+
+  /** Whether the last pass placed the icon. Written by placement. */
+  placedIcon: boolean = false;
+
+  /** Icon draw box, label-local CSS px, y up. Written by layout; zero without an icon. */
+  iconQuad: LabelQuad = { cx: 0, cy: 0, width: 0, height: 0 };
+
+  /** Icon collision box: {@link iconQuad} grown by `iconPadding`. Written by layout. */
+  iconBounds: LabelBounds = { minX: 0, minY: 0, width: 0, height: 0 };
 
   /** Collision box, written by layout. Zero until laid out. */
   bounds: LabelBounds = { minX: 0, minY: 0, width: 0, height: 0 };
@@ -258,6 +327,8 @@ export class Label {
     this._offset = orNew(this._offset, Vector2);
     this._color = orNew(this._color, Color);
     this._haloColor = orNew(this._haloColor, Color);
+    this._iconColor = orNew(this._iconColor, Color);
+    this._iconHaloColor = orNew(this._iconHaloColor, Color);
   }
 
   /** Unique within this module instance. */
@@ -289,7 +360,7 @@ export class Label {
       case TextTransform.Lowercase:
         return this._text.toLowerCase();
       case TextTransform.Capitalize:
-        return this._text.replace(/(?<![\p{L}\p{M}\p{N}'’])\p{L}/gu, c => c.toUpperCase());
+        return this._text.replace(/(?<![\p{L}\p{M}\p{N}'â€™])\p{L}/gu, c => c.toUpperCase());
       default:
         return this._text;
     }
@@ -506,14 +577,64 @@ export class Label {
     this._emit(this._apply({ allowOverlap: value }));
   }
 
-  /** The flag and a non-zero {@link opacity}. */
+  /** The flag, and a non-zero {@link opacity} or a non-zero {@link iconOpacity} with an icon. */
   get visible() {
-    return this._visible && this._opacity > 0;
+    return this._visible && (this._opacity > 0 || (this._iconImage !== '' && this._iconOpacity > 0));
   }
 
   set visible(value: boolean) {
     this._emit(this._apply({ visible: value }));
   }
+
+  get iconImage() { return this._iconImage; }
+  set iconImage(value: string) { this._emit(this._apply({ iconImage: value })); }
+
+  get iconSize() { return this._iconSize; }
+  set iconSize(value: number) { this._emit(this._apply({ iconSize: value })); }
+
+  get iconAnchor() { return this._iconAnchor; }
+  set iconAnchor(value: SymbolAnchor) { this._emit(this._apply({ iconAnchor: value })); }
+
+  /** In image px times `iconSize`, +y down. A copy. */
+  get iconOffset(): [number, number] { return [this._iconOffset[0], this._iconOffset[1]]; }
+  set iconOffset(value: [number, number] | Vector2) { this._emit(this._apply({ iconOffset: value })); }
+
+  get iconTextFit() { return this._iconTextFit; }
+  set iconTextFit(value: IconTextFit) { this._emit(this._apply({ iconTextFit: value })); }
+
+  get iconTextFitPadding(): TextPadding { return this._iconTextFitPadding; }
+  set iconTextFitPadding(value: TextPadding | number | [number, number, number, number]) {
+    this._emit(this._apply({ iconTextFitPadding: value }));
+  }
+
+  get iconPadding(): TextPadding { return this._iconPadding; }
+  set iconPadding(value: TextPadding | number | [number, number, number, number]) {
+    this._emit(this._apply({ iconPadding: value }));
+  }
+
+  get iconOpacity() { return this._iconOpacity; }
+  set iconOpacity(value: number) { this._emit(this._apply({ iconOpacity: value })); }
+
+  get iconColor(): Color { return this._iconColor; }
+  set iconColor(value: string | number | Color | Vector3) { this._emit(this._apply({ iconColor: value })); }
+
+  get iconHaloColor(): Color { return this._iconHaloColor; }
+  set iconHaloColor(value: string | number | Color | Vector3) { this._emit(this._apply({ iconHaloColor: value })); }
+
+  get iconHaloWidth() { return this._iconHaloWidth; }
+  set iconHaloWidth(value: number) { this._emit(this._apply({ iconHaloWidth: value })); }
+
+  get iconHaloBlur() { return this._iconHaloBlur; }
+  set iconHaloBlur(value: number) { this._emit(this._apply({ iconHaloBlur: value })); }
+
+  get iconAllowOverlap() { return this._iconAllowOverlap; }
+  set iconAllowOverlap(value: boolean) { this._emit(this._apply({ iconAllowOverlap: value })); }
+
+  get iconOptional() { return this._iconOptional; }
+  set iconOptional(value: boolean) { this._emit(this._apply({ iconOptional: value })); }
+
+  get textOptional() { return this._textOptional; }
+  set textOptional(value: boolean) { this._emit(this._apply({ textOptional: value })); }
 
   /**
    * Applies several properties with one notification. Omitted ones are left alone.
@@ -677,6 +798,97 @@ export class Label {
       changes |= LabelChangeType.Visibility;
     }
 
+    changes |= this._applyIcon(options);
+
+    return changes;
+  }
+
+  /** Icon part of {@link _apply}. Box-shaping options relayout; flags affect placement only. */
+  private _applyIcon(options: Partial<LabelOptions>): LabelChangeMask {
+    let changes: LabelChangeMask = LabelChangeType.None;
+    const layout = (changed: boolean) => {
+      if (changed) changes |= LabelChangeType.Layout;
+    };
+
+    if (options.iconImage !== undefined && options.iconImage !== this._iconImage) {
+      this._iconImage = options.iconImage;
+      changes |= LabelChangeType.Layout | LabelChangeType.Visibility;
+    }
+    if (options.iconSize !== undefined && options.iconSize !== this._iconSize) {
+      this._iconSize = options.iconSize;
+      layout(true);
+    }
+    if (options.iconAnchor !== undefined && options.iconAnchor !== this._iconAnchor) {
+      this._iconAnchor = options.iconAnchor;
+      layout(true);
+    }
+    if (options.iconOffset !== undefined) {
+      const o = options.iconOffset;
+      const next: [number, number] = o instanceof Vector2 ? [o.x, o.y] : [o[0], o[1]];
+      if (next[0] !== this._iconOffset[0] || next[1] !== this._iconOffset[1]) {
+        this._iconOffset = next;
+        layout(true);
+      }
+    }
+    if (options.iconTextFit !== undefined && options.iconTextFit !== this._iconTextFit) {
+      this._iconTextFit = options.iconTextFit;
+      layout(true);
+    }
+    if (options.iconTextFitPadding !== undefined) {
+      const next = parsePadding(options.iconTextFitPadding);
+      if (!samePadding(next, this._iconTextFitPadding)) {
+        this._iconTextFitPadding = next;
+        layout(true);
+      }
+    }
+    if (options.iconPadding !== undefined) {
+      const next = parsePadding(options.iconPadding);
+      if (!samePadding(next, this._iconPadding)) {
+        this._iconPadding = next;
+        layout(true);
+      }
+    }
+
+    if (options.iconOpacity !== undefined && options.iconOpacity !== this._iconOpacity) {
+      if ((options.iconOpacity > 0) !== (this._iconOpacity > 0)) changes |= PLACEMENT_CHANGE;
+      this._iconOpacity = options.iconOpacity;
+      changes |= LabelChangeType.Style;
+    }
+    if (options.iconColor !== undefined) {
+      const next = toColor(options.iconColor);
+      if (differs(next, this._iconColor)) {
+        this._iconColor = next;
+        changes |= LabelChangeType.Style;
+      }
+    }
+    if (options.iconHaloColor !== undefined) {
+      const next = toColor(options.iconHaloColor);
+      if (differs(next, this._iconHaloColor)) {
+        this._iconHaloColor = next;
+        changes |= LabelChangeType.Style;
+      }
+    }
+    if (options.iconHaloWidth !== undefined && options.iconHaloWidth !== this._iconHaloWidth) {
+      this._iconHaloWidth = options.iconHaloWidth;
+      changes |= LabelChangeType.Style;
+    }
+    if (options.iconHaloBlur !== undefined && options.iconHaloBlur !== this._iconHaloBlur) {
+      this._iconHaloBlur = options.iconHaloBlur;
+      changes |= LabelChangeType.Style;
+    }
+
+    if (options.iconAllowOverlap !== undefined && options.iconAllowOverlap !== this._iconAllowOverlap) {
+      this._iconAllowOverlap = options.iconAllowOverlap;
+      changes |= PLACEMENT_CHANGE;
+    }
+    if (options.iconOptional !== undefined && options.iconOptional !== this._iconOptional) {
+      this._iconOptional = options.iconOptional;
+      changes |= PLACEMENT_CHANGE;
+    }
+    if (options.textOptional !== undefined && options.textOptional !== this._textOptional) {
+      this._textOptional = options.textOptional;
+      changes |= PLACEMENT_CHANGE;
+    }
     return changes;
   }
 
@@ -709,6 +921,21 @@ export class Label {
       allowOverlap: this._allowOverlap,
       visible: this._visible,
       textTransform: this._textTransform,
+      iconImage: this._iconImage,
+      iconSize: this._iconSize,
+      iconAnchor: this._iconAnchor,
+      iconOffset: [this._iconOffset[0], this._iconOffset[1]],
+      iconTextFit: this._iconTextFit,
+      iconTextFitPadding: this._iconTextFitPadding,
+      iconPadding: this._iconPadding,
+      iconOpacity: this._iconOpacity,
+      iconColor: this._iconColor,
+      iconHaloColor: this._iconHaloColor,
+      iconHaloWidth: this._iconHaloWidth,
+      iconHaloBlur: this._iconHaloBlur,
+      iconAllowOverlap: this._iconAllowOverlap,
+      iconOptional: this._iconOptional,
+      textOptional: this._textOptional,
     });
   }
 
@@ -765,6 +992,10 @@ function parsePadding(value: TextPadding | number | [number, number, number, num
   if (Array.isArray(value)) return { top: value[0], right: value[1], bottom: value[2], left: value[3] };
   if (typeof value === 'number') return { top: value, right: value, bottom: value, left: value };
   return { ...value };
+}
+
+function samePadding(a: TextPadding, b: TextPadding): boolean {
+  return a.top === b.top && a.right === b.right && a.bottom === b.bottom && a.left === b.left;
 }
 
 /** `current`, or a new `Type`. */

@@ -24,3 +24,16 @@ export const GLYPH_TEXELS = 3;
 
 /** Float within a glyph item holding the link to the label's next glyph. */
 export const GLYPH_NEXT_FLOAT = 0;
+
+/**
+ * Layout of the icon data texture, one item per label with an icon.
+ *
+ * T0: draw box centre (x, y) and size (w, h), label-local, in CSS px, y up
+ * T1: image origin (px, py) and size (w, h), in atlas texels (= image px)
+ * T2: colour (r, g, b), icon opacity
+ * T3: halo colour (r, g, b), halo opacity times icon opacity, 0 without a halo
+ * T4: haloWidth, haloBlur in CSS px; SDF flag (0 or 1); CSS px per image px
+ * T5: stretchable columns, two ranges (from0, to0, from1, to1), image px
+ * T6: stretchable rows, same
+ */
+export const ICON_TEXELS = 7;
